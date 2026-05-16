@@ -1,11 +1,18 @@
 package com.akshay.musicplayer.media.player
 
+import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.media.service.MusicPlayerService
 import com.akshay.musicplayer.ui.state.PlaybackState
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,10 +24,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class ExoPlayerController(context: Context) : MediaPlayerController {
+class ExoPlayerController(private val context: Context) : MediaPlayerController {
 
-    private val player = ExoPlayer.Builder(context).build()
-    private val dataSourceFactory = DefaultDataSource.Factory(context)
+    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     private val _mediaEvents = MutableSharedFlow<PlayerEvent>()
@@ -28,11 +35,11 @@ class ExoPlayerController(context: Context) : MediaPlayerController {
     private var positionUpdateJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
-    private val listener = object : androidx.media3.common.Player.Listener {
+    private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             updatePlaybackState()
-            handlePositionUpdates(player.isPlaying)
-            if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
+            handlePositionUpdates(mediaController?.isPlaying == true)
+            if (playbackState == Player.STATE_ENDED) {
                 scope.launch {
                     _mediaEvents.emit(PlayerEvent.TrackEnded)
                 }
@@ -45,6 +52,7 @@ class ExoPlayerController(context: Context) : MediaPlayerController {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            currentTrackId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
             updatePlaybackState()
         }
 
@@ -57,7 +65,13 @@ class ExoPlayerController(context: Context) : MediaPlayerController {
     }
 
     init {
-        player.addListener(listener)
+        val sessionToken = SessionToken(context, ComponentName(context, MusicPlayerService::class.java))
+        mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        mediaControllerFuture?.addListener({
+            mediaController = mediaControllerFuture?.get()
+            mediaController?.addListener(listener)
+            updatePlaybackState()
+        }, ContextCompat.getMainExecutor(context))
     }
 
     private fun handlePositionUpdates(isPlaying: Boolean) {
@@ -73,44 +87,62 @@ class ExoPlayerController(context: Context) : MediaPlayerController {
     }
 
     private fun updatePlaybackState() {
-        _playbackState.value = PlaybackState(
-            isPlaying = player.isPlaying,
-            currentTrackId = currentTrackId,
-            currentPositionMs = player.currentPosition,
-            durationMs = player.duration.coerceAtLeast(0L)
-        )
+        val controller = mediaController
+        if (controller != null) {
+            _playbackState.value = PlaybackState(
+                isPlaying = controller.isPlaying,
+                currentTrackId = currentTrackId,
+                currentPositionMs = controller.currentPosition,
+                durationMs = controller.duration.coerceAtLeast(0L)
+            )
+        }
     }
 
-    override fun playTrack(trackId: Long, filePath: String) {
-        currentTrackId = trackId
-        val mediaItem = MediaItem.fromUri(filePath)
-        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(mediaItem)
+    override fun playTrack(track: TrackEntity) {
+        currentTrackId = track.id
         
-        player.setMediaSource(mediaSource)
-        player.prepare()
-        player.play()
-        updatePlaybackState()
+        // Metadata is crucial for the system "Now Playing" notification
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setAlbumTitle(track.album)
+            .setArtworkUri(Uri.parse("android.resource://${context.packageName}/drawable/ic_logo"))
+            .build()
+
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(track.id.toString())
+            .setUri(track.filePath)
+            .setMediaMetadata(metadata)
+            .build()
+
+        mediaController?.let { controller ->
+            controller.setMediaItem(mediaItem)
+            controller.prepare()
+            controller.play()
+            updatePlaybackState()
+        }
     }
 
     override fun togglePlayPause() {
-        if (player.isPlaying) {
-            player.pause()
-        } else {
-            player.play()
+        mediaController?.let { controller ->
+            if (controller.isPlaying) {
+                controller.pause()
+            } else {
+                controller.play()
+            }
+            updatePlaybackState()
         }
-        updatePlaybackState()
     }
 
     override fun seekTo(positionMs: Long) {
-        player.seekTo(positionMs)
+        mediaController?.seekTo(positionMs)
         updatePlaybackState()
     }
 
     override fun release() {
         positionUpdateJob?.cancel()
-        player.removeListener(listener)
-        player.release()
+        mediaController?.removeListener(listener)
+        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
     }
 
     override fun playbackState(): Flow<PlaybackState> = _playbackState.asStateFlow()

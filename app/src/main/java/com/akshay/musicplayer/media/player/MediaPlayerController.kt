@@ -8,7 +8,7 @@ sealed class PlayerEvent {
 }
 
 interface MediaPlayerController {
-    fun playTrack(trackId: Long, filePath: String)
+    fun playTrack(track: com.akshay.musicplayer.domain.models.TrackEntity)
     fun togglePlayPause()
     fun seekTo(positionMs: Long)
     fun release()

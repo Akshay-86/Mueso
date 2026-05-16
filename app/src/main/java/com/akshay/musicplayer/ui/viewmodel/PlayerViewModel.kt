@@ -92,7 +92,7 @@ class PlayerViewModel(
 
     fun playTrack(track: TrackEntity) {
         viewModelScope.launch {
-            mediaPlayerController.playTrack(track.id, track.filePath)
+            mediaPlayerController.playTrack(track)
         }
     }
 

@@ -1,7 +1,8 @@
 package com.akshay.musicplayer.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
@@ -9,21 +10,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.akshay.musicplayer.R
 import kotlinx.coroutines.delay
 
 @Composable
 fun SplashScreen(onAnimationFinished: () -> Unit) {
     var startAnimation by remember { mutableStateOf(false) }
+    var textVisible by remember { mutableStateOf(false) }
 
     val scale by animateFloatAsState(
-        targetValue = if (startAnimation) 1.1f else 0.8f,
+        targetValue = if (startAnimation) 1f else 0.3f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -31,22 +32,21 @@ fun SplashScreen(onAnimationFinished: () -> Unit) {
         label = "Scale"
     )
 
-    val offsetX by animateDpAsState(
-        targetValue = if (startAnimation) (-40).dp else 0.dp,
-        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-        label = "Slide"
-    )
-
-    val textAlpha by animateFloatAsState(
-        targetValue = if (startAnimation) 1f else 0f,
-        animationSpec = tween(durationMillis = 800, delayMillis = 400),
-        label = "Alpha"
+    val rotation by animateFloatAsState(
+        targetValue = if (startAnimation) 0f else -180f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "Rotation"
     )
 
     LaunchedEffect(Unit) {
-        delay(500)
-        startAnimation = true
-        delay(2500)
+        delay(200) // Brief pause at start
+        startAnimation = true // Logo scales up and rotates into view
+        delay(600) // Wait for logo to settle
+        textVisible = true // Logo smoothly slides left as text reveals
+        delay(2000) // Read time
         onAnimationFinished()
     }
 
@@ -58,52 +58,42 @@ fun SplashScreen(onAnimationFinished: () -> Unit) {
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.offset(x = offsetX)
+            horizontalArrangement = Arrangement.Center
         ) {
-            Canvas(
+            Image(
+                painter = painterResource(id = R.drawable.ic_logo),
+                contentDescription = "Mueso Logo",
                 modifier = Modifier
                     .size(100.dp)
-                    .graphicsLayer(scaleX = scale, scaleY = scale)
-            ) {
-                val w = size.width
-                val h = size.height
-                
-                val gradient = Brush.linearGradient(
-                    colors = listOf(Color(0xFF7B1FA2), Color(0xFFFF0050), Color(0xFFFF9800))
-                )
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        rotationZ = rotation
+                    )
+            )
 
-                // Headphone Band (Minimalist)
-                val bandPath = Path().apply {
-                    moveTo(w * 0.28f, h * 0.60f)
-                    cubicTo(w * 0.28f, h * 0.25f, w * 0.80f, h * 0.25f, w * 0.80f, h * 0.60f)
-                }
-                drawPath(bandPath, brush = gradient, style = Stroke(width = 12f, cap = StrokeCap.Round))
-
-                // Earcups
-                drawOval(
-                    color = Color(0xFF1A1A1A),
-                    topLeft = Offset(w * 0.18f, h * 0.58f),
-                    size = Size(w * 0.12f, h * 0.24f)
-                )
-                drawOval(
-                    color = Color(0xFF1A1A1A),
-                    topLeft = Offset(w * 0.82f, h * 0.58f),
-                    size = Size(w * 0.12f, h * 0.24f)
-                )
-            }
-
-            if (startAnimation) {
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "Music",
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-3).sp,
-                        fontSize = 64.sp
+            AnimatedVisibility(
+                visible = textVisible,
+                enter = fadeIn(tween(800)) + expandHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessLow
                     ),
-                    color = Color.White,
-                    modifier = Modifier.graphicsLayer(alpha = textAlpha)
+                    expandFrom = Alignment.Start
                 )
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(modifier = Modifier.width(24.dp))
+                    Text(
+                        text = "Mueso",
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-2).sp,
+                            fontSize = 64.sp
+                        ),
+                        color = Color.White
+                    )
+                }
             }
         }
     }
