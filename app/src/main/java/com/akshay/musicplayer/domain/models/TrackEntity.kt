@@ -7,7 +7,21 @@ data class TrackEntity(
     val album: String,
     val duration: Long,
     val albumId: Long,
-    val filePath: String
+    val filePath: String,
+    val lyrics: LyricsData? = null,
+    val socialMetrics: SocialMetrics? = null
+)
+
+data class LyricsData(
+    val currentLine: String,
+    val nextLine: String?
+)
+
+data class SocialMetrics(
+    val likeCount: String,
+    val commentCount: String,
+    val shareCount: String,
+    val isFollowed: Boolean = false
 )
 
 data class AlbumEntity(

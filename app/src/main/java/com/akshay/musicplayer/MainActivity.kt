@@ -9,8 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
@@ -19,13 +20,12 @@ import com.akshay.musicplayer.data.sources.LocalMediaStoreDataSource
 import com.akshay.musicplayer.domain.usecase.GetLocalTracksUseCase
 import com.akshay.musicplayer.media.player.ExoPlayerController
 import com.akshay.musicplayer.ui.screens.PlayerScreen
+import com.akshay.musicplayer.ui.screens.SplashScreen
 import com.akshay.musicplayer.ui.theme.MusicPlayerTheme
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
@@ -40,7 +40,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MusicPlayerTheme {
-                PermissionAwarePlayerScreen()
+                var showSplash by remember { mutableStateOf(true) }
+
+                if (showSplash) {
+                    SplashScreen(onAnimationFinished = { showSplash = false })
+                } else {
+                    PermissionAwarePlayerScreen()
+                }
             }
         }
     }
@@ -105,13 +111,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // Release media player resources
-        if (::playerViewModel.isInitialized) {
-            // Can add cleanup if needed
-        }
-    }
-
 }

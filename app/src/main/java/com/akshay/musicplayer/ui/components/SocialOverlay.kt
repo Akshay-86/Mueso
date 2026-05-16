@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -24,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.akshay.musicplayer.domain.models.SocialMetrics
 
 @Composable
 fun SocialOverlay(
+    metrics: SocialMetrics?,
     onLikeClick: (Boolean) -> Unit = {},
     onShareClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -42,9 +45,9 @@ fun SocialOverlay(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SocialIconOnly(
+            SocialIconWithLabel(
                 icon = if (isLiked.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                contentDescription = "Like",
+                label = metrics?.likeCount ?: "-",
                 color = if (isLiked.value) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 onClick = {
                     isLiked.value = !isLiked.value
@@ -52,15 +55,15 @@ fun SocialOverlay(
                 }
             )
 
-            SocialIconOnly(
+            SocialIconWithLabel(
                 icon = Icons.Default.ChatBubbleOutline,
-                contentDescription = "Comment",
+                label = metrics?.commentCount ?: "-",
                 onClick = { /* TODO */ }
             )
 
-            SocialIconOnly(
+            SocialIconWithLabel(
                 icon = Icons.Default.Share,
-                contentDescription = "Share",
+                label = metrics?.shareCount ?: "-",
                 onClick = onShareClick
             )
         }
@@ -91,18 +94,28 @@ fun SocialOverlay(
 }
 
 @Composable
-private fun SocialIconOnly(
+private fun SocialIconWithLabel(
     icon: ImageVector,
-    contentDescription: String,
+    label: String,
     color: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = color,
-            modifier = Modifier.size(28.dp)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
         )
+        IconButton(onClick = onClick) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(28.dp)
+            )
+        }
     }
 }

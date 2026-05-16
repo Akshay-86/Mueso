@@ -52,15 +52,21 @@ fun SongInfo(
             
             Spacer(modifier = Modifier.padding(horizontal = 6.dp))
             
+            val isFollowed = track.socialMetrics?.isFollowed ?: false
+            
             Box(
                 modifier = Modifier
-                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), RoundedCornerShape(50))
+                    .border(
+                        width = 1.dp, 
+                        color = if (isFollowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), 
+                        shape = RoundedCornerShape(50)
+                    )
                     .padding(horizontal = 12.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "Follow",
+                    text = if (isFollowed) "Following" else "Follow",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = if (isFollowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
             }
         }

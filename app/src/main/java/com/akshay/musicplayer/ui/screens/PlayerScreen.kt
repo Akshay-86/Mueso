@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.AlbumArtBackground
-import com.akshay.musicplayer.ui.components.LyricsPlaceholder
+import com.akshay.musicplayer.ui.components.LyricsView
 import com.akshay.musicplayer.ui.components.PlayerControls
 import com.akshay.musicplayer.ui.components.SocialOverlay
 import com.akshay.musicplayer.ui.components.SongInfo
@@ -144,17 +144,18 @@ fun PlayerPageContent(
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Pushed lyrics further down to leave more space at the top
+            // Space for future top header
             Spacer(modifier = Modifier.height(100.dp))
 
-            // Floating lyrics (top)
-            LyricsPlaceholder(
+            // Dynamic lyrics view
+            LyricsView(
+                lyrics = track.lyrics,
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Bottom section: Song info, social icons, and playback controls
+            // Bottom section: Song info, dynamic social metrics, and playback controls
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -165,6 +166,7 @@ fun PlayerPageContent(
                 )
                 
                 SocialOverlay(
+                    metrics = track.socialMetrics,
                     modifier = Modifier.fillMaxWidth()
                 )
 
