@@ -1,0 +1,40 @@
+# Gradle files
+.gradle/
+build/
+
+# Android Studio / IntelliJ IDEA files
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Local configuration files
+local.properties
+
+# Log files
+*.log
+
+# Android Captures
+captures/
+
+# External native build artifacts
+.externalNativeBuild/
+.cxx/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Kotlin
+.kotlin/
+
+# Optional: Ignore backup files
+*.bak
+*.swp
+*~
