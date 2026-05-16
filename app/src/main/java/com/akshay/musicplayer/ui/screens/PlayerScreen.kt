@@ -12,18 +12,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,20 +40,17 @@ import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
 @OptIn(ExperimentalFoundationApi::class)
-
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val playbackState by viewModel.playbackState.collectAsState()
 
     when (val state = uiState) {
         is PlayerUiState.Loading -> {
             Box(
-                modifier = modifier
-                    .fillMaxSize(),
+                modifier = modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
@@ -62,8 +59,7 @@ fun PlayerScreen(
 
         is PlayerUiState.Empty -> {
             Box(
-                modifier = modifier
-                    .fillMaxSize(),
+                modifier = modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text("No local tracks found")
@@ -72,8 +68,7 @@ fun PlayerScreen(
 
         is PlayerUiState.Error -> {
             Box(
-                modifier = modifier
-                    .fillMaxSize(),
+                modifier = modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Error: ${state.message}")
@@ -97,18 +92,24 @@ fun VerticalPagerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val playbackState by viewModel.playbackState.collectAsState()
     val pagerState = rememberPagerState(pageCount = { tracks.size })
+    val currentTrackIndex by remember { 
+        viewModel.getCurrentTrackIndexState() 
+    }.collectAsState()
 
-    LaunchedEffect(viewModel.getCurrentTrackIndex()) {
-        pagerState.animateScrollToPage(viewModel.getCurrentTrackIndex())
+    // Sync Pager with ViewModel (Auto-play next)
+    LaunchedEffect(currentTrackIndex) {
+        if (pagerState.currentPage != currentTrackIndex) {
+            pagerState.animateScrollToPage(currentTrackIndex)
+        }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        if (tracks.isNotEmpty()) {
-            val track = tracks[pagerState.currentPage]
-            if (playbackState.currentTrackId != track.id) {
-                viewModel.playTrack(track)
+    // Sync ViewModel with Pager (Manual swipe)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            if (tracks.isNotEmpty()) {
+                val track = tracks[page]
+                viewModel.playTrackIfChanged(track)
             }
         }
     }
@@ -121,11 +122,8 @@ fun VerticalPagerScreen(
             val track = tracks[page]
             PlayerPageContent(
                 track = track,
-                playbackState = playbackState,
-                onPlayPauseClick = { viewModel.togglePlayPause() },
-                onNextClick = { viewModel.playNextTrack() },
-                onPreviousClick = { viewModel.playPreviousTrack() },
-                onSeek = { viewModel.seekTo(it) }
+                viewModel = viewModel,
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
@@ -134,13 +132,10 @@ fun VerticalPagerScreen(
 @Composable
 fun PlayerPageContent(
     track: TrackEntity,
-    playbackState: com.akshay.musicplayer.ui.state.PlaybackState,
-    onPlayPauseClick: () -> Unit,
-    onNextClick: () -> Unit,
-    onPreviousClick: () -> Unit,
-    onSeek: (Long) -> Unit,
+    viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
+    val playbackState by viewModel.playbackState.collectAsState()
     val albumArtUri = "content://media/external/audio/albumart/${track.albumId}"
     
     Box(modifier = modifier.fillMaxSize()) {
@@ -209,10 +204,10 @@ fun PlayerPageContent(
 
                 PlayerControls(
                     playbackState = playbackState,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    onPreviousClick = onPreviousClick,
-                    onSeek = onSeek,
+                    onPlayPauseClick = { viewModel.togglePlayPause() },
+                    onNextClick = { viewModel.playNextTrack() },
+                    onPreviousClick = { viewModel.playPreviousTrack() },
+                    onSeek = { viewModel.seekTo(it) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }

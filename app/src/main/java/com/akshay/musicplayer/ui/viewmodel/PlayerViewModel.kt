@@ -9,8 +9,11 @@ import com.akshay.musicplayer.media.player.PlayerEvent
 import com.akshay.musicplayer.ui.state.PlaybackState
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class PlayerViewModel(
@@ -23,6 +26,11 @@ class PlayerViewModel(
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    fun getCurrentTrackIndexState(): StateFlow<Int> = _playbackState.map { state ->
+        val currentTrackId = state.currentTrackId ?: return@map 0
+        currentTracks.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private var currentTracks: List<TrackEntity> = emptyList()
 
@@ -85,6 +93,12 @@ class PlayerViewModel(
     fun playTrack(track: TrackEntity) {
         viewModelScope.launch {
             mediaPlayerController.playTrack(track.id, track.filePath)
+        }
+    }
+
+    fun playTrackIfChanged(track: TrackEntity) {
+        if (_playbackState.value.currentTrackId != track.id) {
+            playTrack(track)
         }
     }
 
