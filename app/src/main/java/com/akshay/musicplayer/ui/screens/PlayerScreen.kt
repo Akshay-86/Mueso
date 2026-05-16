@@ -1,22 +1,17 @@
 package com.akshay.musicplayer.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,10 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.AlbumArtBackground
 import com.akshay.musicplayer.ui.components.LyricsPlaceholder
@@ -139,7 +131,7 @@ fun PlayerPageContent(
     val albumArtUri = "content://media/external/audio/albumart/${track.albumId}"
     
     Box(modifier = modifier.fillMaxSize()) {
-        // Background with album art
+        // Full-screen immersive album art background
         AlbumArtBackground(
             albumArtUri = albumArtUri,
             modifier = Modifier.fillMaxSize()
@@ -152,55 +144,29 @@ fun PlayerPageContent(
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Lyrics placeholder (top)
+            // Pushed lyrics further down to leave more space at the top
+            Spacer(modifier = Modifier.height(100.dp))
+
+            // Floating lyrics (top)
             LyricsPlaceholder(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Central Album Art
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = albumArtUri,
-                    contentDescription = "Album Cover",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Bottom section: Song info and controls
+            // Bottom section: Song info, social icons, and playback controls
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    SongInfo(
-                        track = track,
-                        modifier = Modifier.weight(1f)
-                    )
-                    
-                    // Small social icons next to title
-                    SocialOverlay(
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
+                SongInfo(
+                    track = track,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                SocialOverlay(
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 PlayerControls(
                     playbackState = playbackState,
