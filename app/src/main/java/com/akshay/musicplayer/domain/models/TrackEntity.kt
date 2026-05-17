@@ -8,6 +8,7 @@ data class TrackEntity(
     val duration: Long,
     val albumId: Long,
     val filePath: String,
+    val artworkUrl: String? = null,
     val lyrics: LyricsData? = null,
     val socialMetrics: SocialMetrics? = null
 )

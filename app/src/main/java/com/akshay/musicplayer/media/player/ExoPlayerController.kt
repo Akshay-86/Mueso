@@ -130,7 +130,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setTitle(track.title)
                 .setArtist(track.artist)
                 .setAlbumTitle(track.album)
-                .setArtworkUri(Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
                 .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .build()
@@ -167,7 +167,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setAlbumTitle(track.album)
                 .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .setArtworkUri(Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
                 .build()
 
             MediaItem.Builder()

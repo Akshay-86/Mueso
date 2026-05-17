@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.akshay.musicplayer.data.remote.OnlineMusicRepository
+import com.akshay.musicplayer.data.remote.RetrofitClient
 
 class PlayerViewModel(
     private val getLocalTracksUseCase: GetLocalTracksUseCase,
@@ -32,8 +34,13 @@ class PlayerViewModel(
     private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModel() {
 
+    private val onlineRepository = OnlineMusicRepository(RetrofitClient.apiService)
+
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    private val _onlineUiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
+    val onlineUiState: StateFlow<PlayerUiState> = _onlineUiState.asStateFlow()
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -105,6 +112,7 @@ class PlayerViewModel(
 
     init {
         loadPlaylists()
+        loadOnlineTrendingTracks()
         observePlaybackState()
         observeMediaEvents()
     }
@@ -199,6 +207,25 @@ class PlayerViewModel(
                 }
             }.onFailure { exception ->
                 _uiState.value = PlayerUiState.Error(exception.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun loadOnlineTrendingTracks() {
+        viewModelScope.launch {
+            _onlineUiState.value = PlayerUiState.Loading
+            val tracks = onlineRepository.getTrendingTracks()
+            if (tracks.isNotEmpty()) {
+                _onlineUiState.value = PlayerUiState.Success(tracks)
+                // If no track is currently prepared (fresh start, no history), auto-queue the trending list
+                val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+                if (lastTrackId == -1L && currentTracks.isEmpty()) {
+                    currentTracks = tracks
+                    _uiState.value = PlayerUiState.Success(tracks)
+                    mediaPlayerController.restoreQueue(tracks, 0, 0L)
+                }
+            } else {
+                _onlineUiState.value = PlayerUiState.Error("Failed to load trending tracks")
             }
         }
     }

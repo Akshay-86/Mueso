@@ -69,7 +69,12 @@ fun MainScreen(viewModel: PlayerViewModel) {
             userScrollEnabled = !isSearchActive
         ) { page ->
             when (page) {
-                0 -> PlaceholderScreen("Under development")
+                0 -> OnlineLibraryScreen(
+                    viewModel = viewModel,
+                    onNavigateToPlayer = {
+                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                    }
+                )
                 1 -> PlayerScreen(viewModel = viewModel)
                 2 -> OfflineLibraryScreen(
                     viewModel = viewModel,
