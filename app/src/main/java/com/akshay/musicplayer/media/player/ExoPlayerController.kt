@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.ContextCompat
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -66,7 +67,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val oldId = currentTrackId
             currentTrackId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
+            Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: oldId=$oldId, newId=$currentTrackId, reason=$reason")
             if (!isRestoring) {
                 updatePlaybackState()
             }
@@ -120,6 +123,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun setPlaylistAndPlay(tracks: List<TrackEntity>, startIndex: Int) {
         if (tracks.isEmpty()) return
         currentTrackId = tracks[startIndex].id
+        Log.d("MUESO_SYNC", "ExoPlayer setPlaylistAndPlay: starting at index=$startIndex, trackId=$currentTrackId")
 
         val mediaItems = tracks.map { track ->
             val metadata = MediaMetadata.Builder()
@@ -239,6 +243,21 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun setShuffleEnabled(enabled: Boolean) {
         mediaController?.shuffleModeEnabled = enabled
+    }
+
+    override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        Log.d("MUESO_SYNC", "ExoPlayer moveQueueItem: from=$fromIndex, to=$toIndex")
+        mediaController?.moveMediaItem(fromIndex, toIndex)
+    }
+
+    override fun seekToIndex(index: Int) {
+        Log.d("MUESO_SYNC", "ExoPlayer seekToIndex: index=$index")
+        mediaController?.let { controller ->
+            currentTrackId = controller.getMediaItemAt(index).mediaId.toLongOrNull() ?: currentTrackId
+            controller.seekToDefaultPosition(index)
+            controller.play()
+            updatePlaybackState()
+        }
     }
 
     override fun release() {

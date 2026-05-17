@@ -1,5 +1,6 @@
 package com.akshay.musicplayer.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -64,18 +66,44 @@ class PlayerViewModel(
     private val _showQueueSheet = MutableStateFlow(false)
     val showQueueSheet: StateFlow<Boolean> = _showQueueSheet.asStateFlow()
 
-    fun getCurrentTrackIndexState(): StateFlow<Int> = _playbackState.map { state ->
-        val currentTrackId = state.currentTrackId ?: return@map 0
-        currentTracks.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
+    val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _uiState) { state, _ ->
+        val currentTrackId = state.currentTrackId ?: return@combine 0
+        val index = currentTracks.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
+        Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: calculated index $index for track $currentTrackId")
+        index
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private var currentTracks: List<TrackEntity> = emptyList()
+    // Guard against re-entrant play calls during async IPC transitions
+    private var lastRequestedTrackId: Long? = null
+
+    // Search
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun getSearchResults(): List<TrackEntity> {
+        val q = _searchQuery.value.trim().lowercase()
+        if (q.isEmpty()) return currentTracks
+        return currentTracks.filter {
+            it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+        }
+    }
+
+    /** Read the restored track index synchronously — used for initial pager page */
+    fun getRestoredTrackIndex(): Int {
+        val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+        if (lastTrackId == -1L) return 0
+        return currentTracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
+    }
     
     private val _playlists = MutableStateFlow<List<com.akshay.musicplayer.data.db.PlaylistEntity>>(emptyList())
     val playlists: StateFlow<List<com.akshay.musicplayer.data.db.PlaylistEntity>> = _playlists.asStateFlow()
 
     init {
-        loadLocalTracks()
         loadPlaylists()
         observePlaybackState()
         observeMediaEvents()
@@ -92,6 +120,18 @@ class PlayerViewModel(
     fun createPlaylist(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             playlistDao.insertPlaylist(com.akshay.musicplayer.data.db.PlaylistEntity(name = name))
+        }
+    }
+
+    fun deletePlaylist(playlistId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            playlistDao.deletePlaylist(playlistId)
+        }
+    }
+
+    fun renamePlaylist(playlistId: Long, newName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            playlistDao.renamePlaylist(playlistId, newName)
         }
     }
 
@@ -135,8 +175,8 @@ class PlayerViewModel(
 
     private var isLoaded = false
 
-    fun loadLocalTracks() {
-        if (isLoaded) return
+    fun loadLocalTracks(forceReload: Boolean = false) {
+        if (isLoaded && !forceReload) return
         isLoaded = true
         
         viewModelScope.launch {
@@ -168,6 +208,14 @@ class PlayerViewModel(
             mediaPlayerController.playbackState().collect { state ->
                 val oldTrackId = _playbackState.value.currentTrackId
                 _playbackState.value = state
+
+                Log.d("MUESO_SYNC", "ViewModel observePlaybackState: oldTrackId=$oldTrackId, newTrackId=${state.currentTrackId}, lastRequested=$lastRequestedTrackId")
+
+                // Clear the async guard when ExoPlayer confirms the requested track
+                if (state.currentTrackId == lastRequestedTrackId) {
+                    Log.d("MUESO_SYNC", "ViewModel: Clearing lastRequestedTrackId")
+                    lastRequestedTrackId = null
+                }
 
                 if (state.currentTrackId != null) {
                     sharedPreferences.edit()
@@ -224,12 +272,16 @@ class PlayerViewModel(
     }
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
+        currentTracks = tracks
+        _uiState.value = PlayerUiState.Success(currentTracks)
         viewModelScope.launch {
             mediaPlayerController.setPlaylistAndPlay(tracks, startIndex)
         }
     }
 
     fun playTrack(track: TrackEntity) {
+        lastRequestedTrackId = track.id
+        Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch {
             val index = currentTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
             mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
@@ -237,24 +289,38 @@ class PlayerViewModel(
     }
 
     fun playTrackIfChanged(track: TrackEntity) {
-        if (_playbackState.value.currentTrackId != track.id) {
-            // When swiping pagers manually, we just seek to that item in the current playlist
-            // instead of reloading the entire playlist to keep it smooth
-            val index = currentTracks.indexOfFirst { it.id == track.id }
-            if (index >= 0) {
-                // If playlist is already loaded, we ideally just want to seek to the index.
-                // For simplicity, we will reload the playlist starting at the new track,
-                // or we could add a `seekToDefaultPosition(index)` to MediaPlayerController.
-                // Let's just use playTrack for now.
-                playTrack(track)
-            }
+        Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, lastRequested=$lastRequestedTrackId")
+        // Skip if this is already what we asked ExoPlayer to play (async guard)
+        // or if ExoPlayer already confirmed it's playing this track
+        if (track.id == lastRequestedTrackId || track.id == _playbackState.value.currentTrackId) {
+            Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: SKIPPING.")
+            return
         }
+        playTrack(track)
     }
 
     fun playTrackAtIndex(index: Int) {
         if (index >= 0 && index < currentTracks.size) {
             playTrack(currentTracks[index])
         }
+    }
+
+    fun moveInQueue(fromIndex: Int, toIndex: Int) {
+        if (fromIndex < 0 || fromIndex >= currentTracks.size) return
+        if (toIndex < 0 || toIndex >= currentTracks.size) return
+        if (fromIndex == toIndex) return
+
+        Log.d("MUESO_SYNC", "ViewModel moveInQueue: from=$fromIndex, to=$toIndex")
+
+        val mutableList = currentTracks.toMutableList()
+        val item = mutableList.removeAt(fromIndex)
+        mutableList.add(toIndex, item)
+        currentTracks = mutableList
+
+        // Synchronize with ExoPlayer
+        mediaPlayerController.moveQueueItem(fromIndex, toIndex)
+
+        _uiState.value = PlayerUiState.Success(currentTracks)
     }
 
     fun togglePlayPause() {
@@ -279,6 +345,12 @@ class PlayerViewModel(
     }
 
     fun getTotalTracks(): Int = currentTracks.size
+
+    fun getUpcomingTrackCount(): Int {
+        val currentId = _playbackState.value.currentTrackId ?: return currentTracks.size
+        val currentIndex = currentTracks.indexOfFirst { it.id == currentId }
+        return if (currentIndex >= 0) currentTracks.size - currentIndex - 1 else currentTracks.size
+    }
 
     fun getCurrentTrackIndex(): Int {
         val currentTrackId = _playbackState.value.currentTrackId ?: return 0

@@ -1,6 +1,9 @@
 package com.akshay.musicplayer.ui.screens
 
+import android.util.Log
+
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +20,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.AlbumArtBackground
@@ -46,28 +53,34 @@ fun PlayerScreen(
     when (val state = uiState) {
         is PlayerUiState.Loading -> {
             Box(
-                modifier = modifier.fillMaxSize(),
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F0F0F)),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = Color(0xFFFF512F))
             }
         }
 
         is PlayerUiState.Empty -> {
             Box(
-                modifier = modifier.fillMaxSize(),
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F0F0F)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No local tracks found", color = androidx.compose.ui.graphics.Color.White)
+                Text("No local tracks found", color = Color.White.copy(alpha = 0.5f))
             }
         }
 
         is PlayerUiState.Error -> {
             Box(
-                modifier = modifier.fillMaxSize(),
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F0F0F)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Error: ${state.message}")
+                Text("Error: ${state.message}", color = Color.White.copy(alpha = 0.5f))
             }
         }
 
@@ -88,30 +101,43 @@ fun VerticalPagerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val currentTrackIndex by remember { 
-        viewModel.getCurrentTrackIndexState() 
-    }.collectAsState()
+    val currentTrackIndex by viewModel.currentTrackIndexState.collectAsState()
 
-    // Initialize pager at the RESTORED track index, not 0
+    // Read the restored index SYNCHRONOUSLY so the pager never starts at 0
+    val initialIndex = remember { viewModel.getRestoredTrackIndex() }
+
     val pagerState = rememberPagerState(
-        initialPage = currentTrackIndex,
+        initialPage = initialIndex,
         pageCount = { tracks.size }
     )
 
-    // Sync Pager with ViewModel (Auto-play next)
+    // Guard to prevent bidirectional sync feedback loop
+    var isSyncingFromVM by remember { mutableStateOf(false) }
+
+    // Keep latest tracks for LaunchedEffect
+    val currentTracksList by rememberUpdatedState(tracks)
+
+    // Sync Pager with ViewModel (when ExoPlayer changes track, e.g. auto-advance)
     LaunchedEffect(currentTrackIndex) {
+        Log.d("MUESO_SYNC", "PlayerScreen UI: currentTrackIndex changed to $currentTrackIndex, pagerState is ${pagerState.currentPage}")
         if (pagerState.currentPage != currentTrackIndex) {
+            isSyncingFromVM = true
+            Log.d("MUESO_SYNC", "PlayerScreen UI: animating pager to $currentTrackIndex")
             pagerState.animateScrollToPage(currentTrackIndex)
+            Log.d("MUESO_SYNC", "PlayerScreen UI: done animating pager to $currentTrackIndex")
+            isSyncingFromVM = false
         }
     }
 
-    // Sync ViewModel with Pager (Manual swipe)
+    // Sync ViewModel with Pager (when user manually swipes)
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }
             .drop(1)
             .collect { page ->
-                if (tracks.isNotEmpty()) {
-                    val track = tracks[page]
+                Log.d("MUESO_SYNC", "PlayerScreen UI: pager settled on page $page. isSyncingFromVM=$isSyncingFromVM")
+                if (!isSyncingFromVM && currentTracksList.isNotEmpty() && page < currentTracksList.size) {
+                    val track = currentTracksList[page]
+                    Log.d("MUESO_SYNC", "PlayerScreen UI: Calling playTrackIfChanged for ${track.id}")
                     viewModel.playTrackIfChanged(track)
                 }
             }
@@ -128,7 +154,8 @@ fun VerticalPagerScreen(
     Box(modifier = modifier.fillMaxSize()) {
         VerticalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            key = { if (it < tracks.size) tracks[it].id else it }
         ) { page ->
             if (page < tracks.size) {
                 val track = tracks[page]
@@ -149,6 +176,7 @@ fun VerticalPagerScreen(
                     viewModel.playTrackAtIndex(index)
                     viewModel.dismissQueueSheet()
                 },
+                onMove = { from, to -> viewModel.moveInQueue(from, to) },
                 onDismiss = { viewModel.dismissQueueSheet() }
             )
         }
@@ -266,7 +294,7 @@ fun PlayerPageContent(
                     isSleepTimerActive = activeSleepMode != null,
                     sleepTimerLabel = sleepTimerLabel,
                     sleepTimerStatus = sleepTimerStatus,
-                    queueSize = viewModel.getTotalTracks(),
+                    queueSize = viewModel.getUpcomingTrackCount(),
                     onSleepTimerClick = { viewModel.showSleepTimerSheet() },
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },

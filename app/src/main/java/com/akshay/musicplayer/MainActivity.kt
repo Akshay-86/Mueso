@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
             if (!multiplePermissionsState.allPermissionsGranted) {
                 multiplePermissionsState.launchMultiplePermissionRequest()
             } else {
-                playerViewModel.loadLocalTracks()
+                playerViewModel.loadLocalTracks(forceReload = true)
             }
         }
 
@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
             if (!permissionState.status.isGranted) {
                 permissionState.launchPermissionRequest()
             } else {
-                playerViewModel.loadLocalTracks()
+                playerViewModel.loadLocalTracks(forceReload = true)
             }
         }
 

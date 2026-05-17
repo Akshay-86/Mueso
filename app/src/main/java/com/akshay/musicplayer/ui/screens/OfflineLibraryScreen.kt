@@ -24,11 +24,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
@@ -115,7 +118,8 @@ fun OfflineLibraryScreen(
                         viewModel.playTrack(track)
                         onNavigateToPlayer()
                     },
-                    onAddToPlaylist = { trackToAdd = it }
+                    onAddToPlaylist = { trackToAdd = it },
+                    onRefresh = { viewModel.loadLocalTracks(forceReload = true) }
                 )
                 else -> PlaylistsTab(
                     viewModel = viewModel,
@@ -189,7 +193,8 @@ private fun AllSongsTab(
     sortOption: SortOption,
     onSortChange: (SortOption) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
-    onAddToPlaylist: (TrackEntity) -> Unit
+    onAddToPlaylist: (TrackEntity) -> Unit,
+    onRefresh: () -> Unit = {}
 ) {
     when (val state = uiState) {
         is PlayerUiState.Success -> {
@@ -214,10 +219,26 @@ private fun AllSongsTab(
                         fontSize = 14.sp
                     )
 
-                    SortChip(
-                        currentSort = sortOption,
-                        onSortChange = onSortChange
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        SortChip(
+                            currentSort = sortOption,
+                            onSortChange = onSortChange
+                        )
+                    }
                 }
 
                 LazyColumn(
@@ -466,6 +487,7 @@ private fun PlaylistsTab(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var renamePlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     if (showCreateDialog) {
         CreatePlaylistDialog(
@@ -474,6 +496,17 @@ private fun PlaylistsTab(
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    renamePlaylist?.let { playlistToRename ->
+        RenamePlaylistDialog(
+            initialName = playlistToRename.name,
+            onConfirm = { newName ->
+                viewModel.renamePlaylist(playlistToRename.id, newName)
+                renamePlaylist = null
+            },
+            onDismiss = { renamePlaylist = null }
         )
     }
 
@@ -545,7 +578,9 @@ private fun PlaylistsTab(
                     items(playlists) { playlist ->
                         PlaylistItem(
                             playlist = playlist,
-                            onClick = { onPlaylistClick(playlist) }
+                            onClick = { onPlaylistClick(playlist) },
+                            onRename = { renamePlaylist = playlist },
+                            onDelete = { viewModel.deletePlaylist(playlist.id) }
                         )
                     }
                 }
@@ -557,8 +592,12 @@ private fun PlaylistsTab(
 @Composable
 private fun PlaylistItem(
     playlist: PlaylistEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -588,7 +627,7 @@ private fun PlaylistItem(
                 modifier = Modifier.size(24.dp)
             )
         }
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = playlist.name,
                 color = Color.White,
@@ -601,7 +640,93 @@ private fun PlaylistItem(
                 fontSize = 12.sp
             )
         }
+        
+        Box {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = Color.White.copy(alpha = 0.6f)
+                )
+            }
+            
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                shape = RoundedCornerShape(14.dp),
+                containerColor = SurfaceDark,
+                shadowElevation = 8.dp
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Rename", color = Color.White) },
+                    onClick = {
+                        showMenu = false
+                        onRename()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete", color = Color(0xFFEF5350)) },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
+                    }
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun RenamePlaylistDialog(
+    initialName: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = SurfaceDark,
+        title = {
+            Text(
+                "Rename Playlist",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Playlist name", color = Color.White.copy(alpha = 0.3f)) },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentOrange,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = AccentOrange
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank()) onConfirm(name.trim())
+                }
+            ) {
+                Text("Rename", color = AccentOrange, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+            }
+        }
+    )
 }
 
 // ─── Create Playlist Dialog ──────────────────────────────────

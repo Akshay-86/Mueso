@@ -22,4 +22,6 @@ interface MediaPlayerController {
     fun setRepeatMode(mode: Int)
     fun getRepeatMode(): Int
     fun setShuffleEnabled(enabled: Boolean)
+    fun moveQueueItem(fromIndex: Int, toIndex: Int)
+    fun seekToIndex(index: Int)
 }
