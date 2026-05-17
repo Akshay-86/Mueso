@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -33,32 +34,46 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private val _mediaEvents = MutableSharedFlow<PlayerEvent>()
     private var currentTrackId: Long? = null
     private var positionUpdateJob: Job? = null
+    private var pendingRestore: (() -> Unit)? = null
+    @Volatile private var isRestoring = false
     private val scope = CoroutineScope(Dispatchers.Main)
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (isRestoring) {
+                if (playbackState == Player.STATE_READY) {
+                    isRestoring = false
+                    updatePlaybackState()
+                }
+                handlePositionUpdates(mediaController?.isPlaying == true)
+                if (playbackState == Player.STATE_ENDED) {
+                    scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
+                }
+                return
+            }
             updatePlaybackState()
             handlePositionUpdates(mediaController?.isPlaying == true)
             if (playbackState == Player.STATE_ENDED) {
-                scope.launch {
-                    _mediaEvents.emit(PlayerEvent.TrackEnded)
-                }
+                scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
             }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            updatePlaybackState()
+            if (!isRestoring) {
+                updatePlaybackState()
+            }
             handlePositionUpdates(isPlaying)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             currentTrackId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
-            updatePlaybackState()
+            if (!isRestoring) {
+                updatePlaybackState()
+            }
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             super.onPlayerError(error)
-            android.util.Log.e("ExoPlayerController", "Player Error: ${error.message}", error)
             updatePlaybackState()
             handlePositionUpdates(false)
         }
@@ -70,7 +85,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaControllerFuture?.addListener({
             mediaController = mediaControllerFuture?.get()
             mediaController?.addListener(listener)
-            updatePlaybackState()
+            pendingRestore?.invoke()
+            pendingRestore = null
+            if (!isRestoring) {
+                updatePlaybackState()
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 
@@ -98,29 +117,100 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
-    override fun playTrack(track: TrackEntity) {
-        currentTrackId = track.id
-        
-        // Metadata is crucial for the system "Now Playing" notification
-        val metadata = MediaMetadata.Builder()
-            .setTitle(track.title)
-            .setArtist(track.artist)
-            .setAlbumTitle(track.album)
-            .setArtworkUri(Uri.parse("android.resource://${context.packageName}/drawable/ic_logo"))
-            .build()
+    override fun setPlaylistAndPlay(tracks: List<TrackEntity>, startIndex: Int) {
+        if (tracks.isEmpty()) return
+        currentTrackId = tracks[startIndex].id
 
-        val mediaItem = MediaItem.Builder()
-            .setMediaId(track.id.toString())
-            .setUri(track.filePath)
-            .setMediaMetadata(metadata)
-            .build()
+        val mediaItems = tracks.map { track ->
+            val metadata = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .setArtworkUri(Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                .setIsPlayable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                .build()
+
+            MediaItem.Builder()
+                .setMediaId(track.id.toString())
+                .setUri(track.filePath)
+                .setMediaMetadata(metadata)
+                .build()
+        }
 
         mediaController?.let { controller ->
-            controller.setMediaItem(mediaItem)
+            controller.setMediaItems(mediaItems, startIndex, 0L)
             controller.prepare()
             controller.play()
-            updatePlaybackState()
+
+            _playbackState.value = PlaybackState(
+                isPlaying = true,
+                currentTrackId = tracks[startIndex].id,
+                currentPositionMs = 0L,
+                durationMs = controller.duration.coerceAtLeast(0L)
+            )
         }
+    }
+
+    override fun restoreQueue(tracks: List<TrackEntity>, startIndex: Int, startPositionMs: Long) {
+        if (tracks.isEmpty()) return
+        currentTrackId = tracks[startIndex].id
+
+        val mediaItems = tracks.map { track ->
+            val metadata = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .setIsPlayable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                .setArtworkUri(Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                .build()
+
+            MediaItem.Builder()
+                .setMediaId(track.id.toString())
+                .setUri(track.filePath)
+                .setMediaMetadata(metadata)
+                .build()
+        }
+
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                isRestoring = true
+                controller.setMediaItems(mediaItems, startIndex, startPositionMs)
+                controller.prepare()
+
+                _playbackState.value = PlaybackState(
+                    isPlaying = controller.isPlaying,
+                    currentTrackId = tracks[startIndex].id,
+                    currentPositionMs = startPositionMs,
+                    durationMs = controller.duration.coerceAtLeast(0L)
+                )
+
+                scope.launch {
+                    delay(3000)
+                    if (isRestoring) {
+                        isRestoring = false
+                        updatePlaybackState()
+                    }
+                }
+            }
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            pendingRestore = action
+        }
+    }
+
+    override fun seekToNext() {
+        mediaController?.seekToNextMediaItem()
+        updatePlaybackState()
+    }
+
+    override fun seekToPrevious() {
+        mediaController?.seekToPreviousMediaItem()
+        updatePlaybackState()
     }
 
     override fun togglePlayPause() {
@@ -139,13 +229,27 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         updatePlaybackState()
     }
 
+    override fun setRepeatMode(mode: Int) {
+        mediaController?.repeatMode = mode
+    }
+
+    override fun getRepeatMode(): Int {
+        return mediaController?.repeatMode ?: Player.REPEAT_MODE_OFF
+    }
+
+    override fun setShuffleEnabled(enabled: Boolean) {
+        mediaController?.shuffleModeEnabled = enabled
+    }
+
     override fun release() {
         positionUpdateJob?.cancel()
         mediaController?.removeListener(listener)
         mediaControllerFuture?.let { MediaController.releaseFuture(it) }
     }
 
-    override fun playbackState(): Flow<PlaybackState> = _playbackState.asStateFlow()
+    override fun playbackState(): StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
     override fun mediaEvents(): Flow<PlayerEvent> = _mediaEvents
 }
+
+

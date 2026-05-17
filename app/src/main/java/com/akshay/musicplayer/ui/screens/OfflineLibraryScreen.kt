@@ -1,0 +1,749 @@
+package com.akshay.musicplayer.ui.screens
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.data.db.PlaylistEntity
+import com.akshay.musicplayer.ui.state.PlayerUiState
+import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+
+private val AccentOrange = Color(0xFFFF512F)
+private val AccentGradient = Brush.horizontalGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))
+private val SurfaceDark = Color(0xFF1A1A2E)
+private val SurfaceCard = Color(0xFF16213E)
+private val BgDark = Color(0xFF0F0F0F)
+
+@Composable
+fun OfflineLibraryScreen(
+    viewModel: PlayerViewModel,
+    onNavigateToPlayer: () -> Unit,
+    onPlaylistClick: (PlaylistEntity) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var sortOption by remember { mutableStateOf(SortOption.DATE_ADDED) }
+
+    val selectedTab by viewModel.offlineLibraryTab.collectAsState()
+    var trackToAdd by remember { mutableStateOf<TrackEntity?>(null) }
+    val playlists by viewModel.playlists.collectAsState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+            .padding(top = 100.dp)
+    ) {
+        // Animated tab content
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { it }
+                    ) + fadeIn(tween(200)))
+                        .togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                targetOffsetX = { -it / 3 }
+                            ) + fadeOut(tween(150))
+                        )
+                } else {
+                    (slideInHorizontally(
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { -it }
+                    ) + fadeIn(tween(200)))
+                        .togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                targetOffsetX = { it / 3 }
+                            ) + fadeOut(tween(150))
+                        )
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 60.dp),
+            label = "tabContent"
+        ) { tab ->
+            when (tab) {
+                1 -> AllSongsTab(
+                    uiState = uiState,
+                    sortOption = sortOption,
+                    onSortChange = { sortOption = it },
+                    onTrackClick = { track ->
+                        viewModel.playTrack(track)
+                        onNavigateToPlayer()
+                    },
+                    onAddToPlaylist = { trackToAdd = it }
+                )
+                else -> PlaylistsTab(
+                    viewModel = viewModel,
+                    onPlaylistClick = onPlaylistClick
+                )
+            }
+        }
+
+        // Bottom center pill tabs
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("Playlists" to 0, "All Songs" to 1).forEach { (title, index) ->
+                val isSelected = selectedTab == index
+                val bgColor by animateColorAsState(
+                    if (isSelected) AccentOrange else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "tabBg"
+                )
+                val textColor by animateColorAsState(
+                    if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                    animationSpec = tween(250),
+                    label = "tabText"
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(bgColor)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { viewModel.setOfflineLibraryTab(index) }
+                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        color = textColor,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        // Add to Playlist bottom sheet style dialog
+        if (trackToAdd != null) {
+            AddToPlaylistDialog(
+                playlists = playlists,
+                onPlaylistSelected = { playlistId ->
+                    viewModel.addTrackToPlaylist(playlistId, trackToAdd!!.id)
+                    trackToAdd = null
+                },
+                onDismiss = { trackToAdd = null }
+            )
+        }
+    }
+}
+
+// ─── All Songs Tab ───────────────────────────────────────────
+
+@Composable
+private fun AllSongsTab(
+    uiState: PlayerUiState,
+    sortOption: SortOption,
+    onSortChange: (SortOption) -> Unit,
+    onTrackClick: (TrackEntity) -> Unit,
+    onAddToPlaylist: (TrackEntity) -> Unit
+) {
+    when (val state = uiState) {
+        is PlayerUiState.Success -> {
+            val tracks = state.tracks
+            val sortedTracks = when (sortOption) {
+                SortOption.A_Z -> tracks.sortedBy { it.title }
+                SortOption.DATE_ADDED -> tracks
+            }
+
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${tracks.size} tracks",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 14.sp
+                    )
+
+                    SortChip(
+                        currentSort = sortOption,
+                        onSortChange = onSortChange
+                    )
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 100.dp)
+                ) {
+                    itemsIndexed(sortedTracks) { index, track ->
+                        TrackListItem(
+                            track = track,
+                            onClick = { onTrackClick(track) },
+                            onAddToPlaylist = { onAddToPlaylist(track) }
+                        )
+                    }
+                }
+            }
+        }
+        is PlayerUiState.Loading -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = AccentOrange)
+            }
+        }
+        else -> {}
+    }
+}
+
+// ─── Sort Chip ───────────────────────────────────────────────
+
+@Composable
+private fun SortChip(
+    currentSort: SortOption,
+    onSortChange: (SortOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .clickable { expanded = true }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SortByAlpha,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = when (currentSort) {
+                    SortOption.A_Z -> "A–Z"
+                    SortOption.DATE_ADDED -> "Recent"
+                },
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 13.sp
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            offset = DpOffset(0.dp, 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            containerColor = SurfaceDark,
+            shadowElevation = 16.dp
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Schedule, null, tint = Color.White.copy(0.6f), modifier = Modifier.size(18.dp))
+                        Text("Date Added", color = Color.White)
+                    }
+                },
+                onClick = { onSortChange(SortOption.DATE_ADDED); expanded = false },
+                modifier = Modifier.padding(horizontal = 4.dp),
+                trailingIcon = {
+                    if (currentSort == SortOption.DATE_ADDED) {
+                        Box(
+                            Modifier.size(8.dp).clip(CircleShape).background(AccentOrange)
+                        )
+                    }
+                }
+            )
+            DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.SortByAlpha, null, tint = Color.White.copy(0.6f), modifier = Modifier.size(18.dp))
+                        Text("Alphabetical", color = Color.White)
+                    }
+                },
+                onClick = { onSortChange(SortOption.A_Z); expanded = false },
+                modifier = Modifier.padding(horizontal = 4.dp),
+                trailingIcon = {
+                    if (currentSort == SortOption.A_Z) {
+                        Box(
+                            Modifier.size(8.dp).clip(CircleShape).background(AccentOrange)
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+// ─── Track List Item ─────────────────────────────────────────
+
+@Composable
+fun TrackListItem(
+    track: TrackEntity,
+    onClick: () -> Unit,
+    onAddToPlaylist: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val minutes = (track.duration / 1000) / 60
+    val seconds = (track.duration / 1000) % 60
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Album art placeholder
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.08f),
+                            Color.White.copy(alpha = 0.04f)
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.MusicNote,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        // Track info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = track.artist,
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = "·",
+                    color = Color.White.copy(alpha = 0.3f),
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = "%d:%02d".format(minutes, seconds),
+                    color = Color.White.copy(alpha = 0.3f),
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // 3-dot menu
+        Box {
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                offset = DpOffset((-8).dp, 0.dp),
+                shape = RoundedCornerShape(16.dp),
+                containerColor = SurfaceDark,
+                shadowElevation = 16.dp
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PlaylistAdd,
+                                null,
+                                tint = AccentOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text("Add to Playlist", color = Color.White)
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        onAddToPlaylist()
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+// ─── Playlists Tab ───────────────────────────────────────────
+
+@Composable
+private fun PlaylistsTab(
+    viewModel: PlayerViewModel,
+    onPlaylistClick: (PlaylistEntity) -> Unit
+) {
+    val playlists by viewModel.playlists.collectAsState()
+    var showCreateDialog by remember { mutableStateOf(false) }
+
+    if (showCreateDialog) {
+        CreatePlaylistDialog(
+            onConfirm = { name ->
+                viewModel.createPlaylist(name)
+                showCreateDialog = false
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (playlists.isEmpty()) {
+            // Empty state
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.LibraryMusic,
+                        contentDescription = null,
+                        tint = AccentOrange.copy(alpha = 0.6f),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+                Text(
+                    "No playlists yet",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 16.sp
+                )
+                Button(
+                    onClick = { showCreateDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Create Playlist", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${playlists.size} playlists",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 14.sp
+                    )
+                    IconButton(onClick = { showCreateDialog = true }) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "New Playlist",
+                            tint = AccentOrange
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(playlists) { playlist ->
+                        PlaylistItem(
+                            playlist = playlist,
+                            onClick = { onPlaylistClick(playlist) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistItem(
+    playlist: PlaylistEntity,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(AccentOrange.copy(alpha = 0.2f), Color(0xFFDD2476).copy(alpha = 0.15f))
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.QueueMusic,
+                contentDescription = null,
+                tint = AccentOrange.copy(alpha = 0.8f),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Column {
+            Text(
+                text = playlist.name,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "Playlist",
+                color = Color.White.copy(alpha = 0.35f),
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+// ─── Create Playlist Dialog ──────────────────────────────────
+
+@Composable
+private fun CreatePlaylistDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = SurfaceDark,
+        title = {
+            Text(
+                "New Playlist",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Playlist name") },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentOrange,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                    cursorColor = AccentOrange,
+                    focusedLabelColor = AccentOrange,
+                    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (name.isNotBlank()) onConfirm(name) },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentOrange,
+                    disabledContainerColor = Color.White.copy(alpha = 0.1f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Create", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.White.copy(alpha = 0.5f))
+            }
+        }
+    )
+}
+
+// ─── Add to Playlist Dialog ──────────────────────────────────
+
+@Composable
+private fun AddToPlaylistDialog(
+    playlists: List<PlaylistEntity>,
+    onPlaylistSelected: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = SurfaceDark,
+        title = {
+            Text(
+                "Add to Playlist",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
+        },
+        text = {
+            if (playlists.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LibraryMusic,
+                        null,
+                        tint = Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Text(
+                        "No playlists yet. Create one first!",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(playlists) { playlist ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .clickable { onPlaylistSelected(playlist.id) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.QueueMusic,
+                                null,
+                                tint = AccentOrange.copy(alpha = 0.7f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                playlist.name,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = Color.White.copy(alpha = 0.5f))
+            }
+        }
+    )
+}
+
+enum class SortOption {
+    A_Z, DATE_ADDED
+}

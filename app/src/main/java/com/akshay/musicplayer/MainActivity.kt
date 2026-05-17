@@ -14,11 +14,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModelProvider
 import com.akshay.musicplayer.data.repository.TrackRepositoryImpl
 import com.akshay.musicplayer.data.sources.LocalMediaStoreDataSource
 import com.akshay.musicplayer.domain.usecase.GetLocalTracksUseCase
 import com.akshay.musicplayer.media.player.ExoPlayerController
+import com.akshay.musicplayer.ui.screens.MainScreen
 import com.akshay.musicplayer.ui.screens.PlayerScreen
 import com.akshay.musicplayer.ui.screens.SplashScreen
 import com.akshay.musicplayer.ui.theme.MusicPlayerTheme
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity() {
         val trackRepository = TrackRepositoryImpl(mediaStoreDataSource)
         val getLocalTracksUseCase = GetLocalTracksUseCase(trackRepository)
         val mediaPlayerController = ExoPlayerController(this)
+        val playlistDao = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(this).playlistDao()
+        val prefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
 
         playerViewModel = ViewModelProvider(
             this,
@@ -65,7 +69,9 @@ class MainActivity : ComponentActivity() {
                 override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                     return PlayerViewModel(
                         getLocalTracksUseCase,
-                        mediaPlayerController
+                        mediaPlayerController,
+                        playlistDao,
+                        prefs
                     ) as T
                 }
             }
@@ -75,9 +81,47 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PermissionAwarePlayerScreen() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            PermissionGate(permission = android.Manifest.permission.READ_MEDIA_AUDIO)
+            MultiplePermissionsGate(
+                permissions = listOf(
+                    android.Manifest.permission.READ_MEDIA_AUDIO,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                )
+            )
         } else {
             PermissionGate(permission = android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    @OptIn(ExperimentalPermissionsApi::class)
+    @Composable
+    private fun MultiplePermissionsGate(permissions: List<String>) {
+        val multiplePermissionsState = com.google.accompanist.permissions.rememberMultiplePermissionsState(permissions)
+
+        LaunchedEffect(multiplePermissionsState.allPermissionsGranted) {
+            if (!multiplePermissionsState.allPermissionsGranted) {
+                multiplePermissionsState.launchMultiplePermissionRequest()
+            } else {
+                playerViewModel.loadLocalTracks()
+            }
+        }
+
+        if (multiplePermissionsState.allPermissionsGranted) {
+            MainScreen(viewModel = playerViewModel)
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("Audio and Notification permissions required", color = Color.White)
+                    Button(onClick = { multiplePermissionsState.launchMultiplePermissionRequest() }) {
+                        Text("Grant permissions")
+                    }
+                }
+            }
         }
     }
 
@@ -86,14 +130,16 @@ class MainActivity : ComponentActivity() {
     private fun PermissionGate(permission: String) {
         val permissionState = rememberPermissionState(permission)
 
-        LaunchedEffect(Unit) {
+        LaunchedEffect(permissionState.status.isGranted) {
             if (!permissionState.status.isGranted) {
                 permissionState.launchPermissionRequest()
+            } else {
+                playerViewModel.loadLocalTracks()
             }
         }
 
         if (permissionState.status.isGranted) {
-            PlayerScreen(viewModel = playerViewModel)
+            MainScreen(viewModel = playerViewModel)
         } else {
             Box(
                 modifier = Modifier.fillMaxSize(),

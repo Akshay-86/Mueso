@@ -3,8 +3,8 @@ package com.akshay.musicplayer.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object DarkColors {
-    val Primary = Color(0xFF1DB954)
-    val Secondary = Color(0xFF1ed760)
+    val Primary = Color(0xFFFF0050)
+    val Secondary = Color(0xFFE32652)
     val Tertiary = Color(0xFF191414)
     val Surface = Color(0xFF121212)
     val Background = Color(0xFF0F0F0F)
