@@ -16,3 +16,22 @@ data class VeromeTrack(
     val artist: String,
     val thumbnail: String?
 )
+
+@JsonClass(generateAdapter = true)
+data class VeromeStreamResponse(
+    val success: Boolean? = null,
+    val streamingUrls: List<VeromeStreamFormat>? = null,
+    val formats: List<VeromeStreamFormat>? = null,
+    val error: String? = null
+)
+
+
+@JsonClass(generateAdapter = true)
+data class VeromeStreamFormat(
+    val url: String? = null,
+    val directUrl: String? = null,
+    val type: String? = null,
+    val audioQuality: String? = null,
+    val bitrate: String? = null
+)
+

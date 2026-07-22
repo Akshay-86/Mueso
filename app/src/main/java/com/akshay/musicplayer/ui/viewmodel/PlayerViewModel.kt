@@ -298,11 +298,42 @@ class PlayerViewModel(
         }
     }
 
+    private suspend fun resolveTrack(track: TrackEntity): TrackEntity {
+        return if (track.filePath.startsWith("online:")) {
+            val videoId = track.filePath.removePrefix("online:")
+            val streamUrl = onlineRepository.getStreamUrl(videoId)
+            if (streamUrl != null) {
+                track.copy(filePath = streamUrl)
+            } else {
+                track.copy(filePath = "https://verome-api.deno.dev/api/stream?id=$videoId")
+            }
+        } else {
+            track
+        }
+    }
+
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
-        currentTracks = tracks
-        _uiState.value = PlayerUiState.Success(currentTracks)
         viewModelScope.launch {
-            mediaPlayerController.setPlaylistAndPlay(tracks, startIndex)
+            val mutableTracks = tracks.toMutableList()
+            if (startIndex in mutableTracks.indices) {
+                mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
+            }
+            currentTracks = mutableTracks
+            _uiState.value = PlayerUiState.Success(currentTracks)
+            mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
+
+            // Asynchronously resolve remaining online tracks in background
+            kotlinx.coroutines.coroutineScope {
+                mutableTracks.indices.forEach { idx ->
+                    if (idx != startIndex && mutableTracks[idx].filePath.startsWith("online:")) {
+                        launch {
+                            val resolved = resolveTrack(mutableTracks[idx])
+                            mutableTracks[idx] = resolved
+                            currentTracks = mutableTracks
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -311,9 +342,19 @@ class PlayerViewModel(
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch {
             val index = currentTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
+            val resolved = resolveTrack(track)
+            val mutableList = currentTracks.toMutableList()
+            if (index in mutableList.indices) {
+                mutableList[index] = resolved
+            } else {
+                mutableList.add(resolved)
+            }
+            currentTracks = mutableList
+            _uiState.value = PlayerUiState.Success(currentTracks)
             mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
         }
     }
+
 
     fun playTrackIfChanged(track: TrackEntity) {
         Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, lastRequested=$lastRequestedTrackId")
