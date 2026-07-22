@@ -115,9 +115,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 .align(Alignment.TopCenter)
                 .padding(top = 100.dp)
         ) {
-            val results by remember(searchQuery) {
-                derivedStateOf { viewModel.getSearchResults() }
-            }
+            val results by viewModel.searchResults.collectAsState()
+            val isSearchingOnline by viewModel.isSearchingOnline.collectAsState()
 
             Box(
                 modifier = Modifier
@@ -134,26 +133,59 @@ fun MainScreen(viewModel: PlayerViewModel) {
                             .padding(32.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            "No results for \"$searchQuery\"",
-                            color = Color.White.copy(alpha = 0.4f),
-                            fontSize = 14.sp
-                        )
+                        if (isSearchingOnline) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color(0xFFFF512F),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    "Searching online...",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 14.sp
+                                )
+                            }
+                        } else {
+                            Text(
+                                "No results for \"$searchQuery\"",
+                                color = Color.White.copy(alpha = 0.4f),
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 } else {
                     Column {
-                        Text(
-                            text = "${results.size} result${if (results.size != 1) "s" else ""}",
-                            color = Color.White.copy(alpha = 0.35f),
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${results.size} result${if (results.size != 1) "s" else ""}",
+                                color = Color.White.copy(alpha = 0.35f),
+                                fontSize = 12.sp
+                            )
+                            if (isSearchingOnline) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    color = Color(0xFFFF512F),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 350.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
+
                             items(count = results.size) { index ->
                                 val track = results[index]
                                 Row(
@@ -169,12 +201,23 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.3f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    val thumbModel = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.1f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        coil.compose.AsyncImage(
+                                            model = thumbModel,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Search)
+                                        )
+                                    }
+
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = track.title,

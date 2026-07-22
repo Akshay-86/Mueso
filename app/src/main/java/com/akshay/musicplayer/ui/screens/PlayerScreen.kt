@@ -222,7 +222,8 @@ fun PlayerPageContent(
     val activeSleepMode by viewModel.activeSleepMode.collectAsState()
     val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
     val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
-    val albumArtUri = "content://media/external/audio/albumart/${track.albumId}"
+    val albumArtUri = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
+
 
     // Short label above icon
     val sleepTimerLabel = when (activeSleepMode) {

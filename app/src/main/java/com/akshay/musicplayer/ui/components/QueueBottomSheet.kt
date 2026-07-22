@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -214,6 +216,7 @@ private fun QueueTrackItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val artModel = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -221,13 +224,15 @@ private fun QueueTrackItem(
                 .background(Color.White.copy(alpha = 0.1f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.MusicNote,
+            coil.compose.AsyncImage(
+                model = artModel,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.MusicNote)
             )
         }
+
 
         Column(modifier = Modifier.weight(1f)) {
             Text(

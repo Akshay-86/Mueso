@@ -9,5 +9,13 @@ interface VeromeApiService {
 
     @GET("/api/stream")
     suspend fun getStream(@Query("id") videoId: String): VeromeStreamResponse
+
+    @GET("/api/search")
+    suspend fun searchSongs(
+        @Query("q") query: String,
+        @Query("filter") filter: String = "songs"
+    ): VeromeSearchResponse
 }
+
+
 

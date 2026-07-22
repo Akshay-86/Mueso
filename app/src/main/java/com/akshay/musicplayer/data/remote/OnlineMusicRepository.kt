@@ -10,6 +10,7 @@ class OnlineMusicRepository(private val apiService: VeromeApiService) {
             val response = apiService.getTrending(country)
             if (response.success) {
                 response.tracks.map { track ->
+                    val highResThumb = track.thumbnail?.replace("w60-h60", "w500-h500")?.replace("s88", "s500")
                     TrackEntity(
                         id = track.videoId.hashCode().toLong(), // Generate a mock local ID
                         title = track.name,
@@ -18,7 +19,7 @@ class OnlineMusicRepository(private val apiService: VeromeApiService) {
                         duration = 0L, // Online stream might not have duration upfront
                         albumId = 0L,
                         filePath = "online:${track.videoId}",
-                        artworkUrl = track.thumbnail,
+                        artworkUrl = highResThumb,
                         lyrics = null,
                         socialMetrics = null
                     )
@@ -57,6 +58,34 @@ class OnlineMusicRepository(private val apiService: VeromeApiService) {
         }
     }
 
+    suspend fun searchOnlineTracks(query: String): List<TrackEntity> {
+        if (query.isBlank()) return emptyList()
+        return try {
+            val response = apiService.searchSongs(query)
+            response.results?.filter { !it.videoId.isNullOrEmpty() }?.map { result ->
+                val videoId = result.videoId!!
+                val artistName = result.artists?.firstOrNull()?.name ?: "Unknown Artist"
+                val rawThumb = result.thumbnails?.lastOrNull()?.url ?: result.thumbnails?.firstOrNull()?.url
+                val highResThumb = rawThumb?.replace("w60-h60", "w500-h500")?.replace("s88", "s500")
+                TrackEntity(
+                    id = videoId.hashCode().toLong(),
+                    title = result.title ?: "Unknown Title",
+                    artist = artistName,
+                    album = "Online Search",
+                    duration = 0L,
+                    albumId = 0L,
+                    filePath = "online:$videoId",
+                    artworkUrl = highResThumb,
+                    lyrics = null,
+                    socialMetrics = null
+                )
+            } ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("MUESO_SEARCH", "Error searching online tracks for query: $query", e)
+            emptyList()
+        }
+    }
 
 }
+
 
