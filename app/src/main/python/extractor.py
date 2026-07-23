@@ -161,11 +161,27 @@ def embed_metadata(file_path, title, artist, album="Mueso Downloads", artwork_ur
         cover_data = None
         if artwork_url:
             try:
-                print(f"[EXTRACTOR] Downloading artwork for embedding: {artwork_url}", flush=True)
-                req = urllib.request.Request(artwork_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    cover_data = resp.read()
-                    print(f"[EXTRACTOR] Downloaded {len(cover_data)} bytes of artwork image", flush=True)
+                if "i.ytimg.com/vi/" in artwork_url:
+                    video_id = artwork_url.split("/vi/")[1].split("/")[0]
+                    full_urls = [
+                        f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg",
+                        f"https://i.ytimg.com/vi/{video_id}/hq720.jpg",
+                        artwork_url
+                    ]
+                else:
+                    full_urls = [artwork_url]
+
+                for art_url in full_urls:
+                    try:
+                        print(f"[EXTRACTOR] Downloading artwork for embedding: {art_url}", flush=True)
+                        req = urllib.request.Request(art_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req, timeout=8) as resp:
+                            cover_data = resp.read()
+                            if len(cover_data) > 1000:
+                                print(f"[EXTRACTOR] Downloaded {len(cover_data)} bytes of full uncropped artwork image", flush=True)
+                                break
+                    except Exception:
+                        continue
             except Exception as img_err:
                 print(f"[EXTRACTOR] Could not download cover image: {img_err}", flush=True)
 
