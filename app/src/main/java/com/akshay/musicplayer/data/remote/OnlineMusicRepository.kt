@@ -243,4 +243,15 @@ class OnlineMusicRepository {
         }
         return url
     }
+
+    suspend fun embedMetadata(filePath: String, title: String, artist: String, album: String, artworkUrl: String?): Boolean = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val py = com.chaquo.python.Python.getInstance()
+            val pyModule = getExtractorModule(py)
+            pyModule.callAttr("embed_metadata", filePath, title, artist, album, artworkUrl ?: "").toBoolean()
+        } catch (e: Exception) {
+            Log.e("MUESO_DOWNLOAD", "Failed to embed metadata via Python mutagen for $filePath", e)
+            false
+        }
+    }
 }

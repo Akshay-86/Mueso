@@ -26,6 +26,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -150,6 +154,8 @@ fun VerticalPagerScreen(
     val activeSleepMode by viewModel.activeSleepMode.collectAsState()
     val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
     val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
+    val isResolvingTrack by viewModel.isResolvingTrack.collectAsState()
+    val resolvingTrackTitle by viewModel.resolvingTrackTitle.collectAsState()
 
     Box(modifier = modifier.fillMaxSize()) {
         VerticalPager(
@@ -164,6 +170,43 @@ fun VerticalPagerScreen(
                     viewModel = viewModel,
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+        }
+
+        // Preparing Track Stream Loading Overlay
+        if (isResolvingTrack) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f))
+                    .clickable(enabled = false) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = Color(0xFFFF512F),
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Text(
+                        text = "Preparing track...",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!resolvingTrackTitle.isNullOrBlank()) {
+                        Text(
+                            text = resolvingTrackTitle!!,
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
 
@@ -272,10 +315,18 @@ fun PlayerPageContent(
             // Space for future top header
             Spacer(modifier = Modifier.height(100.dp))
 
+            val lyricsFetchStatusMap by viewModel.lyricsFetchStatus.collectAsState()
+            val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
+            val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
+
             // Dynamic lyrics view
             LyricsView(
                 lyrics = track.lyrics,
                 currentPositionMs = playbackState.currentPositionMs,
+                lyricsFetchStatus = trackLyricsStatus,
+                lyricsOffsetMs = lyricsOffsetMs,
+                onAdjustOffset = { viewModel.adjustLyricsOffset(it) },
+                onResetOffset = { viewModel.resetLyricsOffset() },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -293,6 +344,8 @@ fun PlayerPageContent(
 
                 val context = androidx.compose.ui.platform.LocalContext.current
                 val isOnlineSong = track.filePath.startsWith("online:") || track.artworkUrl != null
+                val downloadStates by viewModel.downloadStates.collectAsState()
+                val trackDlState = downloadStates[track.id]
 
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
@@ -301,6 +354,9 @@ fun PlayerPageContent(
                     sleepTimerStatus = sleepTimerStatus,
                     queueSize = viewModel.getUpcomingTrackCount(),
                     isOnlineSong = isOnlineSong,
+                    isDownloading = trackDlState?.isDownloading == true,
+                    downloadProgress = trackDlState?.progress ?: 0f,
+                    isDownloaded = trackDlState?.isDownloaded == true,
                     onSleepTimerClick = { viewModel.showSleepTimerSheet() },
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },

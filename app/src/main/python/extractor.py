@@ -121,7 +121,7 @@ def search_and_extract(query):
                 print("[EXTRACTOR] search_and_extract: ERROR - stream_url is empty!", flush=True)
 
             video_id = entry.get("id") or query
-            highres_thumb = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+            highres_thumb = f"https://i.ytimg.com/vi/{video_id}/hq720.jpg"
 
             return {
                 "title": entry.get("title", "Unknown Title"),
@@ -150,3 +150,63 @@ def extract_stream(video_id):
         return url_val
     print("[EXTRACTOR] extract_stream: res was not a dict", flush=True)
     return ""
+
+def embed_metadata(file_path, title, artist, album="Mueso Downloads", artwork_url=None):
+    print(f"[EXTRACTOR] embed_metadata called for file='{file_path}', title='{title}', artist='{artist}'", flush=True)
+    try:
+        import urllib.request
+        from mutagen.mp4 import MP4, MP4Cover
+        from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
+
+        cover_data = None
+        if artwork_url:
+            try:
+                print(f"[EXTRACTOR] Downloading artwork for embedding: {artwork_url}", flush=True)
+                req = urllib.request.Request(artwork_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    cover_data = resp.read()
+                    print(f"[EXTRACTOR] Downloaded {len(cover_data)} bytes of artwork image", flush=True)
+            except Exception as img_err:
+                print(f"[EXTRACTOR] Could not download cover image: {img_err}", flush=True)
+
+        if file_path.endswith(".m4a") or file_path.endswith(".mp4"):
+            try:
+                audio = MP4(file_path)
+            except Exception:
+                print(f"[EXTRACTOR] Mutagen MP4 parse error, creating new tags...", flush=True)
+                audio = MP4(file_path)
+
+            audio["\xa9nam"] = [title]
+            audio["\xa9ART"] = [artist]
+            audio["\xa9alb"] = [album]
+            if cover_data:
+                image_format = MP4Cover.FORMAT_JPEG if (b"\xff\xd8" in cover_data[:10]) else MP4Cover.FORMAT_PNG
+                audio["covr"] = [MP4Cover(cover_data, imageformat=image_format)]
+            audio.save()
+            print(f"[EXTRACTOR] Successfully embedded MP4 metadata into {file_path}", flush=True)
+            return True
+        else:
+            try:
+                audio = ID3(file_path)
+            except ID3NoHeaderError:
+                audio = ID3()
+
+            audio.add(TIT2(encoding=3, text=title))
+            audio.add(TPE1(encoding=3, text=artist))
+            audio.add(TALB(encoding=3, text=album))
+            if cover_data:
+                mime = "image/jpeg" if (b"\xff\xd8" in cover_data[:10]) else "image/png"
+                audio.add(APIC(
+                    encoding=3,
+                    mime=mime,
+                    type=3,
+                    desc='Cover',
+                    data=cover_data
+                ))
+            audio.save(file_path)
+            print(f"[EXTRACTOR] Successfully embedded ID3 metadata into {file_path}", flush=True)
+            return True
+    except Exception as e:
+        print(f"[EXTRACTOR] Error in embed_metadata: {e}", flush=True)
+        traceback.print_exc()
+        return False

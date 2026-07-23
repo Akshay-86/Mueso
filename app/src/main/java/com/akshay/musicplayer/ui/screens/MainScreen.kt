@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -305,7 +306,7 @@ fun TopNavigationBarWithSearch(
             modifier = Modifier.weight(1f),
             contentAlignment = Alignment.CenterEnd
         ) {
-            // Left: Online / Offline labels (hide when search is active)
+            // Left: App Symbol & Mueso Name (hide when search is active)
             androidx.compose.animation.AnimatedVisibility(
                 visible = !isSearchActive,
                 enter = fadeIn(tween(200)),
@@ -313,20 +314,22 @@ fun TopNavigationBarWithSearch(
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 8.dp)
                 ) {
-                    Text(
-                        text = "Online",
-                        color = if (isOnlineActive) Color.White else Color.White.copy(alpha = 0.5f),
-                        fontWeight = if (isOnlineActive) FontWeight.Bold else FontWeight.Normal,
-                        style = MaterialTheme.typography.titleLarge
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = "Mueso App Icon",
+                        tint = AccentOrange,
+                        modifier = Modifier.size(28.dp)
                     )
                     Text(
-                        text = "Offline",
-                        color = if (!isOnlineActive) Color.White else Color.White.copy(alpha = 0.5f),
-                        fontWeight = if (!isOnlineActive) FontWeight.Bold else FontWeight.Normal,
-                        style = MaterialTheme.typography.titleLarge
+                        text = "Mueso",
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 22.sp,
+                        letterSpacing = (-0.5).sp
                     )
                 }
             }

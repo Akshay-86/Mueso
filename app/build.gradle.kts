@@ -27,6 +27,7 @@ android {
             buildPython("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
             pip {
                 install("yt-dlp")
+                install("mutagen")
             }
         }
     }

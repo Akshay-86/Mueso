@@ -26,6 +26,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
+import com.akshay.musicplayer.domain.models.LyricsData
+enum class LyricsFetchStatus {
+    IDLE,
+    FETCHING,
+    FOUND,
+    NOT_FOUND
+}
+
+data class DownloadProgress(
+    val isDownloading: Boolean = false,
+    val progress: Float = 0f,
+    val isDownloaded: Boolean = false,
+    val error: String? = null
+)
 
 class PlayerViewModel(
     private val getLocalTracksUseCase: GetLocalTracksUseCase,
@@ -295,16 +309,32 @@ class PlayerViewModel(
         }
     }
 
+    private val _lyricsFetchStatus = MutableStateFlow<Map<Long, LyricsFetchStatus>>(emptyMap())
+    val lyricsFetchStatus: StateFlow<Map<Long, LyricsFetchStatus>> = _lyricsFetchStatus.asStateFlow()
+
+    private val _lyricsOffsetMs = MutableStateFlow(0L)
+    val lyricsOffsetMs: StateFlow<Long> = _lyricsOffsetMs.asStateFlow()
+
+    fun adjustLyricsOffset(deltaMs: Long) {
+        _lyricsOffsetMs.value += deltaMs
+    }
+
+    fun resetLyricsOffset() {
+        _lyricsOffsetMs.value = 0L
+    }
+
     private val fetchedLyricsTrackIds = mutableSetOf<Long>()
 
     private fun fetchLyricsForTrack(track: TrackEntity) {
         if (track.lyrics != null || fetchedLyricsTrackIds.contains(track.id)) return
         fetchedLyricsTrackIds.add(track.id)
 
+        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FETCHING)
+
         viewModelScope.launch(Dispatchers.IO) {
             val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist)
-            if (lyricsData != null) {
-                withContext(Dispatchers.Main) {
+            withContext(Dispatchers.Main) {
+                if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
                     val updatedTracks = currentTracks.map {
                         if (it.id == track.id) it.copy(lyrics = lyricsData) else it
                     }
@@ -312,38 +342,102 @@ class PlayerViewModel(
                     if (_uiState.value is PlayerUiState.Success) {
                         _uiState.value = PlayerUiState.Success(currentTracks)
                     }
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+                } else {
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
                 }
             }
         }
     }
 
+    private val _downloadStates = MutableStateFlow<Map<Long, DownloadProgress>>(emptyMap())
+    val downloadStates: StateFlow<Map<Long, DownloadProgress>> = _downloadStates.asStateFlow()
+
     fun downloadOnlineTrack(context: android.content.Context, track: TrackEntity) {
+        if (_downloadStates.value[track.id]?.isDownloading == true || _downloadStates.value[track.id]?.isDownloaded == true) return
+
         viewModelScope.launch(Dispatchers.IO) {
+            _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.01f))
             try {
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
                 val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId) else track.filePath
-                if (downloadUrl.startsWith("http")) {
-                    val sanitizedTitle = track.title.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                    val request = android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl))
-                        .setTitle(track.title)
-                        .setDescription("Downloading ${track.artist} via Mueso")
-                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_MUSIC, "Mueso/$sanitizedTitle.mp3")
-                        .addRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    
-                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                    dm.enqueue(request)
-
+                
+                if (!downloadUrl.startsWith("http")) {
+                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Stream URL unavailable"))
                     withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(context, "Downloading \"${track.title}\"...", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, "Failed to get audio stream for download", android.widget.Toast.LENGTH_SHORT).show()
                     }
-                } else {
+                    return@launch
+                }
+
+                val client = okhttp3.OkHttpClient.Builder()
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .build()
+
+                val request = okhttp3.Request.Builder()
+                    .url(downloadUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val body = response.body
+                if (!response.isSuccessful || body == null) {
+                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "HTTP error ${response.code}"))
                     withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(context, "Could not extract stream URL for download", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, "Download failed with HTTP ${response.code}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                val contentLength = body.contentLength()
+                val ext = if (downloadUrl.contains("mime=audio%2Fmp4") || downloadUrl.contains(".m4a") || downloadUrl.contains("mime=video%2Fmp4")) ".m4a" else ".mp3"
+                val sanitizedTitle = track.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim()
+                
+                val tempFile = java.io.File(context.cacheDir, "temp_dl_${track.id}$ext")
+                if (tempFile.exists()) tempFile.delete()
+
+                val inputStream = body.byteStream()
+                val outputStream = java.io.FileOutputStream(tempFile)
+                val buffer = ByteArray(32 * 1024)
+                var bytesRead: Int
+                var totalBytesRead = 0L
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                    totalBytesRead += bytesRead
+                    if (contentLength > 0) {
+                        val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.95f)
+                        _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = prog))
                     }
                 }
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
+
+                // Step 2: Embed Metadata & Artwork using Python Mutagen
+                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.96f))
+                onlineRepository.embedMetadata(tempFile.absolutePath, track.title, track.artist, "Mueso Downloads", track.artworkUrl)
+
+                // Step 3: Save to Music/Mueso/[SanitizedTitle]ext
+                val musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+                val muesoDir = java.io.File(musicDir, "Mueso")
+                if (!muesoDir.exists()) muesoDir.mkdirs()
+
+                val destFile = java.io.File(muesoDir, "$sanitizedTitle$ext")
+                tempFile.copyTo(destFile, overwrite = true)
+                tempFile.delete()
+
+                // Scan into Android MediaStore
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
+
+                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Saved \"${track.title}\" to Music/Mueso", android.widget.Toast.LENGTH_SHORT).show()
+                }
             } catch (e: Exception) {
-                Log.e("MUESO_DOWNLOAD", "Error starting download for track ${track.title}", e)
+                Log.e("MUESO_DOWNLOAD", "Error downloading track ${track.title}", e)
+                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = e.message))
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "Download failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -394,6 +488,12 @@ class PlayerViewModel(
         }
     }
 
+    private val _isResolvingTrack = MutableStateFlow(false)
+    val isResolvingTrack: StateFlow<Boolean> = _isResolvingTrack.asStateFlow()
+
+    private val _resolvingTrackTitle = MutableStateFlow<String?>(null)
+    val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
+
     private suspend fun resolveTrack(track: TrackEntity): TrackEntity {
         return if (track.filePath.startsWith("online:")) {
             val videoId = track.filePath.removePrefix("online:")
@@ -405,18 +505,37 @@ class PlayerViewModel(
     }
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
-        viewModelScope.launch {
-            val resolvedTracks = tracks.map { resolveTrack(it) }
-            currentTracks = resolvedTracks
-            _uiState.value = PlayerUiState.Success(currentTracks)
-            mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
+        viewModelScope.launch(Dispatchers.IO) {
+            val target = if (startIndex in tracks.indices) tracks[startIndex] else null
+            if (target != null && target.filePath.startsWith("online:")) {
+                _resolvingTrackTitle.value = target.title
+                _isResolvingTrack.value = true
+            }
+
+            val mutableTracks = tracks.toMutableList()
+            if (startIndex in mutableTracks.indices) {
+                mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
+            }
+
+            withContext(Dispatchers.Main) {
+                _isResolvingTrack.value = false
+                _resolvingTrackTitle.value = null
+                currentTracks = mutableTracks
+                _uiState.value = PlayerUiState.Success(currentTracks)
+                mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
+            }
         }
     }
 
     fun playTrack(track: TrackEntity) {
         lastRequestedTrackId = track.id
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (track.filePath.startsWith("online:")) {
+                _resolvingTrackTitle.value = track.title
+                _isResolvingTrack.value = true
+            }
+
             val index = currentTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
             val resolved = resolveTrack(track)
             val mutableList = currentTracks.toMutableList()
@@ -425,9 +544,14 @@ class PlayerViewModel(
             } else {
                 mutableList.add(resolved)
             }
-            currentTracks = mutableList
-            _uiState.value = PlayerUiState.Success(currentTracks)
-            mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
+
+            withContext(Dispatchers.Main) {
+                _isResolvingTrack.value = false
+                _resolvingTrackTitle.value = null
+                currentTracks = mutableList
+                _uiState.value = PlayerUiState.Success(currentTracks)
+                mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
+            }
         }
     }
 

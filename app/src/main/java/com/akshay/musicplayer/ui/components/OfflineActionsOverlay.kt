@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AvTimer
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -39,6 +41,9 @@ fun OfflineActionsOverlay(
     sleepTimerStatus: String? = null,
     queueSize: Int = 0,
     isOnlineSong: Boolean = false,
+    isDownloading: Boolean = false,
+    downloadProgress: Float = 0f,
+    isDownloaded: Boolean = false,
     onSleepTimerClick: () -> Unit = {},
     onRepeatClick: () -> Unit = {},
     onQueueClick: () -> Unit = {},
@@ -78,23 +83,59 @@ fun OfflineActionsOverlay(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Download Button (for online songs)
+            // Download Button with Progress Indicator & Completed Checkmark
             if (isOnlineSong) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val labelText = when {
+                        isDownloaded -> "Saved"
+                        isDownloading -> if (downloadProgress > 0f) "${(downloadProgress * 100).toInt()}%" else "Saving..."
+                        else -> "Save"
+                    }
                     Text(
-                        text = "Save",
-                        color = Color.White.copy(alpha = 0.6f),
+                        text = labelText,
+                        color = if (isDownloaded) Color(0xFF4CAF50) else accentColor,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         lineHeight = 10.sp
                     )
-                    IconButton(onClick = onDownloadClick) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Download Song",
-                            tint = accentColor,
-                            modifier = Modifier.size(26.dp)
-                        )
+                    IconButton(
+                        onClick = onDownloadClick,
+                        enabled = !isDownloading && !isDownloaded
+                    ) {
+                        when {
+                            isDownloading -> {
+                                if (downloadProgress > 0f) {
+                                    CircularProgressIndicator(
+                                        progress = { downloadProgress },
+                                        modifier = Modifier.size(24.dp),
+                                        color = accentColor,
+                                        strokeWidth = 2.5.dp
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = accentColor,
+                                        strokeWidth = 2.5.dp
+                                    )
+                                }
+                            }
+                            isDownloaded -> {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Downloaded",
+                                    tint = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download Song",
+                                    tint = accentColor,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
