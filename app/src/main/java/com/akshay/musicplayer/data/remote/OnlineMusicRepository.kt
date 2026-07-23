@@ -1,9 +1,22 @@
 package com.akshay.musicplayer.data.remote
 
 import android.util.Log
+import com.akshay.musicplayer.domain.models.LrcParser
+import com.akshay.musicplayer.domain.models.LyricsData
 import com.akshay.musicplayer.domain.models.TrackEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
 
 class OnlineMusicRepository {
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     private fun getExtractorModule(py: com.chaquo.python.Python): com.chaquo.python.PyObject {
         val module = py.getModule("extractor")
@@ -24,11 +37,102 @@ class OnlineMusicRepository {
     }
 
     suspend fun getTrendingTracks(country: String = "IN"): List<TrackEntity> {
-        Log.d("MUESO_TRENDING", "getTrendingTracks called for country=$country via yt-dlp")
-        return searchOnlineTracks("trending songs $country")
+        Log.d("MUESO_TRENDING", "Fetching trending top telugu songs via yt-dlp...")
+        return searchOnlineTracks("trending top telugu songs")
     }
 
-    suspend fun getStreamUrl(videoId: String): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    private fun cleanTitleAndArtist(title: String, artist: String): Pair<String, String> {
+        var cTitle = title
+        var cArtist = artist
+
+        if (cTitle.contains(" - ")) {
+            val parts = cTitle.split(" - ", limit = 2)
+            if (cArtist == "Unknown Artist" || cArtist.isBlank() || cArtist.contains("Music") || cArtist.contains("Station") || cArtist.contains("Topic") || cArtist.contains("Records") || cArtist.contains("Channel") || cArtist.contains("VEVO") || cArtist.contains("YouTube") || cArtist.contains("&")) {
+                cArtist = parts[0].trim()
+            }
+            cTitle = parts[1].trim()
+        }
+
+        val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\])", RegexOption.IGNORE_CASE)
+        cTitle = noiseRegex.replace(cTitle, "").trim()
+        cArtist = noiseRegex.replace(cArtist, "").trim()
+
+        cTitle = cTitle.replace("\"", "").replace("'", "").trim()
+        cArtist = cArtist.replace("\"", "").replace("'", "").trim()
+
+        return Pair(cTitle, cArtist)
+    }
+
+    suspend fun fetchLyrics(title: String, artist: String): LyricsData? = withContext(Dispatchers.IO) {
+        try {
+            val (cleanTitle, cleanArtist) = cleanTitleAndArtist(title, artist)
+            Log.d("MUESO_LYRICS", "Original ('$title', '$artist') -> Cleaned ('$cleanTitle', '$cleanArtist')")
+
+            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
+            val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
+            val url = "https://verome-api.deno.dev/api/lyrics?title=$encTitle&artist=$encArtist"
+            Log.d("MUESO_LYRICS", "Fetching lyrics from Verome API: $url")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank()) {
+                        val jsonObj = JSONObject(jsonStr)
+                        val syncedText = jsonObj.optString("syncedLyrics", "")
+                        val plainText = jsonObj.optString("plainLyrics", "")
+
+                        if (syncedText.isNotBlank()) {
+                            val parsedLines = LrcParser.parse(syncedText)
+                            Log.d("MUESO_LYRICS", "Successfully parsed ${parsedLines.size} synced LRC lines for '$cleanTitle'")
+                            return@withContext LyricsData(lines = parsedLines)
+                        } else if (plainText.isNotBlank()) {
+                            Log.d("MUESO_LYRICS", "Plain lyrics found for '$cleanTitle'")
+                            return@withContext LyricsData(rawText = plainText)
+                        }
+                    }
+                } else {
+                    Log.w("MUESO_LYRICS", "Lyrics request failed with code: ${response.code}")
+                }
+            }
+
+            // Fallback search with title only
+            val fallbackUrl = "https://verome-api.deno.dev/api/lyrics?title=$encTitle"
+            val fallbackRequest = Request.Builder()
+                .url(fallbackUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+
+            httpClient.newCall(fallbackRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank()) {
+                        val jsonObj = JSONObject(jsonStr)
+                        val syncedText = jsonObj.optString("syncedLyrics", "")
+                        val plainText = jsonObj.optString("plainLyrics", "")
+
+                        if (syncedText.isNotBlank()) {
+                            val parsedLines = LrcParser.parse(syncedText)
+                            Log.d("MUESO_LYRICS", "Successfully parsed ${parsedLines.size} synced LRC lines (fallback) for '$cleanTitle'")
+                            return@withContext LyricsData(lines = parsedLines)
+                        } else if (plainText.isNotBlank()) {
+                            Log.d("MUESO_LYRICS", "Plain lyrics found (fallback) for '$cleanTitle'")
+                            return@withContext LyricsData(rawText = plainText)
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.e("MUESO_LYRICS", "Error fetching lyrics from Verome API for $title", e)
+            null
+        }
+    }
+
+    suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {
         Log.d("MUESO_STREAM", "--------------------------------------------------")
         Log.d("MUESO_STREAM", "[1/4] getStreamUrl requested for videoId: '$videoId'")
         try {
@@ -66,7 +170,7 @@ class OnlineMusicRepository {
         }
     }
 
-    suspend fun searchOnlineTracks(query: String): List<TrackEntity> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun searchOnlineTracks(query: String): List<TrackEntity> = withContext(Dispatchers.IO) {
         Log.d("MUESO_SEARCH", "--------------------------------------------------")
         Log.d("MUESO_SEARCH", "[1/4] searchOnlineTracks requested for query: '$query'")
         if (query.isBlank()) {
@@ -101,6 +205,7 @@ class OnlineMusicRepository {
                 val artist = pyObj.callAttr("get", "artist")?.toString() ?: "Unknown Artist"
                 val duration = (pyObj.callAttr("get", "duration")?.toLong() ?: 0L) * 1000L
                 val thumb = pyObj.callAttr("get", "thumbnail")?.toString()
+                val highresThumb = getHighResArtworkUrl(thumb)
                 TrackEntity(
                     id = videoId.hashCode().toLong(),
                     title = title,
@@ -109,7 +214,7 @@ class OnlineMusicRepository {
                     duration = duration,
                     albumId = 0L,
                     filePath = "online:$videoId",
-                    artworkUrl = thumb,
+                    artworkUrl = highresThumb,
                     lyrics = null,
                     socialMetrics = null
                 )
@@ -120,5 +225,22 @@ class OnlineMusicRepository {
             Log.e("MUESO_SEARCH", "[4/4] CRITICAL ERROR in searchOnlineTracks for query: '$query'", e)
             emptyList()
         }
+    }
+
+    private fun getHighResArtworkUrl(rawUrl: String?): String? {
+        if (rawUrl.isNullOrEmpty()) return null
+        var url = rawUrl
+        if (url.contains("yt3.googleusercontent.com") || url.contains("ggpht.com")) {
+            url = url.replace(Regex("=w\\d+-h\\d+.*"), "=w1080-h1080-l90-rj")
+                .replace(Regex("=s\\d+.*"), "=s1080")
+        }
+        if (url.contains("i.ytimg.com/vi/")) {
+            url = url.replace("hqdefault.jpg", "hq720.jpg")
+                .replace("sddefault.jpg", "hq720.jpg")
+                .replace("mqdefault.jpg", "hq720.jpg")
+                .replace("maxresdefault.jpg", "hq720.jpg")
+                .replace("default.jpg", "hq720.jpg")
+        }
+        return url
     }
 }

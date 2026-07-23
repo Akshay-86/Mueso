@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AvTimer
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
@@ -37,9 +38,11 @@ fun OfflineActionsOverlay(
     sleepTimerLabel: String? = null,
     sleepTimerStatus: String? = null,
     queueSize: Int = 0,
+    isOnlineSong: Boolean = false,
     onSleepTimerClick: () -> Unit = {},
     onRepeatClick: () -> Unit = {},
-    onQueueClick: () -> Unit = {}
+    onQueueClick: () -> Unit = {},
+    onDownloadClick: () -> Unit = {}
 ) {
     val accentColor = Color(0xFFFF512F)
 
@@ -47,7 +50,7 @@ fun OfflineActionsOverlay(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Full-width scrolling status bar using basicMarquee
+        // Full-width scrolling status bar
         if (sleepTimerStatus != null) {
             Text(
                 text = sleepTimerStatus,
@@ -75,6 +78,27 @@ fun OfflineActionsOverlay(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Download Button (for online songs)
+            if (isOnlineSong) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Save",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 10.sp
+                    )
+                    IconButton(onClick = onDownloadClick) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Download Song",
+                            tint = accentColor,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
             // Sleep Timer
             val sleepTint by animateColorAsState(
                 if (isSleepTimerActive) accentColor else Color.White,
@@ -101,7 +125,7 @@ fun OfflineActionsOverlay(
                 }
             }
 
-            // Repeat
+            // Repeat Mode
             val repeatIcon = if (repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
             val repeatTint by animateColorAsState(
                 if (repeatMode != 0) accentColor else Color.White,

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
 
 class PlayerViewModel(
@@ -278,6 +279,11 @@ class PlayerViewModel(
                         .putLong("last_track_id", state.currentTrackId)
                         .putLong("last_position", state.currentPositionMs)
                         .apply()
+
+                    val currentTrack = currentTracks.find { it.id == state.currentTrackId }
+                    if (currentTrack != null) {
+                        fetchLyricsForTrack(currentTrack)
+                    }
                 }
 
                 // Check "after song" sleep mode on track transition
@@ -285,6 +291,62 @@ class PlayerViewModel(
                     checkSleepAfterSong(oldTrackId)
                 }
                 previousTrackId = state.currentTrackId
+            }
+        }
+    }
+
+    private val fetchedLyricsTrackIds = mutableSetOf<Long>()
+
+    private fun fetchLyricsForTrack(track: TrackEntity) {
+        if (track.lyrics != null || fetchedLyricsTrackIds.contains(track.id)) return
+        fetchedLyricsTrackIds.add(track.id)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist)
+            if (lyricsData != null) {
+                withContext(Dispatchers.Main) {
+                    val updatedTracks = currentTracks.map {
+                        if (it.id == track.id) it.copy(lyrics = lyricsData) else it
+                    }
+                    currentTracks = updatedTracks
+                    if (_uiState.value is PlayerUiState.Success) {
+                        _uiState.value = PlayerUiState.Success(currentTracks)
+                    }
+                }
+            }
+        }
+    }
+
+    fun downloadOnlineTrack(context: android.content.Context, track: TrackEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
+                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId) else track.filePath
+                if (downloadUrl.startsWith("http")) {
+                    val sanitizedTitle = track.title.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    val request = android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl))
+                        .setTitle(track.title)
+                        .setDescription("Downloading ${track.artist} via Mueso")
+                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_MUSIC, "Mueso/$sanitizedTitle.mp3")
+                        .addRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    
+                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                    dm.enqueue(request)
+
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Downloading \"${track.title}\"...", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Could not extract stream URL for download", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MUESO_DOWNLOAD", "Error starting download for track ${track.title}", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Download failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

@@ -40,7 +40,7 @@ def search_tracks(query, max_results=20):
                     "title": entry.get("title", "Unknown Title"),
                     "artist": entry.get("uploader") or entry.get("channel") or "Unknown Artist",
                     "duration": int(entry.get("duration", 0) or 0),
-                    "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                    "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hq720.jpg"
                 })
             print(f"[EXTRACTOR] search_tracks: returning {len(results)} structured results", flush=True)
             return results
@@ -120,11 +120,14 @@ def search_and_extract(query):
             else:
                 print("[EXTRACTOR] search_and_extract: ERROR - stream_url is empty!", flush=True)
 
+            video_id = entry.get("id") or query
+            highres_thumb = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+
             return {
                 "title": entry.get("title", "Unknown Title"),
                 "artist": entry.get("uploader", "Unknown Artist"),
                 "stream_url": stream_url or "",
-                "thumbnail": entry.get("thumbnail"),
+                "thumbnail": highres_thumb,
                 "duration": int(entry.get("duration", 0) or 0)
             }
     except Exception as e:

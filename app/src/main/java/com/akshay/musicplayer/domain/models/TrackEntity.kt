@@ -14,9 +14,21 @@ data class TrackEntity(
 )
 
 data class LyricsData(
-    val currentLine: String,
-    val nextLine: String?
-)
+    val lines: List<LyricLine> = emptyList(),
+    val rawText: String? = null
+) {
+    fun getDisplayLines(positionMs: Long): Triple<String?, String, String?> {
+        if (lines.isEmpty()) {
+            return Triple(null, rawText ?: "No lyrics available", null)
+        }
+        var activeIdx = lines.indexOfLast { it.timestampMs <= positionMs }
+        if (activeIdx < 0) activeIdx = 0
+        val prev = if (activeIdx > 0) lines[activeIdx - 1].text else null
+        val curr = lines[activeIdx].text
+        val next = if (activeIdx < lines.size - 1) lines[activeIdx + 1].text else null
+        return Triple(prev, curr, next)
+    }
+}
 
 data class SocialMetrics(
     val likeCount: String,

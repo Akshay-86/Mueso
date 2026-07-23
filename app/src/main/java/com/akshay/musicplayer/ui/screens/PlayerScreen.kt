@@ -275,6 +275,7 @@ fun PlayerPageContent(
             // Dynamic lyrics view
             LyricsView(
                 lyrics = track.lyrics,
+                currentPositionMs = playbackState.currentPositionMs,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -290,15 +291,20 @@ fun PlayerPageContent(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val isOnlineSong = track.filePath.startsWith("online:") || track.artworkUrl != null
+
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
                     isSleepTimerActive = activeSleepMode != null,
                     sleepTimerLabel = sleepTimerLabel,
                     sleepTimerStatus = sleepTimerStatus,
                     queueSize = viewModel.getUpcomingTrackCount(),
+                    isOnlineSong = isOnlineSong,
                     onSleepTimerClick = { viewModel.showSleepTimerSheet() },
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },
+                    onDownloadClick = { viewModel.downloadOnlineTrack(context, track) },
                     modifier = Modifier.fillMaxWidth()
                 )
 

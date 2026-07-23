@@ -105,7 +105,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             positionUpdateJob = scope.launch {
                 while (isActive) {
                     updatePlaybackState()
-                    delay(1000)
+                    delay(150)
                 }
             }
         }
