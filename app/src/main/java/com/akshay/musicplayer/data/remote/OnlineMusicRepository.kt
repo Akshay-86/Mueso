@@ -199,6 +199,9 @@ class OnlineMusicRepository {
 
             Log.d("MUESO_SEARCH", "[3/4] search_tracks returned ${pyList.size} raw Python item dicts.")
 
+            val seenKeys = mutableSetOf<String>()
+            val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])", RegexOption.IGNORE_CASE)
+
             val tracks = pyList.mapNotNull { pyObj ->
                 val videoId = pyObj.callAttr("get", "videoId")?.toString() ?: return@mapNotNull null
                 val title = pyObj.callAttr("get", "title")?.toString() ?: "Unknown Title"
@@ -206,6 +209,16 @@ class OnlineMusicRepository {
                 val duration = (pyObj.callAttr("get", "duration")?.toLong() ?: 0L) * 1000L
                 val thumb = pyObj.callAttr("get", "thumbnail")?.toString()
                 val highresThumb = getHighResArtworkUrl(thumb)
+
+                val cleanTitleKey = noiseRegex.replace(title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+                val cleanArtistKey = noiseRegex.replace(artist, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+                val uniqueKey = if (cleanTitleKey.isNotBlank()) "$cleanTitleKey:$cleanArtistKey" else videoId
+
+                if (!seenKeys.add(uniqueKey)) {
+                    Log.d("MUESO_SEARCH", "Skipping duplicate search result: '$title' by '$artist'")
+                    return@mapNotNull null
+                }
+
                 TrackEntity(
                     id = videoId.hashCode().toLong(),
                     title = title,
@@ -242,6 +255,96 @@ class OnlineMusicRepository {
                 .replace("default.jpg", "hq720.jpg")
         }
         return url
+    }
+
+    suspend fun getRelatedRecommendations(track: TrackEntity): List<TrackEntity> = withContext(Dispatchers.IO) {
+        var videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else ""
+        if (videoId.isBlank() && track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
+            videoId = track.artworkUrl.substringAfter("/vi/").substringBefore("/")
+        }
+
+        Log.d("MUESO_RADIO", "getRelatedRecommendations called for title='${track.title}', videoId='$videoId'")
+
+        if (videoId.isNotBlank()) {
+            try {
+                val url = "https://api.piped.video/next?v=$videoId"
+                Log.d("MUESO_RADIO", "Fetching related tracks from Piped API: $url")
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonStr = response.body?.string()
+                        if (!jsonStr.isNullOrBlank()) {
+                            val json = JSONObject(jsonStr)
+                            val relatedArray = json.optJSONArray("relatedStreams")
+                            if (relatedArray != null && relatedArray.length() > 0) {
+                                val list = mutableListOf<TrackEntity>()
+                                val seenKeys = mutableSetOf<String>()
+                                val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])", RegexOption.IGNORE_CASE)
+
+                                // Always exclude current playing song title
+                                val cleanCurrentTitle = noiseRegex.replace(track.title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+                                seenKeys.add(cleanCurrentTitle)
+
+                                for (i in 0 until relatedArray.length()) {
+                                    val item = relatedArray.optJSONObject(i) ?: continue
+                                    val type = item.optString("type", "")
+                                    if (type == "stream" || type == "music_video" || type.isBlank()) {
+                                        val urlPath = item.optString("url", "")
+                                        val vId = if (urlPath.contains("v=")) urlPath.substringAfter("v=").substringBefore("&") else urlPath.removePrefix("/watch?v=")
+                                        val title = item.optString("title", "")
+                                        val artist = item.optString("uploaderName", "Unknown Artist")
+                                        val thumbnail = item.optString("thumbnail", "")
+
+                                        val cleanTitle = noiseRegex.replace(title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+                                        if (vId.isNotBlank() && title.isNotBlank() && cleanTitle.isNotBlank()) {
+                                            if (seenKeys.add(cleanTitle)) {
+                                                list.add(
+                                                    TrackEntity(
+                                                        id = vId.hashCode().toLong(),
+                                                        title = title,
+                                                        artist = artist,
+                                                        album = "Recommended Radio",
+                                                        duration = 0L,
+                                                        albumId = 0L,
+                                                        filePath = "online:$vId",
+                                                        artworkUrl = getHighResArtworkUrl(thumbnail)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (list.isNotEmpty()) {
+                                    Log.d("MUESO_RADIO", "Successfully fetched ${list.size} unique recommended tracks from Piped API")
+                                    return@withContext list
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MUESO_RADIO", "Piped API recommendation request failed, falling back to search chaining...", e)
+            }
+        }
+
+        // Fallback search chaining
+        val query = if (track.artist != "Unknown Artist" && track.artist.isNotBlank()) {
+            "songs like ${track.title} ${track.artist}"
+        } else {
+            "songs like ${track.title}"
+        }
+        Log.d("MUESO_RADIO", "Fallback search chaining query: '$query'")
+        val searchResults = searchOnlineTracks(query)
+        val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])", RegexOption.IGNORE_CASE)
+        val cleanCurrentTitle = noiseRegex.replace(track.title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+        return@withContext searchResults.filter { item ->
+            val cleanItemTitle = noiseRegex.replace(item.title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
+            item.id != track.id && cleanItemTitle != cleanCurrentTitle
+        }
     }
 
     suspend fun embedMetadata(filePath: String, title: String, artist: String, album: String, artworkUrl: String?): Boolean = withContext(Dispatchers.IO) {

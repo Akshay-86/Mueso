@@ -188,7 +188,7 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+                itemsIndexed(tracks, key = { index, track -> "${track.id}_$index" }) { index, track ->
                     val isDragging = draggedIndex == index
 
                     PlaylistTrackItem(

@@ -161,7 +161,7 @@ fun VerticalPagerScreen(
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            key = { if (it < tracks.size) tracks[it].id else it }
+            key = { page -> if (page in tracks.indices) "${tracks[page].id}_$page" else page }
         ) { page ->
             if (page < tracks.size) {
                 val track = tracks[page]

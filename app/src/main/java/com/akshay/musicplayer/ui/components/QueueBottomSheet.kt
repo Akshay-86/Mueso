@@ -124,7 +124,7 @@ fun QueueBottomSheet(
                     .padding(horizontal = 8.dp)
                     .padding(bottom = 32.dp)
             ) {
-                itemsIndexed(upcomingTracks, key = { _, track -> track.id }) { localIndex, track ->
+                itemsIndexed(upcomingTracks, key = { localIndex, track -> "${track.id}_$localIndex" }) { localIndex, track ->
                     val isDragging = draggedIndex == localIndex
                     // Map local index back to full tracks list index
                     val globalIndex = upcomingStartIndex + localIndex

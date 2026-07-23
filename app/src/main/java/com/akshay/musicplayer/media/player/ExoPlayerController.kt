@@ -263,6 +263,45 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    override fun updateTrackInQueue(index: Int, track: TrackEntity) {
+        mediaController?.let { controller ->
+            if (index in 0 until controller.mediaItemCount) {
+                Log.d("MUESO_SYNC", "ExoPlayer updateTrackInQueue: updating item at index=$index with resolved url=${track.filePath.take(30)}...")
+                val oldItem = controller.getMediaItemAt(index)
+                val updatedItem = MediaItem.Builder()
+                    .setMediaId(track.id.toString())
+                    .setUri(track.filePath)
+                    .setMediaMetadata(oldItem.mediaMetadata)
+                    .build()
+                controller.replaceMediaItem(index, updatedItem)
+            }
+        }
+    }
+
+    override fun appendTracksToQueue(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        mediaController?.let { controller ->
+            Log.d("MUESO_SYNC", "ExoPlayer appendTracksToQueue: appending ${tracks.size} new tracks")
+            val newMediaItems = tracks.map { track ->
+                val metadata = MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build()
+
+                MediaItem.Builder()
+                    .setMediaId(track.id.toString())
+                    .setUri(track.filePath)
+                    .setMediaMetadata(metadata)
+                    .build()
+            }
+            controller.addMediaItems(newMediaItems)
+        }
+    }
+
     override fun release() {
         positionUpdateJob?.cancel()
         mediaController?.removeListener(listener)

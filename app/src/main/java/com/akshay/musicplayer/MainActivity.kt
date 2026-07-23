@@ -37,6 +37,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        setupLockScreenDisplay()
+
         // Initialize Chaquopy Python runtime
         if (!com.chaquo.python.Python.isStarted()) {
             com.chaquo.python.Python.start(com.chaquo.python.android.AndroidPlatform(this))
@@ -81,6 +83,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ).get(PlayerViewModel::class.java)
+    }
+
+    private fun setupLockScreenDisplay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
     }
 
     @Composable

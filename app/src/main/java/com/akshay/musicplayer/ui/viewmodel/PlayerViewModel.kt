@@ -294,9 +294,10 @@ class PlayerViewModel(
                         .putLong("last_position", state.currentPositionMs)
                         .apply()
 
-                    val currentTrack = currentTracks.find { it.id == state.currentTrackId }
-                    if (currentTrack != null) {
-                        fetchLyricsForTrack(currentTrack)
+                    val currentTrackIdx = currentTracks.indexOfFirst { it.id == state.currentTrackId }
+                    if (currentTrackIdx >= 0) {
+                        fetchLyricsForTrack(currentTracks[currentTrackIdx])
+                        prefetchAndKeepQueueAlive(currentTrackIdx)
                     }
                 }
 
@@ -305,6 +306,94 @@ class PlayerViewModel(
                     checkSleepAfterSong(oldTrackId)
                 }
                 previousTrackId = state.currentTrackId
+            }
+        }
+    }
+
+    private val resolvingTrackIds = mutableSetOf<Long>()
+    private var isFetchingMoreQueue = false
+
+    private fun prefetchAndKeepQueueAlive(currentIndex: Int) {
+        if (currentIndex !in currentTracks.indices) return
+        val currentTrack = currentTracks[currentIndex]
+
+        // 1. Ensure current playing track is resolved
+        if (currentTrack.filePath.startsWith("online:") && !resolvingTrackIds.contains(currentTrack.id)) {
+            resolvingTrackIds.add(currentTrack.id)
+            viewModelScope.launch(Dispatchers.IO) {
+                Log.d("MUESO_QUEUE", "Resolving playing track at index $currentIndex: ${currentTrack.title}")
+                val resolved = resolveTrack(currentTrack)
+                withContext(Dispatchers.Main) {
+                    val list = currentTracks.toMutableList()
+                    if (currentIndex in list.indices) {
+                        list[currentIndex] = resolved
+                        currentTracks = list
+                        if (_uiState.value is PlayerUiState.Success) {
+                            _uiState.value = PlayerUiState.Success(currentTracks)
+                        }
+                        mediaPlayerController.updateTrackInQueue(currentIndex, resolved)
+                    }
+                    resolvingTrackIds.remove(currentTrack.id)
+                }
+            }
+        }
+
+        // 2. Pre-fetch next track in background so next song is ready
+        val nextIndex = currentIndex + 1
+        if (nextIndex in currentTracks.indices) {
+            val nextTrack = currentTracks[nextIndex]
+            if (nextTrack.filePath.startsWith("online:") && !resolvingTrackIds.contains(nextTrack.id)) {
+                resolvingTrackIds.add(nextTrack.id)
+                viewModelScope.launch(Dispatchers.IO) {
+                    Log.d("MUESO_QUEUE", "Pre-fetching next track at index $nextIndex: ${nextTrack.title}")
+                    val resolvedNext = resolveTrack(nextTrack)
+                    withContext(Dispatchers.Main) {
+                        val list = currentTracks.toMutableList()
+                        if (nextIndex in list.indices) {
+                            list[nextIndex] = resolvedNext
+                            currentTracks = list
+                            if (_uiState.value is PlayerUiState.Success) {
+                                _uiState.value = PlayerUiState.Success(currentTracks)
+                            }
+                            mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
+                        }
+                        resolvingTrackIds.remove(nextTrack.id)
+                    }
+                }
+            }
+        }
+
+        // 3. Keep queue alive: Auto-fetch related suggestions when nearing the end of online queue
+        if (currentIndex >= currentTracks.size - 2 && !isFetchingMoreQueue && (currentTrack.filePath.contains("http") || currentTrack.filePath.contains("online:"))) {
+            isFetchingMoreQueue = true
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val query = if (currentTrack.artist != "Unknown Artist" && currentTrack.artist.isNotBlank()) {
+                        "${currentTrack.artist} top songs"
+                    } else {
+                        "${currentTrack.title} songs"
+                    }
+                    Log.d("MUESO_QUEUE", "Nearing queue end. Auto-fetching related tracks for query: '$query'")
+                    val newTracks = onlineRepository.searchOnlineTracks(query)
+                    val existingIds = currentTracks.map { it.id }.toSet()
+                    val uniqueNew = newTracks.filter { it.id !in existingIds }
+
+                    if (uniqueNew.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            val updatedQueue = currentTracks + uniqueNew
+                            currentTracks = updatedQueue
+                            if (_uiState.value is PlayerUiState.Success) {
+                                _uiState.value = PlayerUiState.Success(currentTracks)
+                            }
+                            mediaPlayerController.appendTracksToQueue(uniqueNew)
+                            Log.d("MUESO_QUEUE", "Successfully appended ${uniqueNew.size} tracks to keep queue alive!")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MUESO_QUEUE", "Error auto-fetching queue suggestions", e)
+                } finally {
+                    isFetchingMoreQueue = false
+                }
             }
         }
     }
@@ -523,6 +612,7 @@ class PlayerViewModel(
                 currentTracks = mutableTracks
                 _uiState.value = PlayerUiState.Success(currentTracks)
                 mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
+                prefetchAndKeepQueueAlive(startIndex)
             }
         }
     }
@@ -531,26 +621,36 @@ class PlayerViewModel(
         lastRequestedTrackId = track.id
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch(Dispatchers.IO) {
-            if (track.filePath.startsWith("online:")) {
+            val isOnline = track.filePath.startsWith("online:")
+            if (isOnline) {
                 _resolvingTrackTitle.value = track.title
                 _isResolvingTrack.value = true
             }
 
-            val index = currentTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
             val resolved = resolveTrack(track)
-            val mutableList = currentTracks.toMutableList()
-            if (index in mutableList.indices) {
-                mutableList[index] = resolved
-            } else {
-                mutableList.add(resolved)
-            }
 
             withContext(Dispatchers.Main) {
                 _isResolvingTrack.value = false
                 _resolvingTrackTitle.value = null
-                currentTracks = mutableList
+                currentTracks = listOf(resolved)
                 _uiState.value = PlayerUiState.Success(currentTracks)
-                mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
+                mediaPlayerController.setPlaylistAndPlay(currentTracks, 0)
+            }
+
+            if (isOnline) {
+                val recommendations = onlineRepository.getRelatedRecommendations(track)
+                val existingIds = currentTracks.map { it.id }.toSet()
+                val uniqueRecs = recommendations.filter { it.id !in existingIds }
+                if (uniqueRecs.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        currentTracks = currentTracks + uniqueRecs
+                        if (_uiState.value is PlayerUiState.Success) {
+                            _uiState.value = PlayerUiState.Success(currentTracks)
+                        }
+                        mediaPlayerController.appendTracksToQueue(uniqueRecs)
+                        prefetchAndKeepQueueAlive(0)
+                    }
+                }
             }
         }
     }
