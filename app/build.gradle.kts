@@ -1,7 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp") version "2.2.10-2.0.2"
+    id("com.google.devtools.ksp") version "2.3.2"
+    id("com.chaquo.python")
 }
 
 android {
@@ -16,6 +17,18 @@ android {
         versionName = "0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
+
+    chaquopy {
+        defaultConfig {
+            buildPython("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
+            pip {
+                install("yt-dlp")
+            }
+        }
     }
 
     buildTypes {
@@ -70,6 +83,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.datasource.okhttp)
 
     // Image Loading
     implementation(libs.coil.compose)

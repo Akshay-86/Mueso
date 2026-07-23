@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 sealed class PlayerEvent {
     object TrackEnded : PlayerEvent()
+    data class PlaybackError(val message: String) : PlayerEvent()
 }
 
 interface MediaPlayerController {

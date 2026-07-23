@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
-import com.akshay.musicplayer.data.remote.RetrofitClient
 
 class PlayerViewModel(
     private val getLocalTracksUseCase: GetLocalTracksUseCase,
@@ -34,7 +33,7 @@ class PlayerViewModel(
     private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModel() {
 
-    private val onlineRepository = OnlineMusicRepository(RetrofitClient.apiService)
+    private val onlineRepository = OnlineMusicRepository()
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -306,6 +305,11 @@ class PlayerViewModel(
                         }
                         playNextTrack()
                     }
+                    is PlayerEvent.PlaybackError -> {
+                        Log.w("MUESO_STREAM", "Playback error encountered: ${event.message}. Auto-advancing to next track.")
+                        delay(500)
+                        playNextTrack()
+                    }
                 }
             }
         }
@@ -332,11 +336,7 @@ class PlayerViewModel(
         return if (track.filePath.startsWith("online:")) {
             val videoId = track.filePath.removePrefix("online:")
             val streamUrl = onlineRepository.getStreamUrl(videoId)
-            if (streamUrl != null) {
-                track.copy(filePath = streamUrl)
-            } else {
-                track.copy(filePath = "https://verome-api.deno.dev/api/stream?id=$videoId")
-            }
+            track.copy(filePath = streamUrl)
         } else {
             track
         }
@@ -344,26 +344,10 @@ class PlayerViewModel(
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
         viewModelScope.launch {
-            val mutableTracks = tracks.toMutableList()
-            if (startIndex in mutableTracks.indices) {
-                mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
-            }
-            currentTracks = mutableTracks
+            val resolvedTracks = tracks.map { resolveTrack(it) }
+            currentTracks = resolvedTracks
             _uiState.value = PlayerUiState.Success(currentTracks)
             mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
-
-            // Asynchronously resolve remaining online tracks in background
-            kotlinx.coroutines.coroutineScope {
-                mutableTracks.indices.forEach { idx ->
-                    if (idx != startIndex && mutableTracks[idx].filePath.startsWith("online:")) {
-                        launch {
-                            val resolved = resolveTrack(mutableTracks[idx])
-                            mutableTracks[idx] = resolved
-                            currentTracks = mutableTracks
-                        }
-                    }
-                }
-            }
         }
     }
 

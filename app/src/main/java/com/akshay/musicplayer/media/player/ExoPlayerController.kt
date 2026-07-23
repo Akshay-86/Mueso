@@ -79,6 +79,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             super.onPlayerError(error)
             updatePlaybackState()
             handlePositionUpdates(false)
+            scope.launch {
+                _mediaEvents.emit(PlayerEvent.PlaybackError(error.message ?: "Playback error"))
+            }
         }
     }
 

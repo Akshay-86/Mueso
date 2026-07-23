@@ -37,6 +37,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize Chaquopy Python runtime
+        if (!com.chaquo.python.Python.isStarted()) {
+            com.chaquo.python.Python.start(com.chaquo.python.android.AndroidPlatform(this))
+        }
+
         // Setup ViewModel
         setupViewModel()
 
