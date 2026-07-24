@@ -23,14 +23,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Schedule
@@ -73,7 +74,7 @@ fun OfflineLibraryScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(MaterialTheme.colorScheme.background)
             .padding(top = 100.dp)
     ) {
         // Animated tab content
@@ -128,13 +129,15 @@ fun OfflineLibraryScreen(
             }
         }
 
+        val isDarkMode by viewModel.isDarkMode.collectAsState()
+
         // Bottom center pill tabs
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 16.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Color.White.copy(alpha = 0.08f))
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -146,7 +149,7 @@ fun OfflineLibraryScreen(
                     label = "tabBg"
                 )
                 val textColor by animateColorAsState(
-                    if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                    if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)),
                     animationSpec = tween(250),
                     label = "tabText"
                 )
@@ -175,6 +178,9 @@ fun OfflineLibraryScreen(
         if (trackToAdd != null) {
             AddToPlaylistDialog(
                 playlists = playlists,
+                trackToAdd = trackToAdd,
+                viewModel = viewModel,
+                isDarkMode = isDarkMode,
                 onPlaylistSelected = { playlistId ->
                     viewModel.addTrackToPlaylist(playlistId, trackToAdd!!.id)
                     trackToAdd = null
@@ -215,8 +221,9 @@ private fun AllSongsTab(
                 ) {
                     Text(
                         text = "${tracks.size} tracks",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 14.sp
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
                     )
 
                     Row(
@@ -229,9 +236,9 @@ private fun AllSongsTab(
                         ) {
                             Icon(
                                 Icons.Default.Refresh,
-                                contentDescription = "Refresh",
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
+                                contentDescription = "Refresh Offline Library",
+                                tint = AccentOrange,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                         SortChip(
@@ -241,16 +248,67 @@ private fun AllSongsTab(
                     }
                 }
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 100.dp)
-                ) {
-                    itemsIndexed(sortedTracks) { index, track ->
-                        TrackListItem(
-                            track = track,
-                            onClick = { onTrackClick(track) },
-                            onAddToPlaylist = { onAddToPlaylist(track) }
-                        )
+                if (tracks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(AccentOrange.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = AccentOrange,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            Text(
+                                text = "No Offline Songs Found",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Downloaded songs and local MP3s will appear here. Tap below after downloading.",
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                fontSize = 13.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Button(
+                                onClick = onRefresh,
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                                shape = RoundedCornerShape(24.dp),
+                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Rescan & Refresh Library", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 100.dp)
+                    ) {
+                        itemsIndexed(sortedTracks) { index, track ->
+                            TrackListItem(
+                                track = track,
+                                onClick = { onTrackClick(track) },
+                                onAddToPlaylist = { onAddToPlaylist(track) }
+                            )
+                        }
                     }
                 }
             }
@@ -260,7 +318,56 @@ private fun AllSongsTab(
                 CircularProgressIndicator(color = AccentOrange)
             }
         }
-        else -> {}
+        is PlayerUiState.Empty, is PlayerUiState.Error -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(AccentOrange.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = AccentOrange,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Text(
+                        text = "No Offline Songs Found",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Downloaded songs and local MP3s will appear here.\nTap below to scan your device.",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Button(
+                        onClick = onRefresh,
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                        shape = RoundedCornerShape(24.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Rescan & Refresh Library", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -398,7 +505,7 @@ fun TrackListItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -411,7 +518,7 @@ fun TrackListItem(
             ) {
                 Text(
                     text = track.artist,
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -419,12 +526,12 @@ fun TrackListItem(
                 )
                 Text(
                     text = "·",
-                    color = Color.White.copy(alpha = 0.3f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                     fontSize = 13.sp
                 )
                 Text(
                     text = "%d:%02d".format(minutes, seconds),
-                    color = Color.White.copy(alpha = 0.3f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                     fontSize = 13.sp
                 )
             }
@@ -534,7 +641,7 @@ private fun PlaylistsTab(
                 }
                 Text(
                     "No playlists yet",
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                     fontSize = 16.sp
                 )
                 Button(
@@ -621,7 +728,7 @@ private fun PlaylistItem(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.QueueMusic,
+                Icons.AutoMirrored.Filled.QueueMusic,
                 contentDescription = null,
                 tint = AccentOrange.copy(alpha = 0.8f),
                 modifier = Modifier.size(24.dp)
@@ -795,17 +902,25 @@ private fun CreatePlaylistDialog(
 @Composable
 private fun AddToPlaylistDialog(
     playlists: List<PlaylistEntity>,
+    trackToAdd: TrackEntity? = null,
+    viewModel: PlayerViewModel? = null,
+    isDarkMode: Boolean = true,
     onPlaylistSelected: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val dialogBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val itemBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = SurfaceDark,
+        containerColor = dialogBg,
         title = {
             Text(
                 "Add to Playlist",
-                color = Color.White,
+                color = textPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
@@ -820,42 +935,66 @@ private fun AddToPlaylistDialog(
                     Icon(
                         Icons.Default.LibraryMusic,
                         null,
-                        tint = Color.White.copy(alpha = 0.3f),
+                        tint = textSecondary,
                         modifier = Modifier.size(40.dp)
                     )
                     Text(
                         "No playlists yet. Create one first!",
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = textSecondary,
                         fontSize = 14.sp
                     )
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(playlists) { playlist ->
+                        val playlistTracks by viewModel?.getPlaylistTracks(playlist.id)?.collectAsState(initial = emptyList())
+                            ?: remember { mutableStateOf(emptyList()) }
+                        val isAlreadyInPlaylist = remember(playlistTracks, trackToAdd?.id) {
+                            trackToAdd != null && playlistTracks.any { it.id == trackToAdd.id }
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.05f))
+                                .background(itemBg)
                                 .clickable { onPlaylistSelected(playlist.id) }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(
-                                Icons.Default.QueueMusic,
+                                Icons.AutoMirrored.Filled.QueueMusic,
                                 null,
-                                tint = AccentOrange.copy(alpha = 0.7f),
+                                tint = AccentOrange.copy(alpha = 0.8f),
                                 modifier = Modifier.size(22.dp)
                             )
-                            Text(
-                                playlist.name,
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    playlist.name,
+                                    color = textPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (isAlreadyInPlaylist) {
+                                    Text(
+                                        "(Already added)",
+                                        color = Color(0xFF34C759),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            if (isAlreadyInPlaylist) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Already Added",
+                                    tint = Color(0xFF34C759),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -863,7 +1002,7 @@ private fun AddToPlaylistDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = Color.White.copy(alpha = 0.5f))
+                Text("Close", color = textSecondary)
             }
         }
     )

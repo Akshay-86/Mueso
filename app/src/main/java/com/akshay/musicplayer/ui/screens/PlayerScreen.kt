@@ -151,6 +151,8 @@ fun VerticalPagerScreen(
     val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
     val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
 
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
+
     Box(modifier = modifier.fillMaxSize()) {
         VerticalPager(
             state = pagerState,
@@ -211,6 +213,7 @@ fun VerticalPagerScreen(
                 currentTrackId = playbackState.currentTrackId,
                 isPlaylistContext = isPlaylistContext,
                 playlistTrackCount = playlistTrackCount,
+                isDarkMode = isDarkMode,
                 onTrackClick = { index ->
                     viewModel.playTrackAtIndex(index)
                     viewModel.dismissQueueSheet()
@@ -229,6 +232,7 @@ fun VerticalPagerScreen(
                 activeTimerMinutes = sleepTimerMinutesLeft,
                 activeSleepSongId = sleepAfterSongId,
                 isPlaylistContext = isPlaylistContext,
+                isDarkMode = isDarkMode,
                 onSetTimer = { minutes ->
                     viewModel.setSleepTimer(minutes)
                     viewModel.dismissSleepTimerSheet()
@@ -313,20 +317,26 @@ fun PlayerPageContent(
             // Space for future top header
             Spacer(modifier = Modifier.height(100.dp))
 
+            val enableLyrics by viewModel.enableLyrics.collectAsState()
+            val isDarkMode by viewModel.isDarkMode.collectAsState()
             val lyricsFetchStatusMap by viewModel.lyricsFetchStatus.collectAsState()
             val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
             val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
 
-            // Dynamic lyrics view
-            LyricsView(
-                lyrics = track.lyrics,
-                currentPositionMs = playbackState.currentPositionMs,
-                lyricsFetchStatus = trackLyricsStatus,
-                lyricsOffsetMs = lyricsOffsetMs,
-                onAdjustOffset = { viewModel.adjustLyricsOffset(it) },
-                onResetOffset = { viewModel.resetLyricsOffset() },
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Dynamic lyrics view (if enabled in settings)
+            if (enableLyrics) {
+                LyricsView(
+                    lyrics = track.lyrics,
+                    currentPositionMs = playbackState.currentPositionMs,
+                    lyricsFetchStatus = trackLyricsStatus,
+                    lyricsOffsetMs = lyricsOffsetMs,
+                    onAdjustOffset = { viewModel.adjustLyricsOffset(it) },
+                    onResetOffset = { viewModel.resetLyricsOffset() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -347,7 +357,6 @@ fun PlayerPageContent(
 
                 var showAddToOnlinePlaylistSheet by remember { mutableStateOf(false) }
                 val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
-                var showCreateOnlinePlaylistDialog by remember { mutableStateOf(false) }
 
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
@@ -370,12 +379,11 @@ fun PlayerPageContent(
                 if (showAddToOnlinePlaylistSheet) {
                     com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
                         track = track,
+                        viewModel = viewModel,
                         onlinePlaylists = onlinePlaylists,
+                        isDarkMode = isDarkMode,
                         onSelectPlaylist = { playlist ->
                             viewModel.addTrackToOnlinePlaylist(playlist.id, track)
-                        },
-                        onCreateNewPlaylist = {
-                            viewModel.createOnlinePlaylist("My Online Playlist")
                         },
                         onDismiss = { showAddToOnlinePlaylistSheet = false }
                     )

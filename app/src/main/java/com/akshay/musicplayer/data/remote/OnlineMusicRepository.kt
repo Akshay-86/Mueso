@@ -272,6 +272,67 @@ class OnlineMusicRepository {
         }
     }
 
+    suspend fun fetchRealTop50GlobalCharts(): List<TrackEntity> = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://itunes.apple.com/us/rss/topsongs/limit=50/json"
+            Log.d("MUESO_CHARTS", "Fetching real Top 50 Global Chart from open iTunes RSS API...")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "MuesoMusicPlayer/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank()) {
+                        val root = JSONObject(jsonStr)
+                        val feed = root.optJSONObject("feed")
+                        val entries = feed?.optJSONArray("entry")
+                        if (entries != null && entries.length() > 0) {
+                            val list = mutableListOf<TrackEntity>()
+                            for (i in 0 until entries.length()) {
+                                val item = entries.optJSONObject(i) ?: continue
+                                val nameObj = item.optJSONObject("im:name")
+                                val artistObj = item.optJSONObject("im:artist")
+                                val title = nameObj?.optString("label", "") ?: ""
+                                val artist = artistObj?.optString("label", "") ?: "Unknown Artist"
+
+                                var artworkUrl: String? = null
+                                val imageArr = item.optJSONArray("im:image")
+                                if (imageArr != null && imageArr.length() > 0) {
+                                    artworkUrl = imageArr.optJSONObject(imageArr.length() - 1)?.optString("label", "")?.takeIf { it.isNotBlank() }
+                                }
+
+                                if (title.isNotBlank()) {
+                                    val trackId = (title + artist).hashCode().toLong()
+                                    list.add(
+                                        TrackEntity(
+                                            id = trackId,
+                                            title = title,
+                                            artist = artist,
+                                            album = "Top 50 Global Chart",
+                                            duration = 210000L,
+                                            albumId = 0L,
+                                            filePath = "online:$title $artist",
+                                            artworkUrl = getHighResArtworkUrl(artworkUrl)
+                                        )
+                                    )
+                                }
+                            }
+                            if (list.isNotEmpty()) {
+                                Log.d("MUESO_CHARTS", "Successfully loaded ${list.size} tracks from iTunes Top 50 Global Chart")
+                                return@withContext list
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MUESO_CHARTS", "Failed to fetch iTunes Top 50 Global Chart, falling back to search...", e)
+        }
+        return@withContext searchOnlineTracks("top 50 global songs")
+    }
+
     suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {
         Log.d("MUESO_STREAM", "--------------------------------------------------")
         Log.d("MUESO_STREAM", "[1/4] getStreamUrl requested for videoId: '$videoId'")
@@ -308,6 +369,58 @@ class OnlineMusicRepository {
             Log.e("MUESO_STREAM", "[4/4] CRITICAL ERROR extracting stream via yt-dlp for videoId: '$videoId'", e)
             return@withContext ""
         }
+    }
+
+    fun getHighResArtworkUrl(rawUrl: String?): String? {
+        if (rawUrl.isNullOrEmpty()) return null
+        var url = rawUrl
+        if (url.contains("mzstatic.com")) {
+            return url.replace(Regex("\\d+x\\d+bb"), "600x600bb")
+        }
+        if (url.contains("yt3.googleusercontent.com") || url.contains("ggpht.com")) {
+            return url.replace(Regex("=w\\d+-h\\d+.*"), "=w1080-h1080-l90-rj")
+                .replace(Regex("=s\\d+.*"), "=s1080")
+        }
+        if (url.contains("i.ytimg.com/vi/")) {
+            val videoId = url.substringAfter("/vi/").substringBefore("/")
+            if (videoId.isNotBlank() && !videoId.contains("http")) {
+                return "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg"
+            }
+        }
+        return url
+    }
+
+    fun getYouTubeArtworkFallbackList(rawUrl: String?, targetQuality: String = "Highest (1080p Maxres)"): List<String> {
+        if (rawUrl.isNullOrEmpty()) return emptyList()
+        var url = rawUrl
+        if (url.contains("mzstatic.com")) {
+            val highRes = url.replace(Regex("\\d+x\\d+bb"), "600x600bb")
+            return listOf(highRes, url)
+        }
+        if (url.contains("yt3.googleusercontent.com") || url.contains("ggpht.com")) {
+            val highRes = url.replace(Regex("=w\\d+-h\\d+.*"), "=w1080-h1080-l90-rj")
+                .replace(Regex("=s\\d+.*"), "=s1080")
+            return listOf(highRes, url)
+        }
+        if (url.contains("i.ytimg.com/vi/")) {
+            val videoId = url.substringAfter("/vi/").substringBefore("/")
+            if (videoId.isNotBlank() && !videoId.contains("http")) {
+                val fullChain = listOf(
+                    "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg",
+                    "https://i.ytimg.com/vi/$videoId/sddefault.jpg",
+                    "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
+                    "https://i.ytimg.com/vi/$videoId/mqdefault.jpg",
+                    "https://i.ytimg.com/vi/$videoId/default.jpg"
+                )
+                return when {
+                    targetQuality.contains("High (720p)") -> fullChain.drop(1)
+                    targetQuality.contains("Medium (480p)") -> fullChain.drop(2)
+                    targetQuality.contains("Low") -> listOf("https://i.ytimg.com/vi/$videoId/default.jpg")
+                    else -> fullChain // Highest (1080p Maxres)
+                }
+            }
+        }
+        return listOf(url)
     }
 
     suspend fun searchOnlineTracks(query: String): List<TrackEntity> = withContext(Dispatchers.IO) {
@@ -436,22 +549,6 @@ class OnlineMusicRepository {
             val videoId = url.substringAfter("/vi/").substringBefore("/")
             if (videoId.isNotBlank() && !videoId.contains("http")) {
                 return "https://i.ytimg.com/vi/$videoId/default.jpg"
-            }
-        }
-        return url
-    }
-
-    private fun getHighResArtworkUrl(rawUrl: String?): String? {
-        if (rawUrl.isNullOrEmpty()) return null
-        var url = rawUrl
-        if (url.contains("yt3.googleusercontent.com") || url.contains("ggpht.com")) {
-            url = url.replace(Regex("=w\\d+-h\\d+.*"), "=w1080-h1080-l90-rj")
-                .replace(Regex("=s\\d+.*"), "=s1080")
-        }
-        if (url.contains("i.ytimg.com/vi/")) {
-            val videoId = url.substringAfter("/vi/").substringBefore("/")
-            if (videoId.isNotBlank() && !videoId.contains("http")) {
-                return "https://i.ytimg.com/vi/$videoId/hq720.jpg"
             }
         }
         return url

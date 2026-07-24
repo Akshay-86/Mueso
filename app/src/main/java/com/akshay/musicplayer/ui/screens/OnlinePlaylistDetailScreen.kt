@@ -13,7 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -25,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,14 +49,22 @@ fun OnlinePlaylistDetailScreen(
     tracks: List<TrackEntity>,
     isLoading: Boolean,
     isCustomUserPlaylist: Boolean = false,
+    isDarkMode: Boolean = true,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onShuffleAllClick: () -> Unit,
     onTrackClick: (Int) -> Unit,
     onRemoveTrack: ((TrackEntity) -> Unit)? = null,
-    onMoveTrack: ((fromIndex: Int, toIndex: Int) -> Unit)? = null
+    onMoveTrack: ((fromIndex: Int, toIndex: Int) -> Unit)? = null,
+    onDownloadTrack: ((TrackEntity) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showDownloadDialog by remember { mutableStateOf(false) }
+
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+    val context = LocalContext.current
+
     val filteredTracks = remember(searchQuery, tracks) {
         if (searchQuery.isBlank()) tracks
         else {
@@ -62,141 +73,181 @@ fun OnlinePlaylistDetailScreen(
         }
     }
 
+    val totalDurationMs = remember(tracks) { tracks.sumOf { it.duration } }
+    val durationFormatted = remember(totalDurationMs) {
+        val totalSec = totalDurationMs / 1000
+        val hours = totalSec / 3600
+        val mins = (totalSec % 3600) / 60
+        when {
+            hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
+            hours > 0 -> "${hours} hr"
+            mins > 0 -> "${mins} min"
+            else -> "${totalSec} sec"
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.height(48.dp))
-            // Header with Back Button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
-                }
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            // Top Hero Banner Gradient starting from y=0
+            item {
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                )
-            }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
-                // Banner Hero Cover with 2x2 Collage
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(240.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        gradientColors.firstOrNull() ?: AccentOrange,
-                                        gradientColors.lastOrNull() ?: Color(0xFF1A1A2E),
-                                        BgDark
-                                    )
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    gradientColors.firstOrNull() ?: AccentOrange,
+                                    gradientColors.lastOrNull() ?: Color(0xFF1A1A2E),
+                                    if (isDarkMode) BgDark else MaterialTheme.colorScheme.background
                                 )
                             )
-                            .padding(20.dp),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
+                        )
+                        .statusBarsPadding()
+                        .padding(bottom = 20.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Header with Back Button
                         Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 2x2 Collage Cover Art
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            Text(
+                                text = title,
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                            )
+                        }
+
+                        // Centered Hero 2x2 Collage Cover Art Card
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                             com.akshay.musicplayer.ui.components.PlaylistCollageArt(
                                 tracks = tracks,
-                                modifier = Modifier.size(110.dp),
-                                cornerRadius = 14.dp,
+                                modifier = Modifier.size(160.dp),
+                                cornerRadius = 20.dp,
                                 fallbackGradient = gradientColors
                             )
 
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Text(
                                     text = title,
                                     color = Color.White,
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.ExtraBold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 if (!subtitle.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = subtitle,
                                         color = Color.White.copy(alpha = 0.8f),
                                         fontSize = 13.sp,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "${tracks.size} tracks",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    text = if (totalDurationMs > 0) "${tracks.size} tracks  •  $durationFormatted" else "${tracks.size} tracks",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                // Action Controls Bar (Play All, Shuffle All)
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+            // Action Controls Bar (Play All, Shuffle All, Download Playlist)
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Play All Button
+                    Button(
+                        onClick = onPlayAllClick,
+                        enabled = tracks.isNotEmpty() && !isLoading,
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                        shape = RoundedCornerShape(24.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        // Big Green/Orange Play All Button
-                        Button(
-                            onClick = onPlayAllClick,
-                            enabled = tracks.isNotEmpty() && !isLoading,
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                            shape = RoundedCornerShape(24.dp),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Play All", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
 
-                        // Shuffle Button
-                        OutlinedButton(
-                            onClick = onShuffleAllClick,
-                            enabled = tracks.isNotEmpty() && !isLoading,
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
-                        ) {
-                            Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Shuffle", fontWeight = FontWeight.SemiBold)
-                        }
+                    // Shuffle Button
+                    Button(
+                        onClick = onShuffleAllClick,
+                        enabled = tracks.isNotEmpty() && !isLoading,
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                            contentColor = textPrimary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = textPrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Shuffle", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+
+                    // Download Playlist Button
+                    Button(
+                        onClick = { showDownloadDialog = true },
+                        enabled = tracks.isNotEmpty() && !isLoading,
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                            contentColor = textPrimary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = "Download Playlist", tint = textPrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Download", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     }
                 }
+            }
 
                 // Loading Spinner
                 if (isLoading) {
@@ -238,6 +289,7 @@ fun OnlinePlaylistDetailScreen(
                             totalCount = filteredTracks.size,
                             track = track,
                             isCustomUserPlaylist = isCustomUserPlaylist,
+                            isDarkMode = isDarkMode,
                             onClick = { onTrackClick(index) },
                             onRemove = { onRemoveTrack?.invoke(track) },
                             onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
@@ -247,7 +299,155 @@ fun OnlinePlaylistDetailScreen(
                 }
             }
         }
+
+        if (showDownloadDialog) {
+            DownloadPlaylistDialog(
+                playlistTitle = title,
+                tracks = tracks,
+                isDarkMode = isDarkMode,
+                onConfirmDownload = { selectedTracks ->
+                    selectedTracks.forEach { track ->
+                        onDownloadTrack?.invoke(track)
+                    }
+                    showDownloadDialog = false
+                    android.widget.Toast.makeText(context, "Downloading ${selectedTracks.size} tracks...", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { showDownloadDialog = false }
+            )
+        }
     }
+
+@Composable
+private fun DownloadPlaylistDialog(
+    playlistTitle: String,
+    tracks: List<TrackEntity>,
+    isDarkMode: Boolean = true,
+    onConfirmDownload: (List<TrackEntity>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val selectedTracks = remember { mutableStateListOf<TrackEntity>().apply { addAll(tracks) } }
+    val dialogBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
+    val itemBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.95f),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        shape = RoundedCornerShape(24.dp),
+        containerColor = dialogBg,
+        title = {
+            Column {
+                Text("Download Playlist", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Select tracks to download offline", color = textSub, fontSize = 12.sp)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${selectedTracks.size} of ${tracks.size} selected",
+                        color = AccentOrange,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    TextButton(
+                        onClick = {
+                            if (selectedTracks.size == tracks.size) {
+                                selectedTracks.clear()
+                            } else {
+                                selectedTracks.clear()
+                                selectedTracks.addAll(tracks)
+                            }
+                        }
+                    ) {
+                        Text(
+                            if (selectedTracks.size == tracks.size) "Deselect All" else "Select All",
+                            color = AccentOrange,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.height(280.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(tracks.size) { index ->
+                        val track = tracks[index]
+                        val isChecked = selectedTracks.contains(track)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(itemBg)
+                                .clickable {
+                                    if (isChecked) selectedTracks.remove(track)
+                                    else selectedTracks.add(track)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = { checked ->
+                                    if (checked) selectedTracks.add(track)
+                                    else selectedTracks.remove(track)
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = AccentOrange,
+                                    uncheckedColor = textSub
+                                )
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    track.title,
+                                    color = textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    track.artist,
+                                    color = textSub,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (selectedTracks.isNotEmpty()) onConfirmDownload(selectedTracks) },
+                enabled = selectedTracks.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text("Download (${selectedTracks.size})", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textSub)
+            }
+        }
+    )
 }
 
 @Composable
@@ -256,12 +456,15 @@ private fun OnlineTrackListItem(
     totalCount: Int,
     track: TrackEntity,
     isCustomUserPlaylist: Boolean,
+    isDarkMode: Boolean = true,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
     Row(
         modifier = Modifier
@@ -274,7 +477,7 @@ private fun OnlineTrackListItem(
         // Track number
         Text(
             text = "$index",
-            color = TextSecondary,
+            color = textSub,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.width(24.dp)
@@ -285,11 +488,11 @@ private fun OnlineTrackListItem(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.08f)),
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)),
             contentAlignment = Alignment.Center
         ) {
-            AsyncImage(
-                model = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}",
+            com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                artworkUrl = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}",
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -300,7 +503,7 @@ private fun OnlineTrackListItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = Color.White,
+                color = textColor,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -309,7 +512,7 @@ private fun OnlineTrackListItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = track.artist,
-                color = TextSecondary,
+                color = textSub,
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -322,16 +525,16 @@ private fun OnlineTrackListItem(
                 Icon(
                     Icons.Default.MoreVert,
                     contentDescription = "Options",
-                    tint = TextSecondary
+                    tint = textSub
                 )
             }
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(Color(0xFF1F1F2E))
+                modifier = Modifier.background(if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF))
             ) {
                 DropdownMenuItem(
-                    text = { Text("Play Now", color = Color.White) },
+                    text = { Text("Play Now", color = textColor) },
                     onClick = {
                         showMenu = false
                         onClick()
@@ -340,7 +543,7 @@ private fun OnlineTrackListItem(
                 if (isCustomUserPlaylist) {
                     if (index > 1) {
                         DropdownMenuItem(
-                            text = { Text("Move Up", color = Color.White) },
+                            text = { Text("Move Up", color = textColor) },
                             onClick = {
                                 showMenu = false
                                 onMoveUp()
@@ -349,7 +552,7 @@ private fun OnlineTrackListItem(
                     }
                     if (index < totalCount) {
                         DropdownMenuItem(
-                            text = { Text("Move Down", color = Color.White) },
+                            text = { Text("Move Down", color = textColor) },
                             onClick = {
                                 showMenu = false
                                 onMoveDown()

@@ -285,7 +285,73 @@ class PlayerViewModel(
     }
 
     suspend fun getCuratedPlaylistTracks(query: String): List<TrackEntity> {
-        return onlineRepository.searchOnlineTracks(query)
+        val cacheKey = "curated_cache_" + query.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        val lastFetchedTime = sharedPreferences.getLong("${cacheKey}_time", 0L)
+        val cachedJson = sharedPreferences.getString("${cacheKey}_json", null)
+        val currentTime = System.currentTimeMillis()
+
+        // 24 Hours in milliseconds = 86,400,000 ms
+        val isCacheValid = (currentTime - lastFetchedTime < 86_400_000L) && !cachedJson.isNullOrBlank()
+
+        if (isCacheValid) {
+            try {
+                val jsonArr = org.json.JSONArray(cachedJson)
+                val cachedTracks = mutableListOf<TrackEntity>()
+                for (i in 0 until jsonArr.length()) {
+                    val obj = jsonArr.getJSONObject(i)
+                    cachedTracks.add(
+                        TrackEntity(
+                            id = obj.getLong("id"),
+                            title = obj.getString("title"),
+                            artist = obj.getString("artist"),
+                            album = "Curated Playlist",
+                            duration = obj.getLong("duration"),
+                            albumId = 0L,
+                            filePath = obj.getString("filePath"),
+                            artworkUrl = obj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+                if (cachedTracks.isNotEmpty()) {
+                    Log.d("MUESO_CACHE", "Serving curated playlist '$query' from 24-hr local cache (0ms delay, ${cachedTracks.size} tracks)")
+                    return cachedTracks
+                }
+            } catch (e: Exception) {
+                Log.w("MUESO_CACHE", "Failed to parse 24-hr cache for '$query'", e)
+            }
+        }
+
+        // Fetch fresh tracks from open-source API (iTunes Top 50 / open search)
+        Log.d("MUESO_CACHE", "Fetching fresh curated tracks for '$query' from API...")
+        val freshTracks = if (query.contains("top 50 global", ignoreCase = true)) {
+            onlineRepository.fetchRealTop50GlobalCharts()
+        } else {
+            onlineRepository.searchOnlineTracks(query)
+        }
+
+        if (freshTracks.isNotEmpty()) {
+            try {
+                val jsonArr = org.json.JSONArray()
+                for (t in freshTracks) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", t.id)
+                    obj.put("title", t.title)
+                    obj.put("artist", t.artist)
+                    obj.put("filePath", t.filePath)
+                    obj.put("artworkUrl", t.artworkUrl ?: "")
+                    obj.put("duration", t.duration)
+                    jsonArr.put(obj)
+                }
+                sharedPreferences.edit()
+                    .putLong("${cacheKey}_time", currentTime)
+                    .putString("${cacheKey}_json", jsonArr.toString())
+                    .apply()
+                Log.d("MUESO_CACHE", "Saved ${freshTracks.size} tracks to 24-hr cache for '$query'")
+            } catch (e: Exception) {
+                Log.w("MUESO_CACHE", "Error saving 24-hr cache for '$query'", e)
+            }
+        }
+        return freshTracks
     }
 
     fun playOnlinePlaylist(tracks: List<TrackEntity>, startIndex: Int = 0) {
@@ -293,6 +359,27 @@ class PlayerViewModel(
         _isPlaylistContext.value = true
         _playlistTrackCount.value = tracks.size
         playQueue(tracks, startIndex)
+    }
+
+    private suspend fun resolveTrack(track: TrackEntity): TrackEntity {
+        return if (track.filePath.startsWith("online:")) {
+            val queryOrId = track.filePath.removePrefix("online:")
+            val videoId = if (queryOrId.length == 11 && !queryOrId.contains(" ")) {
+                queryOrId
+            } else {
+                val searchResults = onlineRepository.searchOnlineTracks(queryOrId)
+                searchResults.firstOrNull()?.filePath?.removePrefix("online:") ?: ""
+            }
+            if (videoId.isNotBlank()) {
+                val streamUrl = onlineRepository.getStreamUrl(videoId)
+                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                track.copy(filePath = streamUrl, artworkUrl = artwork)
+            } else {
+                track
+            }
+        } else {
+            track
+        }
     }
     
     private fun loadPlaylists() {
@@ -421,6 +508,61 @@ class PlayerViewModel(
 
         // If last played track was online and network is available, restore online playback state & queue
         if (isOnline && lastTrackId != -1L && hasNet) {
+            val isPlaylist = sharedPreferences.getBoolean("last_is_playlist_context", false)
+            val savedCount = sharedPreferences.getInt("last_playlist_track_count", 0)
+            val queueJson = sharedPreferences.getString("last_playlist_queue_json", null)
+
+            if (isPlaylist && !queueJson.isNullOrBlank()) {
+                try {
+                    val jsonArr = org.json.JSONArray(queueJson)
+                    val restoredPlaylistTracks = mutableListOf<TrackEntity>()
+                    for (i in 0 until jsonArr.length()) {
+                        val obj = jsonArr.getJSONObject(i)
+                        restoredPlaylistTracks.add(
+                            TrackEntity(
+                                id = obj.getLong("id"),
+                                title = obj.getString("title"),
+                                artist = obj.getString("artist"),
+                                album = "Online Playlist Track",
+                                duration = obj.getLong("duration"),
+                                albumId = 0L,
+                                filePath = obj.getString("filePath"),
+                                artworkUrl = obj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
+                            )
+                        )
+                    }
+
+                    if (restoredPlaylistTracks.isNotEmpty()) {
+                        val startIndex = restoredPlaylistTracks.indexOfFirst { it.id == lastTrackId }.coerceAtLeast(0)
+                        restorationJob = viewModelScope.launch(Dispatchers.IO) {
+                            val mutableList = restoredPlaylistTracks.toMutableList()
+                            if (startIndex in mutableList.indices) {
+                                mutableList[startIndex] = resolveTrack(mutableList[startIndex])
+                            }
+
+                            val lastPlaylistTrack = mutableList.last()
+                            val recs = onlineRepository.getRelatedRecommendations(lastPlaylistTrack)
+                            val existingIds = mutableList.map { it.id }.toSet()
+                            val uniqueRecs = recs.filter { it.id !in existingIds }
+                            val fullQueue = mutableList + uniqueRecs
+
+                            if (!coroutineContext.isActive) return@launch
+
+                            withContext(Dispatchers.Main) {
+                                _isPlaylistContext.value = true
+                                _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
+                                currentTracks = fullQueue
+                                mediaPlayerController.restoreQueue(fullQueue, startIndex, lastPosition)
+                                prefetchAndKeepQueueAlive(startIndex)
+                            }
+                        }
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.w("MUESO_RESTORE", "Failed to restore playlist queue from JSON cache", e)
+                }
+            }
+
             val title = sharedPreferences.getString("last_track_title", "") ?: ""
             val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
             val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
@@ -524,6 +666,7 @@ class PlayerViewModel(
                             .putLong("last_position", state.currentPositionMs)
                             .apply()
 
+                        saveQueueToPreferences()
                         fetchLyricsForTrack(curTrack)
                         prefetchAndKeepQueueAlive(currentTrackIdx)
                         checkAndApplySponsorBlock(curTrack, state.currentPositionMs, state.isPlaying)
@@ -537,6 +680,33 @@ class PlayerViewModel(
                 previousTrackId = state.currentTrackId
             }
         }
+    }
+
+    private fun saveQueueToPreferences() {
+        val editor = sharedPreferences.edit()
+        val isPlaylist = _isPlaylistContext.value
+        val count = _playlistTrackCount.value
+        editor.putBoolean("last_is_playlist_context", isPlaylist)
+        editor.putInt("last_playlist_track_count", count)
+
+        if (isPlaylist && count > 0 && currentTracks.isNotEmpty()) {
+            val jsonArr = org.json.JSONArray()
+            val playlistTracks = currentTracks.take(count)
+            for (t in playlistTracks) {
+                val obj = org.json.JSONObject()
+                obj.put("id", t.id)
+                obj.put("title", t.title)
+                obj.put("artist", t.artist)
+                obj.put("filePath", t.filePath)
+                obj.put("artworkUrl", t.artworkUrl ?: "")
+                obj.put("duration", t.duration)
+                jsonArr.put(obj)
+            }
+            editor.putString("last_playlist_queue_json", jsonArr.toString())
+        } else {
+            editor.remove("last_playlist_queue_json")
+        }
+        editor.apply()
     }
 
     private var activeSponsorSegments: List<com.akshay.musicplayer.data.remote.SponsorSegment> = emptyList()
@@ -567,6 +737,16 @@ class PlayerViewModel(
 
         if (isPlaying && activeSponsorSegments.isNotEmpty()) {
             for (seg in activeSponsorSegments) {
+                val shouldSkipCategory = when (seg.category) {
+                    "sponsor" -> _skipSponsor.value
+                    "selfpromo" -> _skipSelfPromo.value
+                    "interaction" -> _skipInteraction.value
+                    "intro", "outro" -> _skipIntroOutro.value
+                    "music_offtopic", "filler" -> _skipNonMusicOffTopic.value
+                    else -> true
+                }
+                if (!shouldSkipCategory) continue
+
                 val isIntroAtStart = seg.startMs <= 1500L
                 if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
                     Log.d("MUESO_SPONSOR", "Auto-skipping intro segment from 0ms to ${seg.endMs}ms for '${track.title}'")
@@ -767,12 +947,20 @@ class PlayerViewModel(
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.96f))
                 onlineRepository.embedMetadata(tempFile.absolutePath, track.title, track.artist, "Mueso Downloads", track.artworkUrl)
 
-                // Step 3: Save to Music/Mueso/[SanitizedTitle]ext
-                val musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
-                val muesoDir = java.io.File(musicDir, "Mueso")
-                if (!muesoDir.exists()) muesoDir.mkdirs()
+                // Step 3: Save to Target Directory based on settings (downloadFolder)
+                val folderSetting = _downloadFolder.value
+                val targetDir = when {
+                    folderSetting == "Downloads" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    folderSetting == "Internal App Storage" -> context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC) ?: context.filesDir
+                    folderSetting.startsWith("/") -> java.io.File(folderSetting)
+                    else -> {
+                        val musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+                        java.io.File(musicDir, folderSetting.removePrefix("Music/"))
+                    }
+                }
+                if (!targetDir.exists()) targetDir.mkdirs()
 
-                val destFile = java.io.File(muesoDir, "$sanitizedTitle$ext")
+                val destFile = java.io.File(targetDir, "$sanitizedTitle$ext")
                 tempFile.copyTo(destFile, overwrite = true)
                 tempFile.delete()
 
@@ -781,7 +969,7 @@ class PlayerViewModel(
 
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "Saved \"${track.title}\" to Music/Mueso", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "Saved \"${track.title}\" to ${targetDir.name}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e("MUESO_DOWNLOAD", "Error downloading track ${track.title}", e)
@@ -855,16 +1043,6 @@ class PlayerViewModel(
 
     private val _resolvingTrackTitle = MutableStateFlow<String?>(null)
     val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
-
-    private suspend fun resolveTrack(track: TrackEntity): TrackEntity {
-        return if (track.filePath.startsWith("online:")) {
-            val videoId = track.filePath.removePrefix("online:")
-            val streamUrl = onlineRepository.getStreamUrl(videoId)
-            track.copy(filePath = streamUrl)
-        } else {
-            track
-        }
-    }
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
         cancelRestoration()
@@ -1086,6 +1264,157 @@ class PlayerViewModel(
 
     fun dismissQueueSheet() {
         _showQueueSheet.value = false
+    }
+
+    // --- Settings & SponsorBlock Toggles ---
+    private val _showSettingsSheet = MutableStateFlow(false)
+    val showSettingsSheet: StateFlow<Boolean> = _showSettingsSheet.asStateFlow()
+
+    private val _skipSponsor = MutableStateFlow(sharedPreferences.getBoolean("skip_sponsor", true))
+    val skipSponsor: StateFlow<Boolean> = _skipSponsor.asStateFlow()
+
+    private val _skipSelfPromo = MutableStateFlow(sharedPreferences.getBoolean("skip_selfpromo", true))
+    val skipSelfPromo: StateFlow<Boolean> = _skipSelfPromo.asStateFlow()
+
+    private val _skipInteraction = MutableStateFlow(sharedPreferences.getBoolean("skip_interaction", true))
+    val skipInteraction: StateFlow<Boolean> = _skipInteraction.asStateFlow()
+
+    private val _skipIntroOutro = MutableStateFlow(sharedPreferences.getBoolean("skip_intro_outro", true))
+    val skipIntroOutro: StateFlow<Boolean> = _skipIntroOutro.asStateFlow()
+
+    private val _skipNonMusicOffTopic = MutableStateFlow(sharedPreferences.getBoolean("skip_non_music_offtopic", true))
+    val skipNonMusicOffTopic: StateFlow<Boolean> = _skipNonMusicOffTopic.asStateFlow()
+
+    fun toggleSettingsSheet() { _showSettingsSheet.value = !_showSettingsSheet.value }
+    fun dismissSettingsSheet() { _showSettingsSheet.value = false }
+
+    fun setSkipSponsor(enabled: Boolean) {
+        _skipSponsor.value = enabled
+        sharedPreferences.edit().putBoolean("skip_sponsor", enabled).apply()
+    }
+    fun setSkipSelfPromo(enabled: Boolean) {
+        _skipSelfPromo.value = enabled
+        sharedPreferences.edit().putBoolean("skip_selfpromo", enabled).apply()
+    }
+    fun setSkipInteraction(enabled: Boolean) {
+        _skipInteraction.value = enabled
+        sharedPreferences.edit().putBoolean("skip_interaction", enabled).apply()
+    }
+    fun setSkipIntroOutro(enabled: Boolean) {
+        _skipIntroOutro.value = enabled
+        sharedPreferences.edit().putBoolean("skip_intro_outro", enabled).apply()
+    }
+    fun setSkipNonMusicOffTopic(enabled: Boolean) {
+        _skipNonMusicOffTopic.value = enabled
+        sharedPreferences.edit().putBoolean("skip_non_music_offtopic", enabled).apply()
+    }
+
+    // --- Hero Playlist & Online Playlist Management ---
+    private val _heroPlaylistId = MutableStateFlow(sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global")
+    val heroPlaylistId: StateFlow<String> = _heroPlaylistId.asStateFlow()
+
+    fun setHeroPlaylistId(id: String) {
+        _heroPlaylistId.value = id
+        sharedPreferences.edit().putString("hero_playlist_id", id).apply()
+    }
+
+    fun updateOnlinePlaylistDetails(playlistId: Long, name: String, description: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.updateOnlinePlaylistDetails(playlistId, name, description)
+        }
+    }
+
+    // --- Audio, Thumbnail, Download & App Settings ---
+    private val _audioQuality = MutableStateFlow(sharedPreferences.getString("audio_quality", "High (320 kbps)") ?: "High (320 kbps)")
+    val audioQuality: StateFlow<String> = _audioQuality.asStateFlow()
+
+    private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "Highest (1080p Maxres)") ?: "Highest (1080p Maxres)")
+    val thumbnailQuality: StateFlow<String> = _thumbnailQuality.asStateFlow()
+
+    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Highest (320 kbps)") ?: "Highest (320 kbps)")
+    val downloadQuality: StateFlow<String> = _downloadQuality.asStateFlow()
+
+    private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")
+    val downloadFolder: StateFlow<String> = _downloadFolder.asStateFlow()
+
+    private val _enableLyrics = MutableStateFlow(sharedPreferences.getBoolean("enable_lyrics", true))
+    val enableLyrics: StateFlow<Boolean> = _enableLyrics.asStateFlow()
+
+    private val _isDarkMode = MutableStateFlow(sharedPreferences.getBoolean("is_dark_mode", true))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _showOnLockscreen = MutableStateFlow(sharedPreferences.getBoolean("show_on_lockscreen", true))
+    val showOnLockscreen: StateFlow<Boolean> = _showOnLockscreen.asStateFlow()
+
+    private val _highRefreshRate = MutableStateFlow(sharedPreferences.getBoolean("high_refresh_rate", true))
+    val highRefreshRate: StateFlow<Boolean> = _highRefreshRate.asStateFlow()
+
+    fun setAudioQuality(quality: String) {
+        _audioQuality.value = quality
+        sharedPreferences.edit().putString("audio_quality", quality).apply()
+    }
+
+    fun setThumbnailQuality(quality: String) {
+        _thumbnailQuality.value = quality
+        sharedPreferences.edit().putString("thumbnail_quality", quality).apply()
+    }
+
+    fun setDownloadQuality(quality: String) {
+        _downloadQuality.value = quality
+        sharedPreferences.edit().putString("download_quality", quality).apply()
+    }
+
+    fun setDownloadFolder(folder: String) {
+        _downloadFolder.value = folder
+        sharedPreferences.edit().putString("download_folder", folder).apply()
+    }
+
+    fun setEnableLyrics(enabled: Boolean) {
+        _enableLyrics.value = enabled
+        sharedPreferences.edit().putBoolean("enable_lyrics", enabled).apply()
+    }
+
+    fun setShowOnLockscreen(enabled: Boolean) {
+        _showOnLockscreen.value = enabled
+        sharedPreferences.edit().putBoolean("show_on_lockscreen", enabled).apply()
+    }
+
+    fun setHighRefreshRate(enabled: Boolean) {
+        _highRefreshRate.value = enabled
+        sharedPreferences.edit().putBoolean("high_refresh_rate", enabled).apply()
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        _isDarkMode.value = enabled
+        sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()
+    }
+
+    fun playNext(track: TrackEntity) {
+        val currentIndex = currentTracks.indexOfFirst { it.id == _playbackState.value.currentTrackId }
+        val insertIndex = if (currentIndex >= 0) currentIndex + 1 else currentTracks.size
+        val updated = currentTracks.toMutableList()
+        updated.add(insertIndex, track)
+        currentTracks = updated
+        mediaPlayerController.setPlaylistAndPlay(currentTracks, if (currentIndex >= 0) currentIndex else 0)
+    }
+
+    fun addToQueue(track: TrackEntity) {
+        val updated = currentTracks.toMutableList()
+        updated.add(track)
+        currentTracks = updated
+        mediaPlayerController.appendTracksToQueue(listOf(track))
+    }
+
+    fun forceRefreshAll(context: android.content.Context) {
+        val editor = sharedPreferences.edit()
+        val keys = sharedPreferences.all.keys.filter { it.startsWith("curated_cache_") }
+        for (k in keys) {
+            editor.remove(k)
+        }
+        editor.apply()
+
+        loadLocalTracks(forceReload = true)
+        android.widget.Toast.makeText(context, "App refreshed! Caches cleared & songs rescanned.", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     fun getQueueTracks(): List<TrackEntity> = currentTracks

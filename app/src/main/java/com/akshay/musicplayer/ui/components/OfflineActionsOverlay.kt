@@ -91,15 +91,17 @@ fun OfflineActionsOverlay(
                     val labelText = when {
                         isDownloaded -> "Saved"
                         isDownloading -> if (downloadProgress > 0f) "${(downloadProgress * 100).toInt()}%" else "Saving..."
-                        else -> "Save"
+                        else -> null
                     }
-                    Text(
-                        text = labelText,
-                        color = if (isDownloaded) Color(0xFF4CAF50) else accentColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 10.sp
-                    )
+                    if (labelText != null) {
+                        Text(
+                            text = labelText,
+                            color = if (isDownloaded) Color(0xFF4CAF50) else accentColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 10.sp
+                        )
+                    }
                     IconButton(
                         onClick = onDownloadClick,
                         enabled = !isDownloading && !isDownloaded
@@ -133,7 +135,7 @@ fun OfflineActionsOverlay(
                                 Icon(
                                     imageVector = Icons.Default.Download,
                                     contentDescription = "Download Song",
-                                    tint = accentColor,
+                                    tint = Color.White.copy(alpha = 0.8f),
                                     modifier = Modifier.size(26.dp)
                                 )
                             }
@@ -145,18 +147,11 @@ fun OfflineActionsOverlay(
             // Add to Online Playlist Button (for Online Songs)
             if (isOnlineSong) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Add",
-                        color = accentColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 10.sp
-                    )
                     IconButton(onClick = onAddToPlaylistClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                             contentDescription = "Add to Online Playlist",
-                            tint = accentColor,
+                            tint = Color.White.copy(alpha = 0.8f),
                             modifier = Modifier.size(26.dp)
                         )
                     }

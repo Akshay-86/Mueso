@@ -23,7 +23,8 @@ fun PlaylistCollageArt(
     tracks: List<TrackEntity>,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
-    fallbackGradient: List<Color> = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
+    fallbackGradient: List<Color> = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
+    thumbnailQuality: String = "Highest (1080p Maxres)"
 ) {
     val artworkUrls = tracks.mapNotNull { track ->
         track.artworkUrl ?: if (track.albumId > 0) "content://media/external/audio/albumart/${track.albumId}" else null
@@ -40,42 +41,47 @@ fun PlaylistCollageArt(
                 // Spotify-style 2x2 Grid Collage
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.weight(1f)) {
-                        AsyncImage(
-                            model = artworkUrls[0],
+                        SmartArtworkImage(
+                            artworkUrl = artworkUrls[0],
                             contentDescription = null,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            thumbnailQuality = thumbnailQuality
                         )
-                        AsyncImage(
-                            model = artworkUrls[1],
+                        SmartArtworkImage(
+                            artworkUrl = artworkUrls[1],
                             contentDescription = null,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            thumbnailQuality = thumbnailQuality
                         )
                     }
                     Row(modifier = Modifier.weight(1f)) {
-                        AsyncImage(
-                            model = artworkUrls[2],
+                        SmartArtworkImage(
+                            artworkUrl = artworkUrls[2],
                             contentDescription = null,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            thumbnailQuality = thumbnailQuality
                         )
-                        AsyncImage(
-                            model = artworkUrls[3],
+                        SmartArtworkImage(
+                            artworkUrl = artworkUrls[3],
                             contentDescription = null,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            thumbnailQuality = thumbnailQuality
                         )
                     }
                 }
             }
             artworkUrls.isNotEmpty() -> {
                 // Single artwork cover
-                AsyncImage(
-                    model = artworkUrls.first(),
+                SmartArtworkImage(
+                    artworkUrl = artworkUrls.first(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    thumbnailQuality = thumbnailQuality
                 )
             }
             else -> {

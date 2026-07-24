@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
@@ -72,6 +73,7 @@ fun SleepTimerBottomSheet(
     activeTimerMinutes: Int?,
     activeSleepSongId: Long?,
     isPlaylistContext: Boolean = false,
+    isDarkMode: Boolean = true,
     onSetTimer: (minutes: Int) -> Unit,
     onSetAfterSong: (trackId: Long) -> Unit,
     onSetEndOfPlaylist: () -> Unit,
@@ -82,12 +84,15 @@ fun SleepTimerBottomSheet(
     val accentColor = Color(0xFFFF512F)
     val accentGradient = Brush.horizontalGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))
 
+    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+
     var selectedTab by remember { mutableIntStateOf(0) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF1A1A2E),
+        containerColor = sheetBg,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Column(
@@ -100,12 +105,12 @@ fun SleepTimerBottomSheet(
                         .width(40.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.2f))
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Sleep Timer",
-                    color = Color.White,
+                    color = textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -161,12 +166,12 @@ fun SleepTimerBottomSheet(
                             selectedContainerColor = accentColor.copy(alpha = 0.2f),
                             selectedLabelColor = accentColor,
                             selectedLeadingIconColor = accentColor,
-                            containerColor = Color.White.copy(alpha = 0.05f),
-                            labelColor = Color.White.copy(alpha = 0.7f),
-                            iconColor = Color.White.copy(alpha = 0.7f)
+                            containerColor = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.05f),
+                            labelColor = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF1D1D1F),
+                            iconColor = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF1D1D1F)
                         ),
                         border = FilterChipDefaults.filterChipBorder(
-                            borderColor = Color.White.copy(alpha = 0.1f),
+                            borderColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.12f),
                             selectedBorderColor = accentColor.copy(alpha = 0.5f),
                             enabled = true,
                             selected = selectedTab == index
@@ -182,6 +187,7 @@ fun SleepTimerBottomSheet(
                 0 -> TimerTab(
                     activeMinutes = if (activeSleepMode == SleepTimerMode.TIMER) activeTimerMinutes else null,
                     accentColor = accentColor,
+                    isDarkMode = isDarkMode,
                     onSelect = onSetTimer
                 )
                 1 -> AfterSongTab(
@@ -189,6 +195,7 @@ fun SleepTimerBottomSheet(
                     currentTrackId = currentTrackId,
                     activeSongId = if (activeSleepMode == SleepTimerMode.AFTER_SONG) activeSleepSongId else null,
                     accentColor = accentColor,
+                    isDarkMode = isDarkMode,
                     onSelect = onSetAfterSong
                 )
                 2 -> EndOfPlaylistTab(
@@ -196,6 +203,7 @@ fun SleepTimerBottomSheet(
                     isPlaylistContext = isPlaylistContext,
                     accentColor = accentColor,
                     accentGradient = accentGradient,
+                    isDarkMode = isDarkMode,
                     onSet = onSetEndOfPlaylist
                 )
             }
@@ -225,6 +233,7 @@ fun SleepTimerBottomSheet(
 private fun TimerTab(
     activeMinutes: Int?,
     accentColor: Color,
+    isDarkMode: Boolean = true,
     onSelect: (Int) -> Unit
 ) {
     val presets = listOf(5, 10, 15, 30, 45, 60)
@@ -235,7 +244,7 @@ private fun TimerTab(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "Stop playing after",
-            color = Color.White.copy(alpha = 0.6f),
+            color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73),
             fontSize = 13.sp,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
@@ -251,11 +260,11 @@ private fun TimerTab(
                     val isActive = activeMinutes == minutes
                     val bgColor by animateColorAsState(
                         if (isActive) accentColor.copy(alpha = 0.2f)
-                        else Color.White.copy(alpha = 0.06f),
+                        else (if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)),
                         label = "timerBg"
                     )
                     val textColor by animateColorAsState(
-                        if (isActive) accentColor else Color.White,
+                        if (isActive) accentColor else (if (isDarkMode) Color.White else Color(0xFF1D1D1F)),
                         label = "timerText"
                     )
 
@@ -296,16 +305,16 @@ private fun TimerTab(
         ) {
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
-                color = Color.White.copy(alpha = 0.1f)
+                color = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.12f)
             )
             Text(
                 "or set custom",
-                color = Color.White.copy(alpha = 0.4f),
+                color = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73),
                 fontSize = 12.sp
             )
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
-                color = Color.White.copy(alpha = 0.1f)
+                color = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.12f)
             )
         }
 
@@ -318,7 +327,7 @@ private fun TimerTab(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.06f))
+                    .background(if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f))
                     .clickable { showCustomPicker = true }
                     .padding(vertical = 16.dp),
                 contentAlignment = Alignment.Center
@@ -330,12 +339,12 @@ private fun TimerTab(
                     Icon(
                         Icons.Default.Timer,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f),
+                        tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF1D1D1F),
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
                         "Custom Time",
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = if (isDarkMode) Color.White.copy(alpha = 0.8f) else Color(0xFF1D1D1F),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -347,7 +356,7 @@ private fun TimerTab(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.04f))
+                    .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.04f))
                     .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -363,12 +372,13 @@ private fun TimerTab(
                         onSelectedChange = { customHours = it },
                         label = "hr",
                         accentColor = accentColor,
+                        isDarkMode = isDarkMode,
                         modifier = Modifier.width(80.dp)
                     )
 
                     Text(
                         ":",
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF1D1D1F),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 4.dp)
@@ -381,6 +391,7 @@ private fun TimerTab(
                         onSelectedChange = { customMinutes = it },
                         label = "min",
                         accentColor = accentColor,
+                        isDarkMode = isDarkMode,
                         modifier = Modifier.width(80.dp)
                     )
                 }
@@ -393,7 +404,7 @@ private fun TimerTab(
                     enabled = totalMinutes > 0,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accentColor,
-                        disabledContainerColor = Color.White.copy(alpha = 0.1f)
+                        disabledContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(0.6f)
@@ -423,6 +434,7 @@ private fun ScrollWheelPicker(
     onSelectedChange: (Int) -> Unit,
     label: String,
     accentColor: Color,
+    isDarkMode: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val visibleItems = 3
@@ -447,7 +459,7 @@ private fun ScrollWheelPicker(
     ) {
         Text(
             label,
-            color = Color.White.copy(alpha = 0.4f),
+            color = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
@@ -484,7 +496,7 @@ private fun ScrollWheelPicker(
                     ) {
                         Text(
                             text = "%02d".format(items[index]),
-                            color = if (isSelected) accentColor else Color.White.copy(alpha = 0.35f),
+                            color = if (isSelected) accentColor else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.35f)),
                             fontSize = if (isSelected) 26.sp else 18.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             textAlign = TextAlign.Center
@@ -506,12 +518,13 @@ private fun AfterSongTab(
     currentTrackId: Long?,
     activeSongId: Long?,
     accentColor: Color,
+    isDarkMode: Boolean = true,
     onSelect: (Long) -> Unit
 ) {
     Column {
         Text(
             "Stop after this song finishes",
-            color = Color.White.copy(alpha = 0.6f),
+            color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73),
             fontSize = 13.sp,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
@@ -549,8 +562,8 @@ private fun AfterSongTab(
                             .background(
                                 when {
                                     isSelected -> accentColor.copy(alpha = 0.3f)
-                                    isCurrent -> Color.White.copy(alpha = 0.15f)
-                                    else -> Color.White.copy(alpha = 0.06f)
+                                    isCurrent -> if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.08f)
+                                    else -> if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
                                 }
                             ),
                         contentAlignment = Alignment.Center
@@ -566,7 +579,7 @@ private fun AfterSongTab(
                             Icon(
                                 Icons.Default.MusicNote,
                                 contentDescription = null,
-                                tint = if (isCurrent) Color.White else Color.White.copy(alpha = 0.4f),
+                                tint = if (isCurrent) (if (isDarkMode) Color.White else Color(0xFF1D1D1F)) else (if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73)),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -577,8 +590,8 @@ private fun AfterSongTab(
                             track.title,
                             color = when {
                                 isSelected -> accentColor
-                                isCurrent -> Color.White
-                                else -> Color.White.copy(alpha = 0.8f)
+                                isCurrent -> if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+                                else -> if (isDarkMode) Color.White.copy(alpha = 0.8f) else Color(0xFF1D1D1F)
                             },
                             fontSize = 14.sp,
                             fontWeight = if (isSelected || isCurrent) FontWeight.SemiBold else FontWeight.Normal,
@@ -587,7 +600,7 @@ private fun AfterSongTab(
                         )
                         Text(
                             track.artist,
-                            color = Color.White.copy(alpha = 0.4f),
+                            color = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73),
                             fontSize = 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -679,6 +692,7 @@ private fun EndOfPlaylistTab(
     isPlaylistContext: Boolean,
     accentColor: Color,
     accentGradient: Brush,
+    isDarkMode: Boolean = true,
     onSet: () -> Unit
 ) {
     Column(
@@ -689,9 +703,9 @@ private fun EndOfPlaylistTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Icon(
-            Icons.Default.PlaylistPlay,
+            Icons.AutoMirrored.Filled.PlaylistPlay,
             contentDescription = null,
-            tint = if (isActive) accentColor else if (!isPlaylistContext) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
+            tint = if (isActive) accentColor else if (!isPlaylistContext) (if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.2f)) else (if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)),
             modifier = Modifier.size(48.dp)
         )
 
@@ -701,7 +715,7 @@ private fun EndOfPlaylistTab(
                 isActive -> "Will stop at end of playlist"
                 else -> "Stop playback when the current playlist ends"
             },
-            color = if (!isPlaylistContext) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.7f),
+            color = if (!isPlaylistContext) (if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73)) else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF1D1D1F)),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 24.dp)
@@ -712,7 +726,7 @@ private fun EndOfPlaylistTab(
             enabled = isPlaylistContext,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isActive) accentColor.copy(alpha = 0.2f) else accentColor,
-                disabledContainerColor = Color.White.copy(alpha = 0.08f)
+                disabledContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
             ),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(0.6f)

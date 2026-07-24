@@ -37,8 +37,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setupLockScreenDisplay()
-
         // Initialize Chaquopy Python runtime
         if (!com.chaquo.python.Python.isStarted()) {
             com.chaquo.python.Python.start(com.chaquo.python.android.AndroidPlatform(this))
@@ -48,7 +46,18 @@ class MainActivity : ComponentActivity() {
         setupViewModel()
 
         setContent {
-            MusicPlayerTheme {
+            val isDarkMode by playerViewModel.isDarkMode.collectAsState()
+            val showOnLockscreen by playerViewModel.showOnLockscreen.collectAsState()
+            val highRefreshRate by playerViewModel.highRefreshRate.collectAsState()
+
+            LaunchedEffect(showOnLockscreen) {
+                updateLockScreenDisplay(showOnLockscreen)
+            }
+            LaunchedEffect(highRefreshRate) {
+                updateRefreshRate(highRefreshRate)
+            }
+
+            MusicPlayerTheme(darkTheme = isDarkMode) {
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {
@@ -98,6 +107,37 @@ class MainActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                 android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
+        }
+    }
+
+    private fun updateLockScreenDisplay(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(enabled)
+            setTurnScreenOn(enabled)
+        } else {
+            @Suppress("DEPRECATION")
+            if (enabled) {
+                window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            } else {
+                window.clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+        }
+    }
+
+    private fun updateRefreshRate(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+            val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+            val maxMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
+            val params = window.attributes
+            params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
+            window.attributes = params
         }
     }
 

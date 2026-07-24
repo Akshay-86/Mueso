@@ -18,10 +18,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,6 +68,21 @@ fun MainScreen(viewModel: PlayerViewModel) {
 
     var isOnlineDetailActive by remember { mutableStateOf(false) }
 
+    val showSettingsSheet by viewModel.showSettingsSheet.collectAsState()
+    val skipSponsor by viewModel.skipSponsor.collectAsState()
+    val skipSelfPromo by viewModel.skipSelfPromo.collectAsState()
+    val skipInteraction by viewModel.skipInteraction.collectAsState()
+    val skipIntroOutro by viewModel.skipIntroOutro.collectAsState()
+    val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
+    val audioQuality by viewModel.audioQuality.collectAsState()
+    val thumbnailQuality by viewModel.thumbnailQuality.collectAsState()
+    val downloadQuality by viewModel.downloadQuality.collectAsState()
+    val downloadFolder by viewModel.downloadFolder.collectAsState()
+    val enableLyrics by viewModel.enableLyrics.collectAsState()
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Pager always alive
         HorizontalPager(
@@ -99,12 +115,14 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 isOnlineActive = isOnlineActive,
                 isSearchActive = isSearchActive,
                 searchQuery = searchQuery,
+                isDarkMode = isDarkMode,
                 onSearchClick = { isSearchActive = true },
                 onSearchClose = {
                     isSearchActive = false
                     viewModel.setSearchQuery("")
                 },
                 onQueryChange = { viewModel.setSearchQuery(it) },
+                onSettingsClick = { viewModel.toggleSettingsSheet() },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
@@ -130,131 +148,131 @@ fun MainScreen(viewModel: PlayerViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp)
                     .padding(horizontal = 16.dp)
+                    .heightIn(max = 420.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1A1A2E))
+                    .background(Color(0xFF1E1E2E).copy(alpha = 0.95f))
+                    .padding(12.dp)
             ) {
-                if (results.isEmpty()) {
+                if (isSearchingOnline && results.isEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            color = AccentOrange,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Searching online...", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                    }
+                } else if (results.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(32.dp),
+                            .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isSearchingOnline) {
+                        Text("No matching songs found", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+                    }
+                } else {
+                    val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(results.size) { index ->
+                            val track = results[index]
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        viewModel.playTrack(track)
+                                        isSearchActive = false
+                                        viewModel.setSearchQuery("")
+                                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                                    }
+                                    .padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color(0xFFFF512F),
-                                    strokeWidth = 2.dp
-                                )
-                                Text(
-                                    "Searching online...",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 14.sp
-                                )
-                            }
-                        } else {
-                            Text(
-                                "No results for \"$searchQuery\"",
-                                color = Color.White.copy(alpha = 0.4f),
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                } else {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${results.size} result${if (results.size != 1) "s" else ""}",
-                                color = Color.White.copy(alpha = 0.35f),
-                                fontSize = 12.sp
-                            )
-                            if (isSearchingOnline) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    color = Color(0xFFFF512F),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        }
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 350.dp),
-                            contentPadding = PaddingValues(bottom = 8.dp)
-                        ) {
-
-                            items(count = results.size) { index ->
-                                val track = results[index]
-                                Row(
+                                val thumbModel = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            viewModel.playTrack(track)
-                                            isSearchActive = false
-                                            viewModel.setSearchQuery("")
-                                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
-                                        }
-                                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.White.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    val thumbModel = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.1f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        coil.compose.AsyncImage(
-                                            model = thumbModel,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                            error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Search)
-                                        )
-                                    }
+                                    coil.compose.AsyncImage(
+                                        model = thumbModel,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.MusicNote)
+                                    )
+                                }
 
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = track.title,
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = track.artist,
-                                            color = Color.White.copy(alpha = 0.4f),
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = track.artist,
+                                        color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73),
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
 
-                                    IconButton(
-                                        onClick = {
-                                            selectedTrackForPlaylist = track
-                                        }
-                                    ) {
+                                var showSearchMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { showSearchMenu = true }) {
                                         Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = "Add to Playlist",
-                                            tint = Color.White.copy(alpha = 0.6f),
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Options",
+                                            tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF3A3A3C),
                                             modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = showSearchMenu,
+                                        onDismissRequest = { showSearchMenu = false },
+                                        modifier = Modifier.background(if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF))
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Play Next", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
+                                            onClick = {
+                                                showSearchMenu = false
+                                                viewModel.playNext(track)
+                                                android.widget.Toast.makeText(context, "Playing next: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Add to Queue", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
+                                            onClick = {
+                                                showSearchMenu = false
+                                                viewModel.addToQueue(track)
+                                                android.widget.Toast.makeText(context, "Added to queue: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Add to Playlist", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
+                                            onClick = {
+                                                showSearchMenu = false
+                                                selectedTrackForPlaylist = track
+                                            }
                                         )
                                     }
                                 }
@@ -298,12 +316,50 @@ fun MainScreen(viewModel: PlayerViewModel) {
         if (selectedTrackForPlaylist != null) {
             com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
                 track = selectedTrackForPlaylist!!,
+                viewModel = viewModel,
                 onlinePlaylists = onlinePlaylists,
+                isDarkMode = isDarkMode,
                 onSelectPlaylist = { playlist ->
                     viewModel.addTrackToOnlinePlaylist(playlist.id, selectedTrackForPlaylist!!)
                 },
-                onCreateNewPlaylist = { viewModel.createOnlinePlaylist("My Online Playlist") },
                 onDismiss = { selectedTrackForPlaylist = null }
+            )
+        }
+
+        // Settings Bottom Sheet
+        if (showSettingsSheet) {
+            val showOnLockscreen by viewModel.showOnLockscreen.collectAsState()
+            val highRefreshRate by viewModel.highRefreshRate.collectAsState()
+
+            com.akshay.musicplayer.ui.components.SettingsBottomSheet(
+                skipSponsor = skipSponsor,
+                skipSelfPromo = skipSelfPromo,
+                skipInteraction = skipInteraction,
+                skipIntroOutro = skipIntroOutro,
+                skipNonMusicOffTopic = skipNonMusicOffTopic,
+                audioQuality = audioQuality,
+                thumbnailQuality = thumbnailQuality,
+                downloadQuality = downloadQuality,
+                downloadFolder = downloadFolder,
+                enableLyrics = enableLyrics,
+                isDarkMode = isDarkMode,
+                showOnLockscreen = showOnLockscreen,
+                highRefreshRate = highRefreshRate,
+                onToggleSponsor = { viewModel.setSkipSponsor(it) },
+                onToggleSelfPromo = { viewModel.setSkipSelfPromo(it) },
+                onToggleInteraction = { viewModel.setSkipInteraction(it) },
+                onToggleIntroOutro = { viewModel.setSkipIntroOutro(it) },
+                onToggleNonMusicOffTopic = { viewModel.setSkipNonMusicOffTopic(it) },
+                onAudioQualityChange = { viewModel.setAudioQuality(it) },
+                onThumbnailQualityChange = { viewModel.setThumbnailQuality(it) },
+                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+                onDownloadFolderChange = { viewModel.setDownloadFolder(it) },
+                onEnableLyricsToggle = { viewModel.setEnableLyrics(it) },
+                onDarkModeToggle = { viewModel.setDarkMode(it) },
+                onShowOnLockscreenToggle = { viewModel.setShowOnLockscreen(it) },
+                onHighRefreshRateToggle = { viewModel.setHighRefreshRate(it) },
+                onForceRefresh = { ctx -> viewModel.forceRefreshAll(ctx) },
+                onDismiss = { viewModel.dismissSettingsSheet() }
             )
         }
     }
@@ -316,12 +372,17 @@ fun TopNavigationBarWithSearch(
     isOnlineActive: Boolean,
     isSearchActive: Boolean,
     searchQuery: String,
+    isDarkMode: Boolean = true,
     onSearchClick: () -> Unit,
     onSearchClose: () -> Unit,
     onQueryChange: (String) -> Unit,
+    onSettingsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.4f)
+    val searchBg = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f)
 
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
@@ -360,7 +421,7 @@ fun TopNavigationBarWithSearch(
                     )
                     Text(
                         text = "Mueso",
-                        color = Color.White,
+                        color = textColor,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 22.sp,
                         letterSpacing = (-0.5).sp
@@ -385,7 +446,7 @@ fun TopNavigationBarWithSearch(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
+                    .background(searchBg)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -393,14 +454,14 @@ fun TopNavigationBarWithSearch(
                 Icon(
                     Icons.Default.Search,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.4f),
+                    tint = textSub,
                     modifier = Modifier.size(20.dp)
                 )
                 BasicTextField(
                     value = searchQuery,
                     onValueChange = onQueryChange,
                     textStyle = TextStyle(
-                        color = Color.White,
+                        color = textColor,
                         fontSize = 16.sp
                     ),
                     singleLine = true,
@@ -413,7 +474,7 @@ fun TopNavigationBarWithSearch(
                             if (searchQuery.isEmpty()) {
                                 Text(
                                     "Search songs...",
-                                    color = Color.White.copy(alpha = 0.3f),
+                                    color = textSub,
                                     fontSize = 16.sp
                                 )
                             }
@@ -425,7 +486,7 @@ fun TopNavigationBarWithSearch(
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "Clear",
-                        tint = Color.White.copy(alpha = 0.5f),
+                        tint = textSub,
                         modifier = Modifier
                             .size(20.dp)
                             .clickable { onQueryChange("") }
@@ -435,17 +496,28 @@ fun TopNavigationBarWithSearch(
         } // End AnimatedVisibility
         } // End Box
 
-        // Search / Close toggle button
-        IconButton(
-            onClick = {
-                if (isSearchActive) onSearchClose() else onSearchClick()
+        // Action buttons: Settings & Search/Close toggle
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!isSearchActive) {
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = textColor
+                    )
+                }
             }
-        ) {
-            Icon(
-                imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                contentDescription = "Search",
-                tint = Color.White
-            )
+            IconButton(
+                onClick = {
+                    if (isSearchActive) onSearchClose() else onSearchClick()
+                }
+            ) {
+                Icon(
+                    imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = textColor
+                )
+            }
         }
     }
 }

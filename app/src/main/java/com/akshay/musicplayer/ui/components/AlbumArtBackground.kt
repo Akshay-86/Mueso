@@ -98,8 +98,8 @@ fun AlbumArtBackground(
             }
     ) {
         if (!albumArtUri.isNullOrEmpty()) {
-            AsyncImage(
-                model = imageModel,
+            SmartArtworkImage(
+                artworkUrl = albumArtUri,
                 contentDescription = contentDescription,
                 alignment = BiasAlignment(horizontalBias, 0f),
                 contentScale = ContentScale.Crop,

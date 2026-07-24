@@ -58,11 +58,15 @@ fun QueueBottomSheet(
     currentTrackId: Long?,
     isPlaylistContext: Boolean = false,
     playlistTrackCount: Int = 0,
+    isDarkMode: Boolean = true,
     onTrackClick: (Int) -> Unit,
     onMove: (from: Int, to: Int) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
 
     // Only show tracks AFTER the currently playing one (upcoming queue)
     val currentIndex = tracks.indexOfFirst { it.id == currentTrackId }
@@ -76,7 +80,7 @@ fun QueueBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = SurfaceDark,
+        containerColor = sheetBg,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Column(
@@ -89,12 +93,12 @@ fun QueueBottomSheet(
                         .width(40.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.2f))
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Upcoming Queue",
-                    color = Color.White,
+                    color = textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -111,7 +115,7 @@ fun QueueBottomSheet(
             ) {
                 Text(
                     "No more tracks in queue",
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = textSecondary,
                     fontSize = 14.sp
                 )
             }
@@ -137,6 +141,7 @@ fun QueueBottomSheet(
                             isPlaying = false,
                             isDragging = isDragging,
                             dragOffsetY = if (isDragging) dragOffset else 0f,
+                            isDarkMode = isDarkMode,
                             onClick = { onTrackClick(globalIndex) },
                             dragModifier = Modifier.pointerInput(track.id) {
                                 detectDragGesturesAfterLongPress(
@@ -216,12 +221,16 @@ private fun QueueTrackItem(
     isPlaying: Boolean,
     isDragging: Boolean,
     dragOffsetY: Float,
+    isDarkMode: Boolean = true,
     onClick: () -> Unit,
     dragModifier: Modifier
 ) {
     val bgColor = when {
         isDragging -> Brush.horizontalGradient(
-            listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.04f))
+            listOf(
+                if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f)
+            )
         )
         isPlaying -> Brush.horizontalGradient(
             listOf(Color(0x33FF512F), Color(0x33DD2476))
@@ -253,15 +262,14 @@ private fun QueueTrackItem(
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.1f)),
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.06f)),
             contentAlignment = Alignment.Center
         ) {
-            coil.compose.AsyncImage(
-                model = artModel,
+            SmartArtworkImage(
+                artworkUrl = artModel,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.MusicNote)
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
             )
         }
 
@@ -269,7 +277,7 @@ private fun QueueTrackItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = Color.White,
+                color = if (isDarkMode) Color.White else Color(0xFF1D1D1F),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
@@ -277,7 +285,7 @@ private fun QueueTrackItem(
             )
             Text(
                 text = track.artist,
-                color = Color.White.copy(alpha = 0.5f),
+                color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73),
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -288,7 +296,7 @@ private fun QueueTrackItem(
         val seconds = (track.duration / 1000) % 60
         Text(
             text = "%d:%02d".format(minutes, seconds),
-            color = Color.White.copy(alpha = 0.4f),
+            color = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF6E6E73),
             fontSize = 12.sp
         )
 
@@ -302,7 +310,7 @@ private fun QueueTrackItem(
             Icon(
                 Icons.Default.DragHandle,
                 contentDescription = "Hold to reorder",
-                tint = if (isDragging) AccentOrange else Color.White.copy(alpha = 0.3f),
+                tint = if (isDragging) AccentOrange else (if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f)),
                 modifier = Modifier.size(24.dp)
             )
         }
