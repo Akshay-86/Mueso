@@ -56,6 +56,8 @@ private val SurfaceDark = Color(0xFF1A1A2E)
 fun QueueBottomSheet(
     tracks: List<TrackEntity>,
     currentTrackId: Long?,
+    isPlaylistContext: Boolean = false,
+    playlistTrackCount: Int = 0,
     onTrackClick: (Int) -> Unit,
     onMove: (from: Int, to: Int) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
@@ -91,12 +93,12 @@ fun QueueBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Up Next • ${upcomingTracks.size} tracks",
+                    text = "Upcoming Queue",
                     color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     ) {
@@ -129,49 +131,79 @@ fun QueueBottomSheet(
                     // Map local index back to full tracks list index
                     val globalIndex = upcomingStartIndex + localIndex
 
-                    QueueTrackItem(
-                        track = track,
-                        isPlaying = false,
-                        isDragging = isDragging,
-                        dragOffsetY = if (isDragging) dragOffset else 0f,
-                        onClick = { onTrackClick(globalIndex) },
-                        dragModifier = Modifier.pointerInput(track.id) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    draggedIndex = localIndex
-                                    dragOffset = 0f
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    dragOffset += dragAmount.y
+                    Column {
+                        QueueTrackItem(
+                            track = track,
+                            isPlaying = false,
+                            isDragging = isDragging,
+                            dragOffsetY = if (isDragging) dragOffset else 0f,
+                            onClick = { onTrackClick(globalIndex) },
+                            dragModifier = Modifier.pointerInput(track.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        draggedIndex = localIndex
+                                        dragOffset = 0f
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount.y
 
-                                    val currentDragIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
-                                    val globalFrom = upcomingStartIndex + currentDragIdx
+                                        val currentDragIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
+                                        val globalFrom = upcomingStartIndex + currentDragIdx
 
-                                    // Swap down
-                                    if (dragOffset > itemHeightPx * 0.6f && currentDragIdx < upcomingTracks.size - 1) {
-                                        onMove(globalFrom, globalFrom + 1)
-                                        draggedIndex = currentDragIdx + 1
-                                        dragOffset -= itemHeightPx
+                                        // Swap down
+                                        if (dragOffset > itemHeightPx * 0.6f && currentDragIdx < upcomingTracks.size - 1) {
+                                            onMove(globalFrom, globalFrom + 1)
+                                            draggedIndex = currentDragIdx + 1
+                                            dragOffset -= itemHeightPx
+                                        }
+                                        // Swap up
+                                        if (dragOffset < -itemHeightPx * 0.6f && currentDragIdx > 0) {
+                                            onMove(globalFrom, globalFrom - 1)
+                                            draggedIndex = currentDragIdx - 1
+                                            dragOffset += itemHeightPx
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        draggedIndex = null
+                                        dragOffset = 0f
+                                    },
+                                    onDragCancel = {
+                                        draggedIndex = null
+                                        dragOffset = 0f
                                     }
-                                    // Swap up
-                                    if (dragOffset < -itemHeightPx * 0.6f && currentDragIdx > 0) {
-                                        onMove(globalFrom, globalFrom - 1)
-                                        draggedIndex = currentDragIdx - 1
-                                        dragOffset += itemHeightPx
-                                    }
-                                },
-                                onDragEnd = {
-                                    draggedIndex = null
-                                    dragOffset = 0f
-                                },
-                                onDragCancel = {
-                                    draggedIndex = null
-                                    dragOffset = 0f
-                                }
-                            )
+                                )
+                            }
+                        )
+
+                        // Divider after the last song of playlist
+                        if (isPlaylistContext && playlistTrackCount > 0 && globalIndex == playlistTrackCount - 1) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp, horizontal = 12.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color(0xFFFF512F).copy(alpha = 0.25f),
+                                                Color(0xFF8E2DE2).copy(alpha = 0.25f)
+                                            )
+                                        )
+                                    )
+                                    .padding(vertical = 10.dp, horizontal = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "END OF PLAYLIST  •  RADIO RECOMMENDATIONS NEXT",
+                                    color = AccentOrange,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.8.sp
+                                )
+                            }
                         }
-                    )
+                    }
                 }
             }
         }

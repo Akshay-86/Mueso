@@ -18,6 +18,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
@@ -48,6 +49,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     var selectedPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
+    var selectedTrackForPlaylist by remember { mutableStateOf<com.akshay.musicplayer.domain.models.TrackEntity?>(null) }
+    val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
     var isSearchActive by remember { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
 
@@ -61,6 +64,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
     androidx.activity.compose.BackHandler(enabled = pagerState.currentPage != 1 && selectedPlaylist == null && !isSearchActive) {
         coroutineScope.launch { pagerState.animateScrollToPage(1) }
     }
+
+    var isOnlineDetailActive by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Pager always alive
@@ -82,24 +87,27 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     viewModel = viewModel,
                     onNavigateToPlayer = {
                         coroutineScope.launch { pagerState.animateScrollToPage(1) }
-                    }
+                    },
+                    onDetailVisibilityChanged = { isOnlineDetailActive = it }
                 )
             }
         }
 
-        // Top Navigation Bar with integrated search
-        TopNavigationBarWithSearch(
-            isOnlineActive = isOnlineActive,
-            isSearchActive = isSearchActive,
-            searchQuery = searchQuery,
-            onSearchClick = { isSearchActive = true },
-            onSearchClose = {
-                isSearchActive = false
-                viewModel.setSearchQuery("")
-            },
-            onQueryChange = { viewModel.setSearchQuery(it) },
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+        // Top Navigation Bar with integrated search (hidden when viewing a playlist detail)
+        if (selectedPlaylist == null && !isOnlineDetailActive) {
+            TopNavigationBarWithSearch(
+                isOnlineActive = isOnlineActive,
+                isSearchActive = isSearchActive,
+                searchQuery = searchQuery,
+                onSearchClick = { isSearchActive = true },
+                onSearchClose = {
+                    isSearchActive = false
+                    viewModel.setSearchQuery("")
+                },
+                onQueryChange = { viewModel.setSearchQuery(it) },
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
 
         // Floating search results dropdown
         AnimatedVisibility(
@@ -236,6 +244,19 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
+
+                                    IconButton(
+                                        onClick = {
+                                            selectedTrackForPlaylist = track
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Add to Playlist",
+                                            tint = Color.White.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -268,8 +289,21 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 onBack = { selectedPlaylist = null },
                 onNavigateToPlayer = {
                     selectedPlaylist = null
-                    coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                    coroutineScope.launch { pagerState.animateScrollToPage(1) }
                 }
+            )
+        }
+
+        // Add to Online Playlist Bottom Sheet from Search Results
+        if (selectedTrackForPlaylist != null) {
+            com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
+                track = selectedTrackForPlaylist!!,
+                onlinePlaylists = onlinePlaylists,
+                onSelectPlaylist = { playlist ->
+                    viewModel.addTrackToOnlinePlaylist(playlist.id, selectedTrackForPlaylist!!)
+                },
+                onCreateNewPlaylist = { viewModel.createOnlinePlaylist("My Online Playlist") },
+                onDismiss = { selectedTrackForPlaylist = null }
             )
         }
     }

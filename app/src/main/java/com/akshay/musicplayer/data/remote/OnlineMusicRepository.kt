@@ -18,6 +18,15 @@ data class SponsorSegment(
     val category: String
 )
 
+data class CuratedOnlinePlaylist(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val category: String,
+    val gradientColors: List<Long>,
+    val searchQuery: String
+)
+
 class OnlineMusicRepository {
 
     private val httpClient = OkHttpClient.Builder()
@@ -41,6 +50,67 @@ class OnlineMusicRepository {
             Log.w("MUESO_PYTHON", "Error checking/reloading extractor module, using default instance", e)
             module
         }
+    }
+
+    fun getCuratedPlaylists(): List<CuratedOnlinePlaylist> {
+        return listOf(
+            CuratedOnlinePlaylist(
+                id = "curated_top_global",
+                title = "Top 50 Global",
+                subtitle = "The hottest tracks trending worldwide right now",
+                category = "Top Charts",
+                gradientColors = listOf(0xFF8E2DE2, 0xFF4A00E0),
+                searchQuery = "top 50 global songs"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_india_top",
+                title = "India Top Hits",
+                subtitle = "Most played chartbusters across India",
+                category = "Top Charts",
+                gradientColors = listOf(0xFFFF512F, 0xFFDD2476),
+                searchQuery = "top indian trending songs"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_chill_lofi",
+                title = "Chill Lofi Beats",
+                subtitle = "Soft instrumental beats for study, work & relaxation",
+                category = "Mood & Focus",
+                gradientColors = listOf(0xFF11998e, 0xFF38ef7d),
+                searchQuery = "chill lofi beats study focus"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_workout",
+                title = "Workout Pump Up",
+                subtitle = "High BPM energy tracks to power your workout",
+                category = "Fitness & Energy",
+                gradientColors = listOf(0xFFFF416C, 0xFFFF4B2B),
+                searchQuery = "gym workout motivation songs"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_romance",
+                title = "Love & Romance",
+                subtitle = "Heartfelt acoustic melodies and soothing ballads",
+                category = "Mood & Focus",
+                gradientColors = listOf(0xFFf857a6, 0xFFff5858),
+                searchQuery = "best romantic love songs"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_party",
+                title = "Party & EDM Anthems",
+                subtitle = "High-energy club bangers and dance hits",
+                category = "Fitness & Energy",
+                gradientColors = listOf(0xFF654ea3, 0xFFeaafc8),
+                searchQuery = "party edm dance hits"
+            ),
+            CuratedOnlinePlaylist(
+                id = "curated_retro",
+                title = "Retro 90s Classics",
+                subtitle = "Golden evergreen classics & nostalgic hits",
+                category = "Classics",
+                gradientColors = listOf(0xFFF2994A, 0xFFF2C94C),
+                searchQuery = "best 90s evergreen songs"
+            )
+        )
     }
 
     suspend fun getTrendingTracks(country: String = "IN"): List<TrackEntity> {

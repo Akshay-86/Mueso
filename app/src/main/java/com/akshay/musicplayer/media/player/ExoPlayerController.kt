@@ -231,6 +231,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    override fun pause() {
+        mediaController?.pause()
+        updatePlaybackState()
+    }
+
     override fun seekTo(positionMs: Long) {
         mediaController?.seekTo(positionMs)
         updatePlaybackState()

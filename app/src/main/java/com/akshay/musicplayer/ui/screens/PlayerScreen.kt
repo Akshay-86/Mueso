@@ -148,6 +148,9 @@ fun VerticalPagerScreen(
     val isResolvingTrack by viewModel.isResolvingTrack.collectAsState()
     val resolvingTrackTitle by viewModel.resolvingTrackTitle.collectAsState()
 
+    val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
+    val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
+
     Box(modifier = modifier.fillMaxSize()) {
         VerticalPager(
             state = pagerState,
@@ -206,6 +209,8 @@ fun VerticalPagerScreen(
             QueueBottomSheet(
                 tracks = tracks,
                 currentTrackId = playbackState.currentTrackId,
+                isPlaylistContext = isPlaylistContext,
+                playlistTrackCount = playlistTrackCount,
                 onTrackClick = { index ->
                     viewModel.playTrackAtIndex(index)
                     viewModel.dismissQueueSheet()
@@ -223,6 +228,7 @@ fun VerticalPagerScreen(
                 activeSleepMode = activeSleepMode,
                 activeTimerMinutes = sleepTimerMinutesLeft,
                 activeSleepSongId = sleepAfterSongId,
+                isPlaylistContext = isPlaylistContext,
                 onSetTimer = { minutes ->
                     viewModel.setSleepTimer(minutes)
                     viewModel.dismissSleepTimerSheet()
@@ -339,6 +345,10 @@ fun PlayerPageContent(
                 val downloadStates by viewModel.downloadStates.collectAsState()
                 val trackDlState = downloadStates[track.id]
 
+                var showAddToOnlinePlaylistSheet by remember { mutableStateOf(false) }
+                val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
+                var showCreateOnlinePlaylistDialog by remember { mutableStateOf(false) }
+
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
                     isSleepTimerActive = activeSleepMode != null,
@@ -353,8 +363,23 @@ fun PlayerPageContent(
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },
                     onDownloadClick = { viewModel.downloadOnlineTrack(context, track) },
+                    onAddToPlaylistClick = { showAddToOnlinePlaylistSheet = true },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (showAddToOnlinePlaylistSheet) {
+                    com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
+                        track = track,
+                        onlinePlaylists = onlinePlaylists,
+                        onSelectPlaylist = { playlist ->
+                            viewModel.addTrackToOnlinePlaylist(playlist.id, track)
+                        },
+                        onCreateNewPlaylist = {
+                            viewModel.createOnlinePlaylist("My Online Playlist")
+                        },
+                        onDismiss = { showAddToOnlinePlaylistSheet = false }
+                    )
+                }
 
                 PlayerControls(
                     playbackState = playbackState,

@@ -66,7 +66,9 @@ class MainActivity : ComponentActivity() {
         val trackRepository = TrackRepositoryImpl(mediaStoreDataSource)
         val getLocalTracksUseCase = GetLocalTracksUseCase(trackRepository)
         val mediaPlayerController = ExoPlayerController(this)
-        val playlistDao = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(this).playlistDao()
+        val db = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(this)
+        val playlistDao = db.playlistDao()
+        val onlinePlaylistDao = db.onlinePlaylistDao()
         val prefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
 
         playerViewModel = ViewModelProvider(
@@ -78,6 +80,7 @@ class MainActivity : ComponentActivity() {
                         getLocalTracksUseCase,
                         mediaPlayerController,
                         playlistDao,
+                        onlinePlaylistDao,
                         prefs
                     ) as T
                 }

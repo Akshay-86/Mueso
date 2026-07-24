@@ -71,6 +71,7 @@ fun SleepTimerBottomSheet(
     activeSleepMode: SleepTimerMode?,
     activeTimerMinutes: Int?,
     activeSleepSongId: Long?,
+    isPlaylistContext: Boolean = false,
     onSetTimer: (minutes: Int) -> Unit,
     onSetAfterSong: (trackId: Long) -> Unit,
     onSetEndOfPlaylist: () -> Unit,
@@ -192,6 +193,7 @@ fun SleepTimerBottomSheet(
                 )
                 2 -> EndOfPlaylistTab(
                     isActive = activeSleepMode == SleepTimerMode.END_OF_PLAYLIST,
+                    isPlaylistContext = isPlaylistContext,
                     accentColor = accentColor,
                     accentGradient = accentGradient,
                     onSet = onSetEndOfPlaylist
@@ -674,6 +676,7 @@ private fun EqualizerBarsAnimation(
 @Composable
 private fun EndOfPlaylistTab(
     isActive: Boolean,
+    isPlaylistContext: Boolean,
     accentColor: Color,
     accentGradient: Brush,
     onSet: () -> Unit
@@ -688,22 +691,28 @@ private fun EndOfPlaylistTab(
         Icon(
             Icons.Default.PlaylistPlay,
             contentDescription = null,
-            tint = if (isActive) accentColor else Color.White.copy(alpha = 0.5f),
+            tint = if (isActive) accentColor else if (!isPlaylistContext) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
             modifier = Modifier.size(48.dp)
         )
 
         Text(
-            if (isActive) "Will stop at end of playlist"
-            else "Stop playback when the current playlist ends",
-            color = Color.White.copy(alpha = 0.7f),
+            text = when {
+                !isPlaylistContext -> "Only available when playing a playlist\n(Radio mode has continuous suggestions)"
+                isActive -> "Will stop at end of playlist"
+                else -> "Stop playback when the current playlist ends"
+            },
+            color = if (!isPlaylistContext) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.7f),
             fontSize = 14.sp,
+            textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
 
         Button(
             onClick = onSet,
+            enabled = isPlaylistContext,
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isActive) accentColor.copy(alpha = 0.2f) else accentColor
+                containerColor = if (isActive) accentColor.copy(alpha = 0.2f) else accentColor,
+                disabledContainerColor = Color.White.copy(alpha = 0.08f)
             ),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(0.6f)

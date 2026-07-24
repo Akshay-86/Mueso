@@ -45,6 +45,7 @@ class PlayerViewModel(
     private val getLocalTracksUseCase: GetLocalTracksUseCase,
     private val mediaPlayerController: MediaPlayerController,
     private val playlistDao: com.akshay.musicplayer.data.db.PlaylistDao,
+    private val onlinePlaylistDao: com.akshay.musicplayer.data.db.OnlinePlaylistDao,
     private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModel() {
 
@@ -186,8 +187,112 @@ class PlayerViewModel(
     init {
         initRestoredTrackPreview()
         loadPlaylists()
+        loadOnlinePlaylists()
         observePlaybackState()
         observeMediaEvents()
+    }
+
+    private val _onlinePlaylists = MutableStateFlow<List<com.akshay.musicplayer.data.db.OnlinePlaylistEntity>>(emptyList())
+    val onlinePlaylists: StateFlow<List<com.akshay.musicplayer.data.db.OnlinePlaylistEntity>> = _onlinePlaylists.asStateFlow()
+
+    private fun loadOnlinePlaylists() {
+        viewModelScope.launch {
+            onlinePlaylistDao.getAllOnlinePlaylists().collect { list ->
+                _onlinePlaylists.value = list
+            }
+        }
+    }
+
+    fun createOnlinePlaylist(name: String, description: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.insertOnlinePlaylist(
+                com.akshay.musicplayer.data.db.OnlinePlaylistEntity(name = name, description = description)
+            )
+        }
+    }
+
+    fun deleteOnlinePlaylist(playlistId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.deleteOnlinePlaylist(playlistId)
+            onlinePlaylistDao.clearOnlinePlaylistTracks(playlistId)
+        }
+    }
+
+    fun renameOnlinePlaylist(playlistId: Long, newName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.renameOnlinePlaylist(playlistId, newName)
+        }
+    }
+
+    fun addTrackToOnlinePlaylist(playlistId: Long, track: TrackEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
+            val nextOrder = existing.size
+            onlinePlaylistDao.insertOnlineTrack(
+                com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
+                    onlinePlaylistId = playlistId,
+                    trackId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    artworkUrl = track.artworkUrl,
+                    filePath = track.filePath,
+                    duration = track.duration,
+                    orderIndex = nextOrder
+                )
+            )
+        }
+    }
+
+    private val _isPlaylistContext = MutableStateFlow(false)
+    val isPlaylistContext: StateFlow<Boolean> = _isPlaylistContext.asStateFlow()
+
+    private val _playlistTrackCount = MutableStateFlow(0)
+    val playlistTrackCount: StateFlow<Int> = _playlistTrackCount.asStateFlow()
+
+    fun moveTrackInOnlinePlaylist(playlistId: Long, fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId).toMutableList()
+            if (fromIndex in tracks.indices && toIndex in tracks.indices) {
+                val item = tracks.removeAt(fromIndex)
+                tracks.add(toIndex, item)
+                val updated = tracks.mapIndexed { index, track -> track.copy(orderIndex = index) }
+                onlinePlaylistDao.updateOnlinePlaylistTracks(updated)
+            }
+        }
+    }
+
+    fun removeTrackFromOnlinePlaylist(playlistId: Long, trackId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.removeOnlineTrack(playlistId, trackId)
+        }
+    }
+
+    fun getOnlinePlaylistTracks(playlistId: Long): kotlinx.coroutines.flow.Flow<List<TrackEntity>> {
+        return onlinePlaylistDao.getOnlinePlaylistTracks(playlistId).map { tracks ->
+            tracks.map {
+                TrackEntity(
+                    id = it.trackId,
+                    title = it.title,
+                    artist = it.artist,
+                    album = "Online Playlist Track",
+                    duration = it.duration,
+                    albumId = 0L,
+                    filePath = it.filePath,
+                    artworkUrl = it.artworkUrl
+                )
+            }
+        }
+    }
+
+    suspend fun getCuratedPlaylistTracks(query: String): List<TrackEntity> {
+        return onlineRepository.searchOnlineTracks(query)
+    }
+
+    fun playOnlinePlaylist(tracks: List<TrackEntity>, startIndex: Int = 0) {
+        if (tracks.isEmpty()) return
+        _isPlaylistContext.value = true
+        _playlistTrackCount.value = tracks.size
+        playQueue(tracks, startIndex)
     }
     
     private fun loadPlaylists() {
@@ -295,6 +400,16 @@ class PlayerViewModel(
         return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    private var restorationJob: Job? = null
+
+    private fun cancelRestoration() {
+        if (restorationJob?.isActive == true) {
+            Log.d("MUESO_RESTORE", "Cancelling background restoration because user initiated playback")
+            restorationJob?.cancel()
+            restorationJob = null
+        }
+    }
+
     fun restoreLastPlaybackStateOrOffline(context: android.content.Context? = null) {
         val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
@@ -323,12 +438,14 @@ class PlayerViewModel(
                 artworkUrl = artworkUrl
             )
 
-            viewModelScope.launch(Dispatchers.IO) {
+            restorationJob = viewModelScope.launch(Dispatchers.IO) {
                 val resolved = resolveTrack(restoredTrack)
                 val recommendations = onlineRepository.getRelatedRecommendations(restoredTrack)
                 val existingIds = setOf(resolved.id)
                 val uniqueRecs = recommendations.filter { it.id !in existingIds }
                 val fullQueue = listOf(resolved) + uniqueRecs
+
+                if (!coroutineContext.isActive) return@launch
 
                 withContext(Dispatchers.Main) {
                     currentTracks = fullQueue
@@ -368,6 +485,24 @@ class PlayerViewModel(
                 if (state.currentTrackId != null) {
                     val currentTrackIdx = currentTracks.indexOfFirst { it.id == state.currentTrackId }
                     if (currentTrackIdx >= 0) {
+                        // Check if player stepped past the end of an active playlist
+                        if (_isPlaylistContext.value && _playlistTrackCount.value > 0) {
+                            val count = _playlistTrackCount.value
+                            if (currentTrackIdx >= count) {
+                                Log.d("MUESO_PLAYLIST", "Player reached end of playlist ($currentTrackIdx >= $count)")
+                                if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST) {
+                                    Log.d("MUESO_PLAYLIST", "Sleep timer END_OF_PLAYLIST active. Stopping playback.")
+                                    mediaPlayerController.pause()
+                                    clearSleepTimer()
+                                    return@collect
+                                } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+                                    Log.d("MUESO_PLAYLIST", "Repeat REPEAT_MODE_ALL active. Looping back to index 0.")
+                                    playTrackAtIndex(0)
+                                    return@collect
+                                }
+                            }
+                        }
+
                         val curTrack = currentTracks[currentTrackIdx]
                         val isOnline = curTrack.filePath.startsWith("online:") || curTrack.filePath.startsWith("http")
                         val videoId = if (curTrack.filePath.startsWith("online:")) {
@@ -663,15 +798,29 @@ class PlayerViewModel(
             mediaPlayerController.mediaEvents().collect { event ->
                 when (event) {
                     is PlayerEvent.TrackEnded -> {
-                        // Check if "end of playlist" sleep mode should stop playback
-                        if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST) {
-                            val currentIdx = getCurrentTrackIndex()
-                            if (currentIdx >= currentTracks.size - 1) {
-                                // Last track finished — stop
+                        val currentIdx = getCurrentTrackIndex()
+                        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
+                        val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
+
+                        if (isPlaylist && currentIdx >= playlistEndIdx) {
+                            if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST) {
+                                Log.d("MUESO_PLAYLIST", "TrackEnded at playlist end with END_OF_PLAYLIST sleep timer. Pausing.")
+                                mediaPlayerController.pause()
                                 clearSleepTimer()
-                                return@collect  // Don't play next
+                                return@collect
+                            } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+                                Log.d("MUESO_PLAYLIST", "TrackEnded at playlist end with REPEAT_MODE_ALL. Playing index 0.")
+                                playTrackAtIndex(0)
+                                return@collect
                             }
                         }
+
+                        if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST && currentIdx >= currentTracks.size - 1) {
+                            mediaPlayerController.pause()
+                            clearSleepTimer()
+                            return@collect
+                        }
+
                         playNextTrack()
                     }
                     is PlayerEvent.PlaybackError -> {
@@ -718,6 +867,7 @@ class PlayerViewModel(
     }
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
+        cancelRestoration()
         viewModelScope.launch(Dispatchers.IO) {
             val target = if (startIndex in tracks.indices) tracks[startIndex] else null
             if (target != null && target.filePath.startsWith("online:")) {
@@ -741,6 +891,9 @@ class PlayerViewModel(
     }
 
     fun playTrack(track: TrackEntity) {
+        cancelRestoration()
+        _isPlaylistContext.value = false
+        _playlistTrackCount.value = 0
         lastRequestedTrackId = track.id
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch(Dispatchers.IO) {
@@ -783,12 +936,24 @@ class PlayerViewModel(
             Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: SKIPPING.")
             return
         }
-        playTrack(track)
+        val index = currentTracks.indexOfFirst { it.id == track.id }
+        if (index >= 0) {
+            playTrackAtIndex(index)
+        } else {
+            playTrack(track)
+        }
     }
 
     fun playTrackAtIndex(index: Int) {
         if (index >= 0 && index < currentTracks.size) {
-            playTrack(currentTracks[index])
+            val track = currentTracks[index]
+            lastRequestedTrackId = track.id
+            if (index >= _playlistTrackCount.value) {
+                // Stepped past the playlist boundary into radio recommendations
+                _isPlaylistContext.value = false
+                _playlistTrackCount.value = 0
+            }
+            mediaPlayerController.seekToIndex(index)
         }
     }
 

@@ -12,6 +12,7 @@ sealed class PlayerEvent {
 
 interface MediaPlayerController {
     fun togglePlayPause()
+    fun pause()
     fun seekToNext()
     fun seekToPrevious()
     fun seekTo(positionMs: Long)

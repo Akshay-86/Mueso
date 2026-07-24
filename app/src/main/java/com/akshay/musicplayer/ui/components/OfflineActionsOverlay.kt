@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.AvTimer
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
@@ -47,7 +48,8 @@ fun OfflineActionsOverlay(
     onSleepTimerClick: () -> Unit = {},
     onRepeatClick: () -> Unit = {},
     onQueueClick: () -> Unit = {},
-    onDownloadClick: () -> Unit = {}
+    onDownloadClick: () -> Unit = {},
+    onAddToPlaylistClick: () -> Unit = {}
 ) {
     val accentColor = Color(0xFFFF512F)
 
@@ -136,6 +138,27 @@ fun OfflineActionsOverlay(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Add to Online Playlist Button (for Online Songs)
+            if (isOnlineSong) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Add",
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 10.sp
+                    )
+                    IconButton(onClick = onAddToPlaylistClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            contentDescription = "Add to Online Playlist",
+                            tint = accentColor,
+                            modifier = Modifier.size(26.dp)
+                        )
                     }
                 }
             }
