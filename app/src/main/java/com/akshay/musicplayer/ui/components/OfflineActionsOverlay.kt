@@ -166,16 +166,18 @@ fun OfflineActionsOverlay(
                 }
             }
 
-            // Repeat Mode
-            val repeatIcon = if (repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
+            // Repeat Mode (0 = OFF, 1 = ONE, 2 = ALL)
+            val isRepeatOne = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
+            val isRepeatAll = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
+            val repeatIcon = if (isRepeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat
             val repeatTint by animateColorAsState(
-                if (repeatMode != 0) accentColor else Color.White,
+                if (repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF) accentColor else Color.White,
                 animationSpec = tween(300),
                 label = "repeatTint"
             )
             val repeatLabel = when (repeatMode) {
-                1 -> "All"
-                2 -> "1"
+                androidx.media3.common.Player.REPEAT_MODE_ALL -> "ALL"
+                androidx.media3.common.Player.REPEAT_MODE_ONE -> "ONE"
                 else -> null
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

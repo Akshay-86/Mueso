@@ -12,6 +12,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
+data class SponsorSegment(
+    val startMs: Long,
+    val endMs: Long,
+    val category: String
+)
+
 class OnlineMusicRepository {
 
     private val httpClient = OkHttpClient.Builder()
@@ -265,6 +271,8 @@ class OnlineMusicRepository {
 
             val seenKeys = mutableSetOf<String>()
             val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])", RegexOption.IGNORE_CASE)
+            val compilationRegex = Regex("(?i)(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)", RegexOption.IGNORE_CASE)
+            val shortEditRegex = Regex("(?i)(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)", RegexOption.IGNORE_CASE)
 
             val tracks = pyList.mapNotNull { pyObj ->
                 val videoId = pyObj.callAttr("get", "videoId")?.toString() ?: return@mapNotNull null
@@ -273,6 +281,12 @@ class OnlineMusicRepository {
                 val duration = (pyObj.callAttr("get", "duration")?.toLong() ?: 0L) * 1000L
                 val thumb = pyObj.callAttr("get", "thumbnail")?.toString()
                 val fastThumb = getFastListThumbnailUrl(thumb)
+
+                // Filter out low duration (<90s), long compilations (>10m), or short edits/reels/status
+                if ((duration in 1L..89_999L) || (duration > 10 * 60 * 1000L) || compilationRegex.containsMatchIn(title) || shortEditRegex.containsMatchIn(title)) {
+                    Log.d("MUESO_SEARCH", "Skipping invalid duration/short edit track: '$title' (duration=${duration / 1000}s)")
+                    return@mapNotNull null
+                }
 
                 val cleanTitleKey = noiseRegex.replace(title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
                 val cleanArtistKey = noiseRegex.replace(artist, "").lowercase().replace(Regex("[^a-z0-9]"), "")
@@ -302,6 +316,47 @@ class OnlineMusicRepository {
             Log.e("MUESO_SEARCH", "[4/4] CRITICAL ERROR in searchOnlineTracks for query: '$query'", e)
             emptyList()
         }
+    }
+
+    suspend fun getSponsorSkipSegments(videoId: String): List<SponsorSegment> = withContext(Dispatchers.IO) {
+        if (videoId.isBlank()) return@withContext emptyList()
+        try {
+            val url = "https://sponsor.ajay.app/api/skipSegments?videoID=$videoId&categories=[\"sponsor\",\"intro\",\"music_offtopic\",\"selfpromo\"]"
+            Log.d("MUESO_SPONSOR", "Fetching SponsorBlock skip segments for videoId: '$videoId'")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "MuesoMusicPlayer/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank() && jsonStr.trim().startsWith("[")) {
+                        val jsonArr = JSONArray(jsonStr)
+                        val segments = mutableListOf<SponsorSegment>()
+                        for (i in 0 until jsonArr.length()) {
+                            val item = jsonArr.optJSONObject(i) ?: continue
+                            val category = item.optString("category", "")
+                            val segArray = item.optJSONArray("segment")
+                            if (segArray != null && segArray.length() >= 2) {
+                                val startSec = segArray.optDouble(0, 0.0)
+                                val endSec = segArray.optDouble(1, 0.0)
+                                val startMs = (startSec * 1000).toLong()
+                                val endMs = (endSec * 1000).toLong()
+                                if (endMs > startMs) {
+                                    segments.add(SponsorSegment(startMs, endMs, category))
+                                }
+                            }
+                        }
+                        Log.d("MUESO_SPONSOR", "Found ${segments.size} SponsorBlock skip segments for videoId: '$videoId'")
+                        return@withContext segments
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MUESO_SPONSOR", "SponsorBlock fetch error for videoId: '$videoId'", e)
+        }
+        emptyList()
     }
 
     private fun getFastListThumbnailUrl(rawUrl: String?): String? {
@@ -364,6 +419,9 @@ class OnlineMusicRepository {
                                 val cleanCurrentTitle = noiseRegex.replace(track.title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
                                 seenKeys.add(cleanCurrentTitle)
 
+                                val compilationRegex = Regex("(?i)(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)", RegexOption.IGNORE_CASE)
+                                val shortEditRegex = Regex("(?i)(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)", RegexOption.IGNORE_CASE)
+
                                 for (i in 0 until relatedArray.length()) {
                                     val item = relatedArray.optJSONObject(i) ?: continue
                                     val type = item.optString("type", "")
@@ -373,6 +431,14 @@ class OnlineMusicRepository {
                                         val title = item.optString("title", "")
                                         val artist = item.optString("uploaderName", "Unknown Artist")
                                         val thumbnail = item.optString("thumbnail", "")
+                                        val durationSeconds = item.optLong("duration", 0L)
+                                        val durationMs = durationSeconds * 1000L
+
+                                        // Skip low duration (<90s), compilations (>10m), or short edits/reels/status
+                                        if ((durationSeconds in 1L..89L) || (durationSeconds > 600L) || compilationRegex.containsMatchIn(title) || shortEditRegex.containsMatchIn(title)) {
+                                            Log.d("MUESO_RADIO", "Skipping invalid duration/short edit from radio queue: '$title' (${durationSeconds}s)")
+                                            continue
+                                        }
 
                                         val cleanTitle = noiseRegex.replace(title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
                                         if (vId.isNotBlank() && title.isNotBlank() && cleanTitle.isNotBlank()) {
@@ -383,7 +449,7 @@ class OnlineMusicRepository {
                                                         title = title,
                                                         artist = artist,
                                                         album = "Recommended Radio",
-                                                        duration = 0L,
+                                                        duration = durationMs,
                                                         albumId = 0L,
                                                         filePath = "online:$vId",
                                                         artworkUrl = getHighResArtworkUrl(thumbnail)

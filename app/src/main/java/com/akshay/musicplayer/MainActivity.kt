@@ -117,11 +117,12 @@ class MainActivity : ComponentActivity() {
     private fun MultiplePermissionsGate(permissions: List<String>) {
         val multiplePermissionsState = com.google.accompanist.permissions.rememberMultiplePermissionsState(permissions)
 
+        val context = androidx.compose.ui.platform.LocalContext.current
         LaunchedEffect(multiplePermissionsState.allPermissionsGranted) {
             if (!multiplePermissionsState.allPermissionsGranted) {
                 multiplePermissionsState.launchMultiplePermissionRequest()
             } else {
-                playerViewModel.loadLocalTracks(forceReload = true)
+                playerViewModel.restoreLastPlaybackStateOrOffline(context)
             }
         }
 
@@ -150,11 +151,12 @@ class MainActivity : ComponentActivity() {
     private fun PermissionGate(permission: String) {
         val permissionState = rememberPermissionState(permission)
 
+        val context = androidx.compose.ui.platform.LocalContext.current
         LaunchedEffect(permissionState.status.isGranted) {
             if (!permissionState.status.isGranted) {
                 permissionState.launchPermissionRequest()
             } else {
-                playerViewModel.loadLocalTracks(forceReload = true)
+                playerViewModel.restoreLastPlaybackStateOrOffline(context)
             }
         }
 

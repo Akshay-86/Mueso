@@ -255,6 +255,69 @@ class PlayerViewModel(
         }
     }
 
+    private fun isNetworkAvailable(context: android.content.Context): Boolean {
+        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+        val activeNetwork = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    fun restoreLastPlaybackStateOrOffline(context: android.content.Context? = null) {
+        val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
+        val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+        val lastPosition = sharedPreferences.getLong("last_position", 0L)
+        val hasNet = context?.let { isNetworkAvailable(it) } ?: true
+
+        if (isOnline && lastTrackId != -1L && hasNet) {
+            val title = sharedPreferences.getString("last_track_title", "") ?: ""
+            val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
+            val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
+            val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
+            val duration = sharedPreferences.getLong("last_track_duration", 0L)
+
+            val restoredTrack = TrackEntity(
+                id = lastTrackId,
+                title = title,
+                artist = artist,
+                album = "Online Track",
+                duration = duration,
+                albumId = 0L,
+                filePath = filePath,
+                artworkUrl = artworkUrl
+            )
+
+            viewModelScope.launch(Dispatchers.IO) {
+                withContext(Dispatchers.Main) {
+                    currentTracks = listOf(restoredTrack)
+                    _uiState.value = PlayerUiState.Success(currentTracks)
+                }
+
+                val resolved = resolveTrack(restoredTrack)
+                withContext(Dispatchers.Main) {
+                    currentTracks = listOf(resolved)
+                    _uiState.value = PlayerUiState.Success(currentTracks)
+                    mediaPlayerController.restoreQueue(currentTracks, 0, lastPosition)
+                }
+
+                val recommendations = onlineRepository.getRelatedRecommendations(restoredTrack)
+                val existingIds = currentTracks.map { it.id }.toSet()
+                val uniqueRecs = recommendations.filter { it.id !in existingIds }
+                if (uniqueRecs.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        currentTracks = currentTracks + uniqueRecs
+                        if (_uiState.value is PlayerUiState.Success) {
+                            _uiState.value = PlayerUiState.Success(currentTracks)
+                        }
+                        mediaPlayerController.appendTracksToQueue(uniqueRecs)
+                        prefetchAndKeepQueueAlive(0)
+                    }
+                }
+            }
+        } else {
+            loadLocalTracks(forceReload = true)
+        }
+    }
+
     fun loadOnlineTrendingTracks() {
         viewModelScope.launch {
             _onlineUiState.value = PlayerUiState.Loading
@@ -289,15 +352,24 @@ class PlayerViewModel(
                 }
 
                 if (state.currentTrackId != null) {
-                    sharedPreferences.edit()
-                        .putLong("last_track_id", state.currentTrackId)
-                        .putLong("last_position", state.currentPositionMs)
-                        .apply()
-
                     val currentTrackIdx = currentTracks.indexOfFirst { it.id == state.currentTrackId }
                     if (currentTrackIdx >= 0) {
-                        fetchLyricsForTrack(currentTracks[currentTrackIdx])
+                        val curTrack = currentTracks[currentTrackIdx]
+                        val isOnline = curTrack.filePath.startsWith("online:") || curTrack.filePath.startsWith("http")
+                        sharedPreferences.edit()
+                            .putLong("last_track_id", curTrack.id)
+                            .putString("last_track_title", curTrack.title)
+                            .putString("last_track_artist", curTrack.artist)
+                            .putString("last_track_filepath", curTrack.filePath)
+                            .putString("last_track_artwork_url", curTrack.artworkUrl)
+                            .putLong("last_track_duration", curTrack.duration)
+                            .putBoolean("last_track_is_online", isOnline)
+                            .putLong("last_position", state.currentPositionMs)
+                            .apply()
+
+                        fetchLyricsForTrack(curTrack)
                         prefetchAndKeepQueueAlive(currentTrackIdx)
+                        checkAndApplySponsorBlock(curTrack, state.currentPositionMs, state.isPlaying)
                     }
                 }
 
@@ -306,6 +378,48 @@ class PlayerViewModel(
                     checkSleepAfterSong(oldTrackId)
                 }
                 previousTrackId = state.currentTrackId
+            }
+        }
+    }
+
+    private var activeSponsorSegments: List<com.akshay.musicplayer.data.remote.SponsorSegment> = emptyList()
+    private var activeSponsorTrackId: Long? = null
+    private var isFetchingSponsorSegments = false
+
+    private fun checkAndApplySponsorBlock(track: TrackEntity, currentPositionMs: Long, isPlaying: Boolean) {
+        val videoId = if (track.filePath.startsWith("online:")) {
+            track.filePath.removePrefix("online:")
+        } else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
+            track.artworkUrl.substringAfter("/vi/").substringBefore("/")
+        } else ""
+
+        if (videoId.isNotBlank() && activeSponsorTrackId != track.id) {
+            activeSponsorTrackId = track.id
+            activeSponsorSegments = emptyList()
+            if (!isFetchingSponsorSegments) {
+                isFetchingSponsorSegments = true
+                viewModelScope.launch(Dispatchers.IO) {
+                    val segments = onlineRepository.getSponsorSkipSegments(videoId)
+                    withContext(Dispatchers.Main) {
+                        activeSponsorSegments = segments
+                        isFetchingSponsorSegments = false
+                    }
+                }
+            }
+        }
+
+        if (isPlaying && activeSponsorSegments.isNotEmpty()) {
+            for (seg in activeSponsorSegments) {
+                val isIntroAtStart = seg.startMs <= 1500L
+                if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
+                    Log.d("MUESO_SPONSOR", "Auto-skipping intro segment from 0ms to ${seg.endMs}ms for '${track.title}'")
+                    mediaPlayerController.seekTo(seg.endMs)
+                    break
+                } else if (!isIntroAtStart && currentPositionMs in (seg.startMs - 200L)..(seg.endMs - 300L)) {
+                    Log.d("MUESO_SPONSOR", "Auto-skipping SponsorBlock '${seg.category}' segment from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}'")
+                    mediaPlayerController.seekTo(seg.endMs)
+                    break
+                }
             }
         }
     }
