@@ -52,48 +52,39 @@ fun PlayerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val activeQueue by viewModel.activeQueue.collectAsState()
 
-    when (val state = uiState) {
-        is PlayerUiState.Loading -> {
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0F0F0F)),
-                contentAlignment = Alignment.Center
+    if (activeQueue.isNotEmpty()) {
+        VerticalPagerScreen(
+            tracks = activeQueue,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F0F0F)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
             ) {
-                CircularProgressIndicator(color = Color(0xFFFF512F))
+                Text(
+                    text = "No track playing",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Search or select a song to start playing",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 14.sp
+                )
             }
-        }
-
-        is PlayerUiState.Empty -> {
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0F0F0F)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No local tracks found", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
-
-        is PlayerUiState.Error -> {
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0F0F0F)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Error: ${state.message}", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
-
-        is PlayerUiState.Success -> {
-            VerticalPagerScreen(
-                tracks = state.tracks,
-                viewModel = viewModel,
-                modifier = modifier
-            )
         }
     }
 }
@@ -265,6 +256,7 @@ fun PlayerPageContent(
     val activeSleepMode by viewModel.activeSleepMode.collectAsState()
     val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
     val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
+    val isResolvingTrack by viewModel.isResolvingTrack.collectAsState()
     val albumArtUri = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
 
 
@@ -370,6 +362,7 @@ fun PlayerPageContent(
                     onNextClick = { viewModel.playNextTrack() },
                     onPreviousClick = { viewModel.playPreviousTrack() },
                     onSeek = { viewModel.seekTo(it) },
+                    isResolvingTrack = isResolvingTrack,
                     modifier = Modifier.fillMaxWidth()
                 )
             }

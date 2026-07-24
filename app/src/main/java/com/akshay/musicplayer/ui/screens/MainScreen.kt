@@ -51,7 +51,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
     var isSearchActive by remember { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
 
-    val isOnlineActive = pagerState.currentPage == 0
+    val isOnlineActive = pagerState.currentPage == 2
 
     androidx.activity.compose.BackHandler(enabled = isSearchActive) {
         isSearchActive = false
@@ -70,19 +70,19 @@ fun MainScreen(viewModel: PlayerViewModel) {
             userScrollEnabled = !isSearchActive
         ) { page ->
             when (page) {
-                0 -> OnlineLibraryScreen(
-                    viewModel = viewModel,
-                    onNavigateToPlayer = {
-                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
-                    }
-                )
-                1 -> PlayerScreen(viewModel = viewModel)
-                2 -> OfflineLibraryScreen(
+                0 -> OfflineLibraryScreen(
                     viewModel = viewModel,
                     onNavigateToPlayer = {
                         coroutineScope.launch { pagerState.animateScrollToPage(1) }
                     },
                     onPlaylistClick = { selectedPlaylist = it }
+                )
+                1 -> PlayerScreen(viewModel = viewModel)
+                2 -> OnlinePlaylistsScreen(
+                    viewModel = viewModel,
+                    onNavigateToPlayer = {
+                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                    }
                 )
             }
         }

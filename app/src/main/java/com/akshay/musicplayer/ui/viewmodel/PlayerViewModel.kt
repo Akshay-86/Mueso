@@ -87,14 +87,21 @@ class PlayerViewModel(
     private val _showQueueSheet = MutableStateFlow(false)
     val showQueueSheet: StateFlow<Boolean> = _showQueueSheet.asStateFlow()
 
-    val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _uiState) { state, _ ->
+    private val _activeQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
+    val activeQueue: StateFlow<List<TrackEntity>> = _activeQueue.asStateFlow()
+
+    val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
         val currentTrackId = state.currentTrackId ?: return@combine 0
-        val index = currentTracks.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
+        val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
         Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: calculated index $index for track $currentTrackId")
         index
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private var currentTracks: List<TrackEntity> = emptyList()
+        set(value) {
+            field = value
+            _activeQueue.value = value
+        }
     // Guard against re-entrant play calls during async IPC transitions
     private var lastRequestedTrackId: Long? = null
 
@@ -120,11 +127,11 @@ class PlayerViewModel(
             return
         }
 
+        _isSearchingOnline.value = true
         val localMatches = currentTracks.filter {
             it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
         }
         _searchResults.value = localMatches
-        _isSearchingOnline.value = true
 
         searchJob = viewModelScope.launch {
             delay(300)
@@ -142,21 +149,43 @@ class PlayerViewModel(
 
     fun getSearchResults(): List<TrackEntity> = _searchResults.value
 
-
-
     /** Read the restored track index synchronously — used for initial pager page */
     fun getRestoredTrackIndex(): Int {
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
         if (lastTrackId == -1L) return 0
         return currentTracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
     }
+
+    private fun initRestoredTrackPreview() {
+        val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+        if (lastTrackId != -1L) {
+            val title = sharedPreferences.getString("last_track_title", "") ?: ""
+            val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
+            val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
+            val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
+            val duration = sharedPreferences.getLong("last_track_duration", 0L)
+            if (title.isNotBlank()) {
+                val previewTrack = TrackEntity(
+                    id = lastTrackId,
+                    title = title,
+                    artist = artist,
+                    album = "Last Played",
+                    duration = duration,
+                    albumId = 0L,
+                    filePath = filePath,
+                    artworkUrl = artworkUrl
+                )
+                currentTracks = listOf(previewTrack)
+            }
+        }
+    }
     
     private val _playlists = MutableStateFlow<List<com.akshay.musicplayer.data.db.PlaylistEntity>>(emptyList())
     val playlists: StateFlow<List<com.akshay.musicplayer.data.db.PlaylistEntity>> = _playlists.asStateFlow()
 
     init {
+        initRestoredTrackPreview()
         loadPlaylists()
-        loadOnlineTrendingTracks()
         observePlaybackState()
         observeMediaEvents()
     }
@@ -234,19 +263,23 @@ class PlayerViewModel(
         viewModelScope.launch {
             _uiState.value = PlayerUiState.Loading
             getLocalTracksUseCase().onSuccess { tracks ->
-                currentTracks = tracks
+                val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
+                if (!isOnline && tracks.isNotEmpty() && currentTracks.isEmpty()) {
+                    currentTracks = tracks
+                }
+
                 if (tracks.isEmpty()) {
                     _uiState.value = PlayerUiState.Empty
                 } else {
                     _uiState.value = PlayerUiState.Success(tracks)
 
-                    // Attempt to restore persistent playback state
-                    val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
-                    val lastPosition = sharedPreferences.getLong("last_position", 0L)
-                    
-                    if (lastTrackId != -1L) {
-                        val index = tracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
-                        mediaPlayerController.restoreQueue(tracks, index, lastPosition)
+                    if (!isOnline) {
+                        val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+                        val lastPosition = sharedPreferences.getLong("last_position", 0L)
+                        if (lastTrackId != -1L) {
+                            val index = tracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
+                            mediaPlayerController.restoreQueue(tracks, index, lastPosition)
+                        }
                     }
                 }
             }.onFailure { exception ->
@@ -268,6 +301,10 @@ class PlayerViewModel(
         val lastPosition = sharedPreferences.getLong("last_position", 0L)
         val hasNet = context?.let { isNetworkAvailable(it) } ?: true
 
+        // Always load local device tracks into _uiState (Offline Library Tab)
+        loadLocalTracks(forceReload = true)
+
+        // If last played track was online and network is available, restore online playback state & queue
         if (isOnline && lastTrackId != -1L && hasNet) {
             val title = sharedPreferences.getString("last_track_title", "") ?: ""
             val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
@@ -287,34 +324,18 @@ class PlayerViewModel(
             )
 
             viewModelScope.launch(Dispatchers.IO) {
-                withContext(Dispatchers.Main) {
-                    currentTracks = listOf(restoredTrack)
-                    _uiState.value = PlayerUiState.Success(currentTracks)
-                }
-
                 val resolved = resolveTrack(restoredTrack)
-                withContext(Dispatchers.Main) {
-                    currentTracks = listOf(resolved)
-                    _uiState.value = PlayerUiState.Success(currentTracks)
-                    mediaPlayerController.restoreQueue(currentTracks, 0, lastPosition)
-                }
-
                 val recommendations = onlineRepository.getRelatedRecommendations(restoredTrack)
-                val existingIds = currentTracks.map { it.id }.toSet()
+                val existingIds = setOf(resolved.id)
                 val uniqueRecs = recommendations.filter { it.id !in existingIds }
-                if (uniqueRecs.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        currentTracks = currentTracks + uniqueRecs
-                        if (_uiState.value is PlayerUiState.Success) {
-                            _uiState.value = PlayerUiState.Success(currentTracks)
-                        }
-                        mediaPlayerController.appendTracksToQueue(uniqueRecs)
-                        prefetchAndKeepQueueAlive(0)
-                    }
+                val fullQueue = listOf(resolved) + uniqueRecs
+
+                withContext(Dispatchers.Main) {
+                    currentTracks = fullQueue
+                    mediaPlayerController.restoreQueue(fullQueue, 0, lastPosition)
+                    prefetchAndKeepQueueAlive(0)
                 }
             }
-        } else {
-            loadLocalTracks(forceReload = true)
         }
     }
 
@@ -324,13 +345,6 @@ class PlayerViewModel(
             val tracks = onlineRepository.getTrendingTracks()
             if (tracks.isNotEmpty()) {
                 _onlineUiState.value = PlayerUiState.Success(tracks)
-                // If no track is currently prepared (fresh start, no history), auto-queue the trending list
-                val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
-                if (lastTrackId == -1L && currentTracks.isEmpty()) {
-                    currentTracks = tracks
-                    _uiState.value = PlayerUiState.Success(tracks)
-                    mediaPlayerController.restoreQueue(tracks, 0, 0L)
-                }
             } else {
                 _onlineUiState.value = PlayerUiState.Error("Failed to load trending tracks")
             }
@@ -356,11 +370,19 @@ class PlayerViewModel(
                     if (currentTrackIdx >= 0) {
                         val curTrack = currentTracks[currentTrackIdx]
                         val isOnline = curTrack.filePath.startsWith("online:") || curTrack.filePath.startsWith("http")
+                        val videoId = if (curTrack.filePath.startsWith("online:")) {
+                            curTrack.filePath.removePrefix("online:")
+                        } else if (curTrack.artworkUrl != null && curTrack.artworkUrl.contains("/vi/")) {
+                            curTrack.artworkUrl.substringAfter("/vi/").substringBefore("/")
+                        } else ""
+
+                        val persistentFilePath = if (isOnline && videoId.isNotBlank()) "online:$videoId" else curTrack.filePath
+
                         sharedPreferences.edit()
                             .putLong("last_track_id", curTrack.id)
                             .putString("last_track_title", curTrack.title)
                             .putString("last_track_artist", curTrack.artist)
-                            .putString("last_track_filepath", curTrack.filePath)
+                            .putString("last_track_filepath", persistentFilePath)
                             .putString("last_track_artwork_url", curTrack.artworkUrl)
                             .putLong("last_track_duration", curTrack.duration)
                             .putBoolean("last_track_is_online", isOnline)
@@ -442,9 +464,6 @@ class PlayerViewModel(
                     if (currentIndex in list.indices) {
                         list[currentIndex] = resolved
                         currentTracks = list
-                        if (_uiState.value is PlayerUiState.Success) {
-                            _uiState.value = PlayerUiState.Success(currentTracks)
-                        }
                         mediaPlayerController.updateTrackInQueue(currentIndex, resolved)
                     }
                     resolvingTrackIds.remove(currentTrack.id)
@@ -466,9 +485,6 @@ class PlayerViewModel(
                         if (nextIndex in list.indices) {
                             list[nextIndex] = resolvedNext
                             currentTracks = list
-                            if (_uiState.value is PlayerUiState.Success) {
-                                _uiState.value = PlayerUiState.Success(currentTracks)
-                            }
                             mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
                         }
                         resolvingTrackIds.remove(nextTrack.id)
@@ -496,9 +512,6 @@ class PlayerViewModel(
                         withContext(Dispatchers.Main) {
                             val updatedQueue = currentTracks + uniqueNew
                             currentTracks = updatedQueue
-                            if (_uiState.value is PlayerUiState.Success) {
-                                _uiState.value = PlayerUiState.Success(currentTracks)
-                            }
                             mediaPlayerController.appendTracksToQueue(uniqueNew)
                             Log.d("MUESO_QUEUE", "Successfully appended ${uniqueNew.size} tracks to keep queue alive!")
                         }
@@ -542,9 +555,6 @@ class PlayerViewModel(
                         if (it.id == track.id) it.copy(lyrics = lyricsData) else it
                     }
                     currentTracks = updatedTracks
-                    if (_uiState.value is PlayerUiState.Success) {
-                        _uiState.value = PlayerUiState.Success(currentTracks)
-                    }
                     _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
                 } else {
                     _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
@@ -724,7 +734,6 @@ class PlayerViewModel(
                 _isResolvingTrack.value = false
                 _resolvingTrackTitle.value = null
                 currentTracks = mutableTracks
-                _uiState.value = PlayerUiState.Success(currentTracks)
                 mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
                 prefetchAndKeepQueueAlive(startIndex)
             }
@@ -747,7 +756,6 @@ class PlayerViewModel(
                 _isResolvingTrack.value = false
                 _resolvingTrackTitle.value = null
                 currentTracks = listOf(resolved)
-                _uiState.value = PlayerUiState.Success(currentTracks)
                 mediaPlayerController.setPlaylistAndPlay(currentTracks, 0)
             }
 
@@ -758,9 +766,6 @@ class PlayerViewModel(
                 if (uniqueRecs.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         currentTracks = currentTracks + uniqueRecs
-                        if (_uiState.value is PlayerUiState.Success) {
-                            _uiState.value = PlayerUiState.Success(currentTracks)
-                        }
                         mediaPlayerController.appendTracksToQueue(uniqueRecs)
                         prefetchAndKeepQueueAlive(0)
                     }
@@ -801,8 +806,6 @@ class PlayerViewModel(
 
         // Synchronize with ExoPlayer
         mediaPlayerController.moveQueueItem(fromIndex, toIndex)
-
-        _uiState.value = PlayerUiState.Success(currentTracks)
     }
 
     fun togglePlayPause() {

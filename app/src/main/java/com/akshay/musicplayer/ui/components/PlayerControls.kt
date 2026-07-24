@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,11 +36,16 @@ fun PlayerControls(
     onNextClick: () -> Unit,
     onPreviousClick: () -> Unit,
     onSeek: (Long) -> Unit,
+    isResolvingTrack: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    var isSeeking by remember { androidx.compose.runtime.mutableStateOf(false) }
     var sliderPosition by remember(playbackState.currentPositionMs) {
+        isSeeking = false
         mutableFloatStateOf(playbackState.currentPositionMs.toFloat())
     }
+
+    val showLoading = isSeeking || isResolvingTrack
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -47,23 +53,34 @@ fun PlayerControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Play/Pause button
+            // Play/Pause button with loading spinner when seeking or resolving track
             IconButton(
                 onClick = onPlayPauseClick,
                 modifier = Modifier.size(48.dp)
             ) {
-                Icon(
-                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(36.dp),
-                    tint = Color.White
-                )
+                if (showLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(30.dp),
+                        color = Color(0xFFFF512F),
+                        strokeWidth = 3.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
+                        modifier = Modifier.size(36.dp),
+                        tint = Color.White
+                    )
+                }
             }
 
             // Seeker Slider taking remaining width
             Slider(
                 value = sliderPosition,
-                onValueChange = { sliderPosition = it },
+                onValueChange = {
+                    isSeeking = true
+                    sliderPosition = it
+                },
                 onValueChangeFinished = {
                     onSeek(sliderPosition.toLong())
                 },

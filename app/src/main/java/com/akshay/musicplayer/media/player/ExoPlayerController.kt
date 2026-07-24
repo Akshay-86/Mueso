@@ -280,25 +280,37 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun appendTracksToQueue(tracks: List<TrackEntity>) {
         if (tracks.isEmpty()) return
-        mediaController?.let { controller ->
-            Log.d("MUESO_SYNC", "ExoPlayer appendTracksToQueue: appending ${tracks.size} new tracks")
-            val newMediaItems = tracks.map { track ->
-                val metadata = MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album)
-                    .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
-                    .setIsPlayable(true)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .build()
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                Log.d("MUESO_SYNC", "ExoPlayer appendTracksToQueue: appending ${tracks.size} new tracks")
+                val newMediaItems = tracks.map { track ->
+                    val metadata = MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                        .setIsPlayable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
 
-                MediaItem.Builder()
-                    .setMediaId(track.id.toString())
-                    .setUri(track.filePath)
-                    .setMediaMetadata(metadata)
-                    .build()
+                    MediaItem.Builder()
+                        .setMediaId(track.id.toString())
+                        .setUri(track.filePath)
+                        .setMediaMetadata(metadata)
+                        .build()
+                }
+                controller.addMediaItems(newMediaItems)
             }
-            controller.addMediaItems(newMediaItems)
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            val prev = pendingRestore
+            pendingRestore = {
+                prev?.invoke()
+                action()
+            }
         }
     }
 
