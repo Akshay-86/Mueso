@@ -150,35 +150,47 @@ class GoogleDriveBackupRepository(private val context: Context) {
                     }
                 }
             } else {
-                // Create new file in appDataFolder using multipart/related
+                // Create new file metadata in appDataFolder
                 val metadataJson = JSONObject().apply {
                     put("name", "mueso_backup.json")
                     put("parents", org.json.JSONArray().put("appDataFolder"))
                 }.toString()
 
-                val boundary = "mueso_backup_boundary"
-                val multipartBody = ("--$boundary\r\n" +
-                        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-                        metadataJson + "\r\n" +
-                        "--$boundary\r\n" +
-                        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-                        jsonContent + "\r\n" +
-                        "--$boundary--").toRequestBody("multipart/related; boundary=$boundary".toMediaType())
-
-                val createUrl = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
-                val request = Request.Builder()
-                    .url(createUrl)
+                val createMetadataRequest = Request.Builder()
+                    .url("https://www.googleapis.com/drive/v3/files")
                     .addHeader("Authorization", "Bearer $token")
-                    .post(multipartBody)
+                    .post(metadataJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
                     .build()
 
-                httpClient.newCall(request).execute().use { response ->
+                val fileId = httpClient.newCall(createMetadataRequest).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string() ?: ""
+                        android.util.Log.e("MUESO_AUTH", "Upload CREATE METADATA failed: code=${response.code}, body=$errorBody")
+                        return@withContext Result.failure(Exception("Create metadata failed with code ${response.code}: $errorBody"))
+                    }
+                    val respBody = response.body?.string() ?: ""
+                    JSONObject(respBody).optString("id", "")
+                }
+
+                if (fileId.isEmpty()) {
+                    return@withContext Result.failure(Exception("Failed to extract file ID after creation"))
+                }
+
+                // Upload content to the newly created file
+                val uploadUrl = "https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media"
+                val uploadRequest = Request.Builder()
+                    .url(uploadUrl)
+                    .addHeader("Authorization", "Bearer $token")
+                    .patch(jsonRequestBody)
+                    .build()
+
+                httpClient.newCall(uploadRequest).execute().use { response ->
                     if (response.isSuccessful) {
                         Result.success(true)
                     } else {
                         val errorBody = response.body?.string() ?: ""
-                        android.util.Log.e("MUESO_AUTH", "Upload CREATE failed: code=${response.code}, body=$errorBody")
-                        Result.failure(Exception("Create failed with code ${response.code}: $errorBody"))
+                        android.util.Log.e("MUESO_AUTH", "Upload CREATE MEDIA failed: code=${response.code}, body=$errorBody")
+                        Result.failure(Exception("Create media failed with code ${response.code}: $errorBody"))
                     }
                 }
             }

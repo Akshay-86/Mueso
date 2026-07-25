@@ -54,6 +54,7 @@ fun SettingsScreen(
     val downloadFolder by viewModel.downloadFolder.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
 
+    val enableSponsorBlock by viewModel.enableSponsorBlock.collectAsState()
     val skipSponsor by viewModel.skipSponsor.collectAsState()
     val skipSelfPromo by viewModel.skipSelfPromo.collectAsState()
     val skipInteraction by viewModel.skipInteraction.collectAsState()
@@ -74,7 +75,7 @@ fun SettingsScreen(
                 viewModel.connectAndBackupGoogleAccount(context, email) { success, msg ->
                     if (success) {
                         viewModel.setGoogleAccount(account)
-                        android.widget.Toast.makeText(context, "Connected as $email! Playlists backed up.", android.widget.Toast.LENGTH_LONG).show()
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                     } else {
                         android.widget.Toast.makeText(context, "Backup failed: $msg", android.widget.Toast.LENGTH_LONG).show()
                     }
@@ -297,7 +298,7 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = dividerColor)
                     SettingsToggleItem(
-                        title = "High Refresh Rate (120Hz)",
+                        title = "High Refresh Rate",
                         subtitle = "Peak display rate for ultra-smooth UI",
                         icon = Icons.Default.Bolt,
                         checked = highRefreshRate,
@@ -410,15 +411,29 @@ fun SettingsScreen(
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
-                    SettingsToggleItem(title = "Skip Sponsor Segment", subtitle = "Paid brand sponsorships", icon = Icons.Default.Shield, checked = skipSponsor, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSponsor(it) })
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(title = "Skip Self-Promotion", subtitle = "Channel promos & merch", icon = Icons.Default.Campaign, checked = skipSelfPromo, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSelfPromo(it) })
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(title = "Skip Interaction Prompts", subtitle = "Subscribe & like reminders", icon = Icons.Default.ThumbUp, checked = skipInteraction, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipInteraction(it) })
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(title = "Skip Intros & Outros", subtitle = "Non-music intro/outro clips", icon = Icons.Default.MusicNote, checked = skipIntroOutro, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipIntroOutro(it) })
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(title = "Skip Non-Music Filler", subtitle = "Interludes & off-topic talk", icon = Icons.Default.ChatBubble, checked = skipNonMusicOffTopic, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipNonMusicOffTopic(it) })
+                    SettingsToggleItem(
+                        title = "Enable SponsorBlock",
+                        subtitle = "Skip sponsors, promos, and non-music filler",
+                        icon = Icons.Default.Shield,
+                        checked = enableSponsorBlock,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.settingsManager.setEnableSponsorBlock(it) }
+                    )
+                    
+                    androidx.compose.animation.AnimatedVisibility(visible = enableSponsorBlock) {
+                        Column(modifier = Modifier.padding(start = 24.dp)) {
+                            HorizontalDivider(color = dividerColor)
+                            SettingsToggleItem(title = "Skip Sponsor Segment", subtitle = "Paid brand sponsorships", icon = Icons.Default.Shield, checked = skipSponsor, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSponsor(it) })
+                            HorizontalDivider(color = dividerColor)
+                            SettingsToggleItem(title = "Skip Self-Promotion", subtitle = "Channel promos & merch", icon = Icons.Default.Campaign, checked = skipSelfPromo, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSelfPromo(it) })
+                            HorizontalDivider(color = dividerColor)
+                            SettingsToggleItem(title = "Skip Interaction Prompts", subtitle = "Subscribe & like reminders", icon = Icons.Default.ThumbUp, checked = skipInteraction, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipInteraction(it) })
+                            HorizontalDivider(color = dividerColor)
+                            SettingsToggleItem(title = "Skip Intros & Outros", subtitle = "Non-music intro/outro clips", icon = Icons.Default.MusicNote, checked = skipIntroOutro, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipIntroOutro(it) })
+                            HorizontalDivider(color = dividerColor)
+                            SettingsToggleItem(title = "Skip Non-Music Filler", subtitle = "Interludes & off-topic talk", icon = Icons.Default.ChatBubble, checked = skipNonMusicOffTopic, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipNonMusicOffTopic(it) })
+                        }
+                    }
                 }
             }
 

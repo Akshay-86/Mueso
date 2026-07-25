@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 class MainActivity : ComponentActivity() {
 
     private lateinit var playerViewModel: PlayerViewModel
+    private lateinit var mediaPlayerController: ExoPlayerController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +51,14 @@ class MainActivity : ComponentActivity() {
             val showOnLockscreen by playerViewModel.showOnLockscreen.collectAsState()
             val highRefreshRate by playerViewModel.highRefreshRate.collectAsState()
 
+            val view = androidx.compose.ui.platform.LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    val window = (view.context as android.app.Activity).window
+                    androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDarkMode
+                }
+            }
+
             LaunchedEffect(showOnLockscreen) {
                 updateLockScreenDisplay(showOnLockscreen)
             }
@@ -60,17 +69,20 @@ class MainActivity : ComponentActivity() {
             MusicPlayerTheme(darkTheme = isDarkMode) {
                 var showSplash by remember { mutableStateOf(true) }
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // App UI pre-warms and loads underneath during splash animation
-                    PermissionAwarePlayerScreen()
-
-                    // Splash screen overlay smoothly fades out when animation finishes
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showSplash,
-                        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(400)),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        SplashScreen(onAnimationFinished = { showSplash = false })
+                androidx.compose.animation.Crossfade(
+                    targetState = showSplash,
+                    animationSpec = androidx.compose.animation.core.tween(400),
+                    modifier = Modifier.fillMaxSize(),
+                    label = "SplashCrossfade"
+                ) { splashActive ->
+                    if (splashActive) {
+                        SplashScreen(
+                            onAnimationFinished = {
+                                showSplash = false
+                            }
+                        )
+                    } else {
+                        PermissionAwarePlayerScreen()
                     }
                 }
             }
@@ -82,7 +94,7 @@ class MainActivity : ComponentActivity() {
         val mediaStoreDataSource = LocalMediaStoreDataSource(contentResolver, Dispatchers.IO)
         val trackRepository = TrackRepositoryImpl(mediaStoreDataSource)
         val getLocalTracksUseCase = GetLocalTracksUseCase(trackRepository)
-        val mediaPlayerController = ExoPlayerController(this)
+        mediaPlayerController = ExoPlayerController(this)
         val db = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(this)
         val playlistDao = db.playlistDao()
         val onlinePlaylistDao = db.onlinePlaylistDao()
@@ -229,5 +241,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mediaPlayerController.release()
     }
 }

@@ -36,7 +36,6 @@ import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
 private val AccentOrange = Color(0xFFFF512F)
-private val BgDark = Color(0xFF0F0F0F)
 private val SurfaceDark = Color(0xFF1A1A2E)
 
 @Composable
@@ -47,19 +46,22 @@ fun PlaylistDetailScreen(
     onNavigateToPlayer: () -> Unit
 ) {
     val tracks by viewModel.getPlaylistTracks(playlist.id).collectAsState(initial = emptyList<TrackEntity>())
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
 
     if (showRenameDialog) {
         RenamePlaylistDialog(
             initialName = playlist.name,
+            isDarkMode = isDarkMode,
             onConfirm = { newName ->
                 viewModel.renamePlaylist(playlist.id, newName)
                 showRenameDialog = false
-                // Note: The UI won't immediately reflect the new name here unless playlist is updated
-                // since `playlist` is passed as a static entity. But the user can see it updated 
-                // when going back. Ideally we would observe the playlist object.
-                onBack() // Going back is easier to see the updated name immediately in the list
+                onBack()
             },
             onDismiss = { showRenameDialog = false }
         )
@@ -75,7 +77,7 @@ fun PlaylistDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // Header
         Row(
@@ -85,13 +87,13 @@ fun PlaylistDetailScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textPrimary)
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
-                    color = Color.White,
+                    color = textPrimary,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -99,7 +101,7 @@ fun PlaylistDetailScreen(
                 )
                 Text(
                     text = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = textSecondary,
                     fontSize = 13.sp
                 )
             }
@@ -108,7 +110,7 @@ fun PlaylistDetailScreen(
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Options",
-                        tint = Color.White
+                        tint = textPrimary
                     )
                 }
                 
@@ -116,11 +118,11 @@ fun PlaylistDetailScreen(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                     shape = RoundedCornerShape(14.dp),
-                    containerColor = SurfaceDark,
+                    containerColor = dropdownBg,
                     shadowElevation = 8.dp
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Rename", color = Color.White) },
+                        text = { Text("Rename", color = textPrimary) },
                         onClick = {
                             showMenu = false
                             showRenameDialog = true
@@ -151,9 +153,9 @@ fun PlaylistDetailScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Play All", fontWeight = FontWeight.SemiBold)
+                Text("Play All", color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -169,18 +171,19 @@ fun PlaylistDetailScreen(
                         modifier = Modifier
                             .size(64.dp)
                             .clip(CircleShape)
-                            .background(AccentOrange.copy(alpha = 0.1f)),
+                            .background(AccentOrange.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Default.MusicNote, null,
-                            tint = AccentOrange.copy(alpha = 0.5f),
+                            tint = AccentOrange,
                             modifier = Modifier.size(32.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("This playlist is empty", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp)
-                    Text("Add songs from the library", color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp)
+                    Text("This playlist is empty", color = textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Add songs from the library", color = textSecondary, fontSize = 13.sp)
                 }
             }
         } else {
@@ -193,6 +196,7 @@ fun PlaylistDetailScreen(
 
                     PlaylistTrackItem(
                         track = track,
+                        isDarkMode = isDarkMode,
                         isDragging = isDragging,
                         dragOffsetY = if (isDragging) dragOffset else 0f,
                         onClick = {
@@ -237,19 +241,23 @@ fun PlaylistDetailScreen(
 @Composable
 private fun RenamePlaylistDialog(
     initialName: String,
+    isDarkMode: Boolean = true,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
+    val dialogBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
 
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = SurfaceDark,
+        containerColor = dialogBg,
         title = {
             Text(
                 "Rename Playlist",
-                color = Color.White,
+                color = textPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
@@ -259,13 +267,13 @@ private fun RenamePlaylistDialog(
                 value = name,
                 onValueChange = { name = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Playlist name", color = Color.White.copy(alpha = 0.3f)) },
+                placeholder = { Text("Playlist name", color = textSecondary) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = AccentOrange,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f),
+                    focusedTextColor = textPrimary,
+                    unfocusedTextColor = textPrimary,
                     cursorColor = AccentOrange
                 )
             )
@@ -281,7 +289,7 @@ private fun RenamePlaylistDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                Text("Cancel", color = textSecondary)
             }
         }
     )
@@ -290,6 +298,7 @@ private fun RenamePlaylistDialog(
 @Composable
 private fun PlaylistTrackItem(
     track: TrackEntity,
+    isDarkMode: Boolean = true,
     isDragging: Boolean,
     dragOffsetY: Float,
     onClick: () -> Unit,
@@ -299,6 +308,11 @@ private fun PlaylistTrackItem(
     var showMenu by remember { mutableStateOf(false) }
     val minutes = (track.duration / 1000) / 60
     val seconds = (track.duration / 1000) % 60
+
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.45f) else Color(0xFF6E6E73)
+    val iconTint = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF3A3A3C)
+    val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
 
     Row(
         modifier = Modifier
@@ -321,15 +335,16 @@ private fun PlaylistTrackItem(
                 .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(
-                    Brush.linearGradient(
-                        listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.04f))
-                    )
+                    if (isDarkMode)
+                        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.04f)))
+                    else
+                        Brush.linearGradient(listOf(Color.Black.copy(alpha = 0.06f), Color.Black.copy(alpha = 0.03f)))
                 ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Default.MusicNote, null,
-                tint = Color.White.copy(alpha = 0.3f),
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f),
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -338,7 +353,7 @@ private fun PlaylistTrackItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = Color.White,
+                color = textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -351,16 +366,16 @@ private fun PlaylistTrackItem(
             ) {
                 Text(
                     text = track.artist,
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = textSecondary,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                Text("·", color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp)
+                Text("·", color = textSecondary.copy(alpha = 0.6f), fontSize = 13.sp)
                 Text(
                     "%d:%02d".format(minutes, seconds),
-                    color = Color.White.copy(alpha = 0.3f),
+                    color = textSecondary.copy(alpha = 0.6f),
                     fontSize = 13.sp
                 )
             }
@@ -379,7 +394,7 @@ private fun PlaylistTrackItem(
                 Icon(
                     Icons.Default.DragHandle,
                     contentDescription = "Options / Hold to reorder",
-                    tint = if (isDragging) AccentOrange else Color.White.copy(alpha = 0.3f),
+                    tint = if (isDragging) AccentOrange else iconTint,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -390,7 +405,7 @@ private fun PlaylistTrackItem(
                 onDismissRequest = { showMenu = false },
                 offset = DpOffset((-16).dp, 0.dp),
                 shape = RoundedCornerShape(16.dp),
-                containerColor = SurfaceDark,
+                containerColor = dropdownBg,
                 shadowElevation = 16.dp
             ) {
                 DropdownMenuItem(

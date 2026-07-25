@@ -178,7 +178,7 @@ fun OnlinePlaylistsScreen(
                     val heroCustom = customOnlinePlaylists.firstOrNull { "custom_${it.id}" == heroPlaylistId }
 
                     val heroTitle = heroCustom?.name ?: heroCurated.title
-                    val heroSubtitle = heroCustom?.description ?: heroCurated.subtitle
+                    val heroSubtitle = heroCustom?.description?.takeIf { it.isNotBlank() } ?: if (heroCustom != null) "Your Custom Online Playlist" else heroCurated.subtitle
                     val heroGradients = if (heroCustom != null) listOf(0xFF8E2DE2, 0xFF4A00E0) else heroCurated.gradientColors
 
                     // Collect tracks for Hero Playlist
@@ -355,6 +355,7 @@ fun OnlinePlaylistsScreen(
                             row.forEach { curated ->
                                 CuratedPlaylistGridCard(
                                     playlist = curated,
+                                    isDarkMode = isDarkMode,
                                     modifier = Modifier.weight(1f),
                                     onClick = { selectedCuratedPlaylist = curated },
                                     onSetHero = { viewModel.setHeroPlaylistId(curated.id) }
@@ -538,11 +539,18 @@ private fun CustomPlaylistCard(
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White)
                 }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier.background(if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF))
+                androidx.compose.material3.MaterialTheme(
+                    colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
+                        surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+                    ),
+                    shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
+                        extraSmall = RoundedCornerShape(12.dp)
+                    )
                 ) {
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
                     DropdownMenuItem(
                         text = { Text("Set as Hero Banner", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
                         onClick = {
@@ -564,6 +572,7 @@ private fun CustomPlaylistCard(
                             onDelete()
                         }
                     )
+                    }
                 }
             }
         }
@@ -587,6 +596,7 @@ private fun CustomPlaylistCard(
 @Composable
 private fun CuratedPlaylistGridCard(
     playlist: CuratedOnlinePlaylist,
+    isDarkMode: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onSetHero: () -> Unit
@@ -609,18 +619,26 @@ private fun CuratedPlaylistGridCard(
             IconButton(onClick = { showMenu = true }, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White.copy(alpha = 0.8f))
             }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(Color(0xFF1F1F2E))
+            androidx.compose.material3.MaterialTheme(
+                colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
+                    surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+                ),
+                shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
+                    extraSmall = RoundedCornerShape(12.dp)
+                )
             ) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
                 DropdownMenuItem(
-                    text = { Text("Set as Hero Banner", color = Color.White) },
+                    text = { Text("Set as Hero Banner", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
                     onClick = {
                         showMenu = false
                         onSetHero()
                     }
                 )
+                }
             }
         }
 

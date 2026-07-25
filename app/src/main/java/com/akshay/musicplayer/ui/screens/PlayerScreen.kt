@@ -54,6 +54,8 @@ fun PlayerScreen(
 ) {
     val activeQueue by viewModel.activeQueue.collectAsState()
 
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
+
     if (activeQueue.isNotEmpty()) {
         VerticalPagerScreen(
             tracks = activeQueue,
@@ -64,7 +66,7 @@ fun PlayerScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFF0F0F0F)),
+                .background(androidx.compose.material3.MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -74,14 +76,14 @@ fun PlayerScreen(
             ) {
                 Text(
                     text = "No track playing",
-                    color = Color.White,
+                    color = if (isDarkMode) Color.White else Color(0xFF1D1D1F),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Search or select a song to start playing",
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF1D1D1F).copy(alpha = 0.5f),
                     fontSize = 14.sp
                 )
             }

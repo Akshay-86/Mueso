@@ -1,6 +1,7 @@
 package com.akshay.musicplayer.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -81,17 +82,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
 
     var isOnlineDetailActive by remember { mutableStateOf(false) }
 
-    val showSettingsSheet by viewModel.showSettingsSheet.collectAsState()
-    val skipSponsor by viewModel.skipSponsor.collectAsState()
-    val skipSelfPromo by viewModel.skipSelfPromo.collectAsState()
-    val skipInteraction by viewModel.skipInteraction.collectAsState()
-    val skipIntroOutro by viewModel.skipIntroOutro.collectAsState()
-    val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
-    val audioQuality by viewModel.audioQuality.collectAsState()
-    val thumbnailQuality by viewModel.thumbnailQuality.collectAsState()
-    val downloadQuality by viewModel.downloadQuality.collectAsState()
-    val downloadFolder by viewModel.downloadFolder.collectAsState()
-    val enableLyrics by viewModel.enableLyrics.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -119,7 +109,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     if (success) {
                         viewModel.setGoogleAccount(account)
                         sharedPreferences.edit().putBoolean("has_seen_google_onboarding", true).apply()
-                        android.widget.Toast.makeText(context, "Connected as $email! Playlists backed up.", android.widget.Toast.LENGTH_LONG).show()
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                     } else {
                         android.widget.Toast.makeText(context, "Backup failed: $msg", android.widget.Toast.LENGTH_LONG).show()
                     }
@@ -174,7 +164,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     viewModel.setSearchQuery("")
                 },
                 onQueryChange = { viewModel.setSearchQuery(it) },
-                onSettingsClick = { viewModel.toggleSettingsSheet() },
+                onSettingsClick = { showSettingsScreen = true },
+                googleAccount = googleAccount,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
@@ -203,7 +194,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     .padding(horizontal = 16.dp)
                     .heightIn(max = 420.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1E1E2E).copy(alpha = 0.95f))
+                    .background(if (isDarkMode) Color(0xFF1E1E2E).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f))
                     .padding(12.dp)
             ) {
                 if (isSearchingOnline && results.isEmpty()) {
@@ -220,7 +211,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Searching online...", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                        Text("Searching online...", color = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f), fontSize = 14.sp)
                     }
                 } else if (results.isEmpty()) {
                     Box(
@@ -229,7 +220,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                             .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No matching songs found", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+                        Text("No matching songs found", color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 14.sp)
                     }
                 } else {
                     val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
@@ -273,7 +264,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = track.title,
-                                        color = Color.White,
+                                        color = if (isDarkMode) Color.White else Color(0xFF1D1D1F),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
@@ -298,11 +289,18 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
-                                    DropdownMenu(
-                                        expanded = showSearchMenu,
-                                        onDismissRequest = { showSearchMenu = false },
-                                        modifier = Modifier.background(if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF))
+                                    androidx.compose.material3.MaterialTheme(
+                                        colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
+                                            surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+                                        ),
+                                        shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
+                                            extraSmall = RoundedCornerShape(12.dp)
+                                        )
                                     ) {
+                                        DropdownMenu(
+                                            expanded = showSearchMenu,
+                                            onDismissRequest = { showSearchMenu = false }
+                                        ) {
                                         DropdownMenuItem(
                                             text = { Text("Play Next", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
                                             onClick = {
@@ -326,6 +324,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                                 selectedTrackForPlaylist = track
                                             }
                                         )
+                                        }
                                     }
                                 }
                             }
@@ -378,46 +377,20 @@ fun MainScreen(viewModel: PlayerViewModel) {
             )
         }
 
-        // Settings Bottom Sheet
-        if (showSettingsSheet) {
-            val showOnLockscreen by viewModel.showOnLockscreen.collectAsState()
-            val highRefreshRate by viewModel.highRefreshRate.collectAsState()
 
-            com.akshay.musicplayer.ui.components.SettingsBottomSheet(
-                skipSponsor = skipSponsor,
-                skipSelfPromo = skipSelfPromo,
-                skipInteraction = skipInteraction,
-                skipIntroOutro = skipIntroOutro,
-                skipNonMusicOffTopic = skipNonMusicOffTopic,
-                audioQuality = audioQuality,
-                thumbnailQuality = thumbnailQuality,
-                downloadQuality = downloadQuality,
-                downloadFolder = downloadFolder,
-                enableLyrics = enableLyrics,
-                isDarkMode = isDarkMode,
-                showOnLockscreen = showOnLockscreen,
-                highRefreshRate = highRefreshRate,
-                onToggleSponsor = { viewModel.setSkipSponsor(it) },
-                onToggleSelfPromo = { viewModel.setSkipSelfPromo(it) },
-                onToggleInteraction = { viewModel.setSkipInteraction(it) },
-                onToggleIntroOutro = { viewModel.setSkipIntroOutro(it) },
-                onToggleNonMusicOffTopic = { viewModel.setSkipNonMusicOffTopic(it) },
-                onAudioQualityChange = { viewModel.setAudioQuality(it) },
-                onThumbnailQualityChange = { viewModel.setThumbnailQuality(it) },
-                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
-                onDownloadFolderChange = { viewModel.setDownloadFolder(it) },
-                onEnableLyricsToggle = { viewModel.setEnableLyrics(it) },
-                onDarkModeToggle = { viewModel.setDarkMode(it) },
-                onShowOnLockscreenToggle = { viewModel.setShowOnLockscreen(it) },
-                onHighRefreshRateToggle = { viewModel.setHighRefreshRate(it) },
-                onForceRefresh = { ctx -> viewModel.forceRefreshAll(ctx) },
-                onOpenFullSettings = { showSettingsScreen = true },
-                onDismiss = { viewModel.dismissSettingsSheet() }
-            )
-        }
-
-        // Dedicated Full-Page Settings Screen Overlay
-        if (showSettingsScreen) {
+        // Dedicated Full-Page Settings Screen Overlay with smooth slide-up animation
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showSettingsScreen,
+            enter = androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
+            ) + androidx.compose.animation.fadeIn(tween(250)),
+            exit = androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
+            ) + androidx.compose.animation.fadeOut(tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
             SettingsScreen(
                 viewModel = viewModel,
                 onBackClick = { showSettingsScreen = false }
@@ -429,10 +402,9 @@ fun MainScreen(viewModel: PlayerViewModel) {
             com.akshay.musicplayer.ui.components.UnsavedChangesExitDialog(
                 isDarkMode = isDarkMode,
                 onBackupAndExit = {
-                    viewModel.performDriveBackup(context) { _, _ ->
-                        showExitBackupDialog = false
-                        (context as? android.app.Activity)?.finish()
-                    }
+                    viewModel.performDriveBackup(context)
+                    showExitBackupDialog = false
+                    (context as? android.app.Activity)?.finish()
                 },
                 onExitOnly = {
                     showExitBackupDialog = false
@@ -471,6 +443,7 @@ fun TopNavigationBarWithSearch(
     onSearchClose: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSettingsClick: () -> Unit = {},
+    googleAccount: com.google.android.gms.auth.api.signin.GoogleSignInAccount? = null,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -484,10 +457,21 @@ fun TopNavigationBarWithSearch(
         }
     }
 
+    val topBarBg = if (isDarkMode) BgDark else Color.White
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 48.dp),
+            .background(
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(
+                        topBarBg,
+                        topBarBg.copy(alpha = 0.9f),
+                        Color.Transparent
+                    )
+                )
+            )
+            .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Use a Box with weight(1f) so the layout size stays fixed during animation
@@ -503,16 +487,30 @@ fun TopNavigationBarWithSearch(
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSettingsClick() }
+                        .padding(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = "Mueso App Icon",
-                        tint = AccentOrange,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    if (googleAccount?.photoUrl != null) {
+                        coil.compose.AsyncImage(
+                            model = googleAccount.photoUrl,
+                            contentDescription = "Settings & Profile",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = AccentOrange,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
                     Text(
                         text = "Mueso",
                         color = textColor,
@@ -592,15 +590,8 @@ fun TopNavigationBarWithSearch(
 
         // Action buttons: Settings & Search/Close toggle
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isSearchActive) {
-                IconButton(onClick = onSettingsClick) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = textColor
-                    )
-                }
-            }
+            // Empty space for layout balance if needed, or just Search
+
             IconButton(
                 onClick = {
                     if (isSearchActive) onSearchClose() else onSearchClick()
