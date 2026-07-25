@@ -47,6 +47,7 @@ fun SplashScreen(onAnimationFinished: () -> Unit) {
         delay(600) // Wait for logo to settle
         textVisible = true // Logo smoothly slides left as text reveals
         delay(2000) // Read time
+        android.util.Log.d("MUESO_ONBOARDING", "SplashScreen finished. Transitioning to MainScreen.")
         onAnimationFinished()
     }
 

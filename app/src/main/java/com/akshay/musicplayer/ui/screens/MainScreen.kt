@@ -55,15 +55,28 @@ fun MainScreen(viewModel: PlayerViewModel) {
     var isSearchActive by remember { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
 
+    var showSettingsScreen by remember { mutableStateOf(false) }
+    var showExitBackupDialog by remember { mutableStateOf(false) }
+    val hasUnbackedUpChanges by viewModel.hasUnbackedUpChanges.collectAsState()
+    val googleAccount by viewModel.googleAccount.collectAsState()
+
     val isOnlineActive = pagerState.currentPage == 2
+
+    androidx.activity.compose.BackHandler(enabled = showSettingsScreen) {
+        showSettingsScreen = false
+    }
 
     androidx.activity.compose.BackHandler(enabled = isSearchActive) {
         isSearchActive = false
         viewModel.setSearchQuery("")
     }
 
-    androidx.activity.compose.BackHandler(enabled = pagerState.currentPage != 1 && selectedPlaylist == null && !isSearchActive) {
+    androidx.activity.compose.BackHandler(enabled = pagerState.currentPage != 1 && selectedPlaylist == null && !isSearchActive && !showSettingsScreen) {
         coroutineScope.launch { pagerState.animateScrollToPage(1) }
+    }
+
+    androidx.activity.compose.BackHandler(enabled = pagerState.currentPage == 1 && selectedPlaylist == null && !isSearchActive && !showSettingsScreen && hasUnbackedUpChanges && googleAccount != null) {
+        showExitBackupDialog = true
     }
 
     var isOnlineDetailActive by remember { mutableStateOf(false) }
@@ -82,6 +95,45 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val sharedPreferences = remember(context) { context.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE) }
+    var showOnboardingDialog by remember { mutableStateOf(!sharedPreferences.getBoolean("has_seen_google_onboarding", false)) }
+
+    LaunchedEffect(showOnboardingDialog) {
+        android.util.Log.d("MUESO_ONBOARDING", "MainScreen state: showOnboardingDialog=$showOnboardingDialog, has_seen_google_onboarding=${sharedPreferences.getBoolean("has_seen_google_onboarding", false)}")
+    }
+
+    val googleSignInLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        android.util.Log.d("MUESO_AUTH", "googleSignInLauncher activity result: resultCode=${result.resultCode}")
+        val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
+            val email = account?.email
+            android.util.Log.d("MUESO_AUTH", "Google Sign-In success: $email")
+
+            if (!email.isNullOrBlank()) {
+                android.widget.Toast.makeText(context, "Verifying Google account $email...", android.widget.Toast.LENGTH_SHORT).show()
+                viewModel.connectAndBackupGoogleAccount(context, email) { success, msg ->
+                    android.util.Log.d("MUESO_AUTH", "connectAndBackupGoogleAccount result: success=$success, msg=$msg")
+                    if (success) {
+                        viewModel.setGoogleAccount(account)
+                        sharedPreferences.edit().putBoolean("has_seen_google_onboarding", true).apply()
+                        android.widget.Toast.makeText(context, "Connected as $email! Playlists backed up.", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "Backup failed: $msg", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        } catch (e: com.google.android.gms.common.api.ApiException) {
+            android.util.Log.w("MUESO_AUTH", "Google Sign-In failed: statusCode=${e.statusCode}", e)
+            android.widget.Toast.makeText(context, "Sign-in cancelled", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.initGoogleDriveAccount(context)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Pager always alive
@@ -359,7 +411,49 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 onShowOnLockscreenToggle = { viewModel.setShowOnLockscreen(it) },
                 onHighRefreshRateToggle = { viewModel.setHighRefreshRate(it) },
                 onForceRefresh = { ctx -> viewModel.forceRefreshAll(ctx) },
+                onOpenFullSettings = { showSettingsScreen = true },
                 onDismiss = { viewModel.dismissSettingsSheet() }
+            )
+        }
+
+        // Dedicated Full-Page Settings Screen Overlay
+        if (showSettingsScreen) {
+            SettingsScreen(
+                viewModel = viewModel,
+                onBackClick = { showSettingsScreen = false }
+            )
+        }
+
+        // Unsaved Changes Exit Dialog
+        if (showExitBackupDialog) {
+            com.akshay.musicplayer.ui.components.UnsavedChangesExitDialog(
+                isDarkMode = isDarkMode,
+                onBackupAndExit = {
+                    viewModel.performDriveBackup(context) { _, _ ->
+                        showExitBackupDialog = false
+                        (context as? android.app.Activity)?.finish()
+                    }
+                },
+                onExitOnly = {
+                    showExitBackupDialog = false
+                    (context as? android.app.Activity)?.finish()
+                },
+                onDismiss = { showExitBackupDialog = false }
+            )
+        }
+        // First-Launch Google Drive Backup Onboarding Dialog
+        if (showOnboardingDialog) {
+            com.akshay.musicplayer.ui.components.GoogleBackupOnboardingDialog(
+                isDarkMode = isDarkMode,
+                onSignInClick = {
+                    showOnboardingDialog = false
+                    val repo = com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository(context)
+                    googleSignInLauncher.launch(repo.getSignInIntent(context))
+                },
+                onSkipClick = {
+                    showOnboardingDialog = false
+                    sharedPreferences.edit().putBoolean("has_seen_google_onboarding", true).apply()
+                }
             )
         }
     }

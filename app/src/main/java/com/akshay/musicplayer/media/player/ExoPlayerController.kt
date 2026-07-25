@@ -321,8 +321,15 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun release() {
         positionUpdateJob?.cancel()
-        mediaController?.removeListener(listener)
-        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+        try {
+            mediaController?.removeListener(listener)
+            mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+        } catch (e: Exception) {
+            Log.w("MUESO_MEDIA", "Safely caught MediaController unbind exception during release", e)
+        } finally {
+            mediaController = null
+            mediaControllerFuture = null
+        }
     }
 
     override fun playbackState(): StateFlow<PlaybackState> = _playbackState.asStateFlow()

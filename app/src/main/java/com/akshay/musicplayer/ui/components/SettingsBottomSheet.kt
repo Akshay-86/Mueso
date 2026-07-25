@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
@@ -76,6 +77,7 @@ fun SettingsBottomSheet(
     onShowOnLockscreenToggle: (Boolean) -> Unit,
     onHighRefreshRateToggle: (Boolean) -> Unit,
     onForceRefresh: (android.content.Context) -> Unit,
+    onOpenFullSettings: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
@@ -158,7 +160,7 @@ fun SettingsBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "App Settings",
+                    text = "Quick Settings",
                     color = textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -174,6 +176,24 @@ fun SettingsBottomSheet(
                 .padding(bottom = 36.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (onOpenFullSettings != null) {
+                item {
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onOpenFullSettings()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open Full Settings & Cloud Backup →", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
+
             // Theme Mode & Display Section Header
             item {
                 Row(

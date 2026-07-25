@@ -60,10 +60,18 @@ class MainActivity : ComponentActivity() {
             MusicPlayerTheme(darkTheme = isDarkMode) {
                 var showSplash by remember { mutableStateOf(true) }
 
-                if (showSplash) {
-                    SplashScreen(onAnimationFinished = { showSplash = false })
-                } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // App UI pre-warms and loads underneath during splash animation
                     PermissionAwarePlayerScreen()
+
+                    // Splash screen overlay smoothly fades out when animation finishes
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showSplash,
+                        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(400)),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        SplashScreen(onAnimationFinished = { showSplash = false })
+                    }
                 }
             }
         }
