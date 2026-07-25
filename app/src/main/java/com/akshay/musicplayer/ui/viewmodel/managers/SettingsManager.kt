@@ -16,16 +16,16 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _showOnLockscreen = MutableStateFlow(sharedPreferences.getBoolean("show_on_lockscreen", true))
     val showOnLockscreen: StateFlow<Boolean> = _showOnLockscreen.asStateFlow()
 
-    private val _highRefreshRate = MutableStateFlow(sharedPreferences.getBoolean("high_refresh_rate", true))
+    private val _highRefreshRate = MutableStateFlow(sharedPreferences.getBoolean("high_refresh_rate", false))
     val highRefreshRate: StateFlow<Boolean> = _highRefreshRate.asStateFlow()
 
-    private val _audioQuality = MutableStateFlow(sharedPreferences.getString("audio_quality", "High (320 kbps)") ?: "High (320 kbps)")
+    private val _audioQuality = MutableStateFlow(sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)")
     val audioQuality: StateFlow<String> = _audioQuality.asStateFlow()
 
-    private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "1080p (Maxres)") ?: "1080p (Maxres)")
+    private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)")
     val thumbnailQuality: StateFlow<String> = _thumbnailQuality.asStateFlow()
 
-    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Highest (320 kbps)") ?: "Highest (320 kbps)")
+    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)")
     val downloadQuality: StateFlow<String> = _downloadQuality.asStateFlow()
 
     private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")

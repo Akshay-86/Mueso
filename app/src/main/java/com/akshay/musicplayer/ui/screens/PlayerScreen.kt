@@ -358,7 +358,9 @@ fun PlayerPageContent(
                 val trackDlState = downloadStates[track.id]
 
                 var showAddToOnlinePlaylistSheet by remember { mutableStateOf(false) }
+                var showAddToOfflinePlaylistSheet by remember { mutableStateOf(false) }
                 val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
+                val offlinePlaylists by viewModel.playlists.collectAsState()
 
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
@@ -374,7 +376,13 @@ fun PlayerPageContent(
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },
                     onDownloadClick = { viewModel.downloadOnlineTrack(context, track) },
-                    onAddToPlaylistClick = { showAddToOnlinePlaylistSheet = true },
+                    onAddToPlaylistClick = {
+                        if (isOnlineSong) {
+                            showAddToOnlinePlaylistSheet = true
+                        } else {
+                            showAddToOfflinePlaylistSheet = true
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -388,6 +396,20 @@ fun PlayerPageContent(
                             viewModel.addTrackToOnlinePlaylist(playlist.id, track)
                         },
                         onDismiss = { showAddToOnlinePlaylistSheet = false }
+                    )
+                }
+
+                if (showAddToOfflinePlaylistSheet) {
+                    com.akshay.musicplayer.ui.screens.AddToPlaylistDialog(
+                        playlists = offlinePlaylists,
+                        trackToAdd = track,
+                        viewModel = viewModel,
+                        isDarkMode = isDarkMode,
+                        onPlaylistSelected = { playlistId ->
+                            viewModel.addTrackToPlaylist(playlistId, track.id)
+                            showAddToOfflinePlaylistSheet = false
+                        },
+                        onDismiss = { showAddToOfflinePlaylistSheet = false }
                     )
                 }
 

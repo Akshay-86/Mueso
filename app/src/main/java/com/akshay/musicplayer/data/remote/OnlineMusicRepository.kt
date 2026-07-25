@@ -413,8 +413,8 @@ class OnlineMusicRepository {
                     "https://i.ytimg.com/vi/$videoId/default.jpg"
                 )
                 return when {
-                    targetQuality.contains("High (720p)") -> fullChain.drop(1)
-                    targetQuality.contains("Medium (480p)") -> fullChain.drop(2)
+                    targetQuality.contains("720p") -> fullChain.drop(1)
+                    targetQuality.contains("480p") -> fullChain.drop(2)
                     targetQuality.contains("Low") -> listOf("https://i.ytimg.com/vi/$videoId/default.jpg")
                     else -> fullChain // Highest (1080p Maxres)
                 }

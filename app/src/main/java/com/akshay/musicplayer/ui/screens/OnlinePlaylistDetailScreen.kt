@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ fun OnlinePlaylistDetailScreen(
     isLoading: Boolean,
     isCustomUserPlaylist: Boolean = false,
     isDarkMode: Boolean = true,
+    viewModel: PlayerViewModel? = null,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onShuffleAllClick: () -> Unit,
@@ -64,6 +68,11 @@ fun OnlinePlaylistDetailScreen(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
     val context = LocalContext.current
+
+    val downloadStates by viewModel?.downloadStates?.collectAsState() ?: remember { mutableStateOf(emptyMap()) }
+    val activeDownloads = remember(downloadStates, tracks) {
+        tracks.mapNotNull { track -> downloadStates[track.id] }.filter { it.isDownloading }
+    }
 
     val filteredTracks = remember(searchQuery, tracks) {
         if (searchQuery.isBlank()) tracks
@@ -249,53 +258,99 @@ fun OnlinePlaylistDetailScreen(
                 }
             }
 
-                // Loading Spinner
-                if (isLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(40.dp),
-                            contentAlignment = Alignment.Center
+            // Active Downloads Progress Banner Card
+            if (activeDownloads.isNotEmpty()) {
+                item {
+                    val firstDl = activeDownloads.first()
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(color = AccentOrange, modifier = Modifier.size(24.dp))
-                                Text("Loading playlist tracks...", color = TextSecondary, fontSize = 14.sp)
+                            CircularProgressIndicator(
+                                progress = { firstDl.progress },
+                                modifier = Modifier.size(24.dp),
+                                color = AccentOrange
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Downloading ${activeDownloads.size} track(s)... (${(firstDl.progress * 100).toInt()}%)",
+                                    color = textPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { firstDl.progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = AccentOrange,
+                                    trackColor = AccentOrange.copy(alpha = 0.2f)
+                                )
                             }
                         }
                     }
-                } else if (filteredTracks.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(40.dp),
-                            contentAlignment = Alignment.Center
+                }
+            }
+
+            // Loading Spinner
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text(
-                                if (tracks.isEmpty()) "No tracks in this playlist yet" else "No matching tracks found",
-                                color = TextSecondary,
-                                fontSize = 14.sp
-                            )
+                            CircularProgressIndicator(color = AccentOrange, modifier = Modifier.size(24.dp))
+                            Text("Loading playlist tracks...", color = TextSecondary, fontSize = 14.sp)
                         }
                     }
-                } else {
-                    itemsIndexed(filteredTracks) { index, track ->
-                        OnlineTrackListItem(
-                            index = index + 1,
-                            totalCount = filteredTracks.size,
-                            track = track,
-                            isCustomUserPlaylist = isCustomUserPlaylist,
-                            isDarkMode = isDarkMode,
-                            onClick = { onTrackClick(index) },
-                            onRemove = { onRemoveTrack?.invoke(track) },
-                            onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
-                            onMoveDown = { onMoveTrack?.invoke(index, index + 1) }
+                }
+            } else if (filteredTracks.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (tracks.isEmpty()) "No tracks in this playlist yet" else "No matching tracks found",
+                            color = TextSecondary,
+                            fontSize = 14.sp
                         )
                     }
+                }
+            } else {
+                itemsIndexed(filteredTracks) { index, track ->
+                    OnlineTrackListItem(
+                        index = index + 1,
+                        totalCount = filteredTracks.size,
+                        track = track,
+                        isCustomUserPlaylist = isCustomUserPlaylist,
+                        isDarkMode = isDarkMode,
+                        downloadState = downloadStates[track.id],
+                        onClick = { onTrackClick(index) },
+                        onRemove = { onRemoveTrack?.invoke(track) },
+                        onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
+                        onMoveDown = { onMoveTrack?.invoke(index, index + 1) },
+                        onDownload = { onDownloadTrack?.invoke(track) },
+                        onCancelDownload = { viewModel?.cancelDownload(track.id) }
+                    )
                 }
             }
         }
@@ -316,6 +371,7 @@ fun OnlinePlaylistDetailScreen(
             )
         }
     }
+}
 
 @Composable
 private fun DownloadPlaylistDialog(
@@ -457,10 +513,13 @@ private fun OnlineTrackListItem(
     track: TrackEntity,
     isCustomUserPlaylist: Boolean,
     isDarkMode: Boolean = true,
+    downloadState: DownloadProgress? = null,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit
+    onMoveDown: () -> Unit,
+    onDownload: (() -> Unit)? = null,
+    onCancelDownload: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
@@ -519,6 +578,40 @@ private fun OnlineTrackListItem(
             )
         }
 
+        // Download status icon / spinner / cancel
+        when {
+            downloadState?.isDownloading == true -> {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { onCancelDownload?.invoke() }
+                        .padding(2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        progress = { downloadState.progress },
+                        modifier = Modifier.size(22.dp),
+                        color = AccentOrange,
+                        strokeWidth = 2.dp
+                    )
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel Download",
+                        tint = AccentOrange,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+            downloadState?.isDownloaded == true -> {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Downloaded",
+                    tint = Color(0xFF34C759),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
         // Overflow Options Menu
         Box {
             IconButton(onClick = { showMenu = true }) {
@@ -531,7 +624,9 @@ private fun OnlineTrackListItem(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF))
+                shape = RoundedCornerShape(16.dp),
+                containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF),
+                shadowElevation = 16.dp
             ) {
                 DropdownMenuItem(
                     text = { Text("Play Now", color = textColor) },
@@ -540,6 +635,39 @@ private fun OnlineTrackListItem(
                         onClick()
                     }
                 )
+                if (downloadState?.isDownloading == true) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(18.dp))
+                                Text("Cancel Download", color = Color(0xFFFF453A), fontWeight = FontWeight.SemiBold)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onCancelDownload?.invoke()
+                        }
+                    )
+                } else if (downloadState?.isDownloaded != true) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                                Text("Download Track", color = textColor)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDownload?.invoke()
+                        }
+                    )
+                }
                 if (isCustomUserPlaylist) {
                     if (index > 1) {
                         DropdownMenuItem(

@@ -24,11 +24,13 @@
 
 ## ✨ Features
 
+- **🟢 Spotify Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and manual alternative selection.
 - **🌐 Online Streaming & Curated Playlists**: Stream online tracks, browse curated top charts (YouTube & Spotify), create custom online playlists, and set custom Hero Banner playlists.
 - **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, and intros/outros in real-time during online streaming.
 - **📥 Batch Playlist Downloads**: Download full online playlists directly to your local device with embedded high-resolution album artwork and ID3 tags powered by Chaquopy Python & Mutagen.
 - **🎵 Synced & Unsynced Lyrics**: Automatically fetches real-time synced lyrics via LRCLIB with line-by-line karaoke highlights and fallback unsynced lyric viewer.
 - **🎨 Dynamic Light & Dark Theme Adaptation**: Fully adaptive glassmorphism & Material 3 color system with status bar color syncing across Light and Dark themes.
+- **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
 - **⚡ High Refresh Rate Display Mode**: Force 120Hz / 90Hz display refresh rates for butter-smooth scrolling and zero-lag Compose UI animations.
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers.
 - **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, hero banners, and app preferences securely to Google Drive AppData.
@@ -45,10 +47,11 @@ Mueso follows modern **MVVM Clean Architecture** guidelines:
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
 | **State Management** | Kotlin Coroutines, StateFlow, ViewModel |
 | **Database** | Room Persistence Library |
-| **Networking** | OkHttp 3, Gson, Piped & Invidious APIs |
+| **Networking** | OkHttp 3, Gson, Spotify Web API & Embed Scraper |
 | **Python Runtime** | Chaquopy SDK (for Mutagen ID3 Tagging & yt-dlp metadata) |
 | **Lyrics API** | LRCLIB Synced Lyrics API |
 | **Sponsor Filtering** | SponsorBlock Community API |
+| **App Updates** | GitHub Releases API & Android FileProvider Installer |
 | **Image Loading** | Coil Compose |
 
 ---
@@ -85,6 +88,16 @@ Mueso is built on top of amazing open-source technologies, tools, and community 
 - [LRCLIB](https://lrclib.net/)
 - [Chaquopy](https://chaquo.com/chaquopy/) & [Mutagen](https://mutagen.readthedocs.io/)
 - [Piped & Invidious APIs](https://piped.video)
+
+---
+
+## 🤝 Contributing, Issues & Feedback
+
+Contributors are very welcome! Feel free to **fork** this repository, make changes, and submit a **Pull Request**.
+
+If any credits were missed, or if you have any issues, complaints, or feedback, feel free to:
+- Open a GitHub [Issue](https://github.com/Akshay-86/Mueso/issues) or submit a [Pull Request](https://github.com/Akshay-86/Mueso/pulls).
+- Or email directly at **[nalliakshaykumar@gmail.com](mailto:nalliakshaykumar@gmail.com)**.
 
 ---
 

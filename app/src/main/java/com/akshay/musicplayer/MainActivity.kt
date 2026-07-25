@@ -59,6 +59,43 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val pendingDeleteIntent by playerViewModel.pendingDeleteIntent.collectAsState()
+            val pendingWriteIntent by playerViewModel.pendingWriteIntent.collectAsState()
+
+            val deleteLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
+            ) { result ->
+                if (result.resultCode == android.app.Activity.RESULT_OK) {
+                    android.widget.Toast.makeText(this, "Song deleted from device", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                playerViewModel.clearPendingDeleteIntent()
+            }
+
+            val writeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
+            ) { result ->
+                if (result.resultCode == android.app.Activity.RESULT_OK) {
+                    android.widget.Toast.makeText(this, "Permission granted", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                playerViewModel.clearPendingWriteIntent()
+            }
+
+            LaunchedEffect(pendingDeleteIntent) {
+                pendingDeleteIntent?.let { sender ->
+                    deleteLauncher.launch(
+                        androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                    )
+                }
+            }
+
+            LaunchedEffect(pendingWriteIntent) {
+                pendingWriteIntent?.let { sender ->
+                    writeLauncher.launch(
+                        androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                    )
+                }
+            }
+
             LaunchedEffect(showOnLockscreen) {
                 updateLockScreenDisplay(showOnLockscreen)
             }
@@ -171,7 +208,12 @@ class MainActivity : ComponentActivity() {
                 )
             )
         } else {
-            PermissionGate(permission = android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            MultiplePermissionsGate(
+                permissions = listOf(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            )
         }
     }
 

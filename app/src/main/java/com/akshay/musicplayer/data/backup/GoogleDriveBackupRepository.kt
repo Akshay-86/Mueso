@@ -218,11 +218,14 @@ class GoogleDriveBackupRepository(private val context: Context) {
 
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    android.util.Log.e("MUESO_BACKUP", "Download file failed: HTTP ${response.code}")
                     return@withContext Result.failure(Exception("Download failed with code ${response.code}"))
                 }
                 val jsonStr = response.body?.string() ?: return@withContext Result.failure(Exception("Empty backup file body"))
+                android.util.Log.d("MUESO_BACKUP", "Downloaded JSON string from Drive (${jsonStr.length} bytes): $jsonStr")
                 val parsed = backupAdapter.fromJson(jsonStr)
                     ?: return@withContext Result.failure(Exception("Failed to parse backup JSON"))
+                android.util.Log.d("MUESO_BACKUP", "Successfully parsed backup object: $parsed")
                 Result.success(parsed)
             }
         } catch (e: Exception) {

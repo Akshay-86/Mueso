@@ -8,8 +8,10 @@ import android.widget.Toast
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +21,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
+
+import com.akshay.musicplayer.media.notification.NotificationHelper
 
 class DownloadManager(
     private val onlineRepository: OnlineMusicRepository,
@@ -27,12 +32,23 @@ class DownloadManager(
 ) {
     private val _downloadStates = MutableStateFlow<Map<Long, DownloadProgress>>(emptyMap())
     val downloadStates: StateFlow<Map<Long, DownloadProgress>> = _downloadStates.asStateFlow()
+    private val activeJobs = ConcurrentHashMap<Long, Job>()
+    private var totalDownloadedInBatch = 0
+
+    fun cancelDownload(trackId: Long) {
+        activeJobs[trackId]?.cancel()
+        activeJobs.remove(trackId)
+        _downloadStates.value = _downloadStates.value - trackId
+    }
 
     fun downloadOnlineTrack(context: Context, track: TrackEntity) {
         if (_downloadStates.value[track.id]?.isDownloading == true || _downloadStates.value[track.id]?.isDownloaded == true) return
 
-        coroutineScope.launch(Dispatchers.IO) {
+        val job = coroutineScope.launch(Dispatchers.IO) {
             _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.01f))
+            val currentActiveCount = activeJobs.size
+            NotificationHelper.showDownloadProgress(context.applicationContext, track.title, 1, currentActiveCount.coerceAtLeast(1), 0.05f)
+
             try {
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
                 val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId) else track.filePath
@@ -84,6 +100,7 @@ class DownloadManager(
                     if (contentLength > 0) {
                         val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.95f)
                         _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = prog))
+                        NotificationHelper.showDownloadProgress(context.applicationContext, track.title, totalDownloadedInBatch + 1, activeJobs.size.coerceAtLeast(1), prog)
                     }
                 }
                 outputStream.flush()
@@ -112,8 +129,14 @@ class DownloadManager(
                 MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
 
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
+                totalDownloadedInBatch++
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Saved \"${track.title}\" to ${targetDir.name}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: CancellationException) {
+                _downloadStates.value = _downloadStates.value - track.id
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e("MUESO_DOWNLOAD", "Error downloading track ${track.title}", e)
@@ -121,7 +144,14 @@ class DownloadManager(
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+            } finally {
+                activeJobs.remove(track.id)
+                if (activeJobs.isEmpty()) {
+                    NotificationHelper.showDownloadComplete(context.applicationContext, totalDownloadedInBatch.coerceAtLeast(1), track.title)
+                    totalDownloadedInBatch = 0
+                }
             }
         }
+        activeJobs[track.id] = job
     }
 }

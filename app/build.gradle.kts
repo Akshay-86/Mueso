@@ -13,8 +13,8 @@ android {
         applicationId = "com.akshay.musicplayer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "v0.2.5"
+        versionCode = 5
+        versionName = "v1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

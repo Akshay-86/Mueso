@@ -3,14 +3,25 @@ package com.akshay.musicplayer.ui.screens
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,8 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository
@@ -61,6 +74,8 @@ fun SettingsScreen(
     val skipIntroOutro by viewModel.skipIntroOutro.collectAsState()
     val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
 
+    var showSpotifyImport by remember { mutableStateOf(false) }
+
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -96,28 +111,37 @@ fun SettingsScreen(
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
     val dividerColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("App Settings", color = textPrimary, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor)
-            )
-        },
-        containerColor = bgColor
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(bottom = 60.dp)
-        ) {
+    val listState = rememberLazyListState()
+
+    // Handle Spotify Import sub-screen navigation
+    androidx.activity.compose.BackHandler(enabled = showSpotifyImport) {
+        showSpotifyImport = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("App Settings", color = textPrimary, fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor)
+                )
+            },
+            containerColor = bgColor
+        ) { innerPadding ->
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
+            ) {
 
             // ─── 1. Google Drive Cloud Backup & Restore Section ───
             item {
@@ -437,7 +461,162 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 6. Force Refresh & Info ───
+            // ─── 6. Import Playlist ───
+            item {
+                Text(
+                    text = "Import Playlist",
+                    color = Color(0xFF1DB954),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .clickable { showSpotifyImport = true }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(Color(0xFF1DB954).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(22.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Import from Spotify", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Paste a public Spotify playlist link", color = textSub, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // ─── 7. App Updates (GitHub Releases) ───
+            item {
+                val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
+                val updateInfo by viewModel.updateInfo.collectAsState()
+                val updateDownloadProgress by viewModel.updateDownloadProgress.collectAsState()
+                val updateStatusMessage by viewModel.updateStatusMessage.collectAsState()
+
+                Text(
+                    text = "App Updates",
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(AccentOrange.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Check for Updates", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = updateStatusMessage ?: "Current version: v1.0.0",
+                                color = textSub,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.checkForUpdates(context, showToast = true) },
+                            enabled = !isCheckingUpdate,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            if (isCheckingUpdate) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Check", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Update available banner & install button
+                    if (updateInfo?.isNewVersionAvailable == true) {
+                        HorizontalDivider(color = dividerColor)
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.NewReleases, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size(18.dp))
+                                Text("New Version ${updateInfo!!.tagName} Available!", color = Color(0xFF34C759), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            if (!updateInfo!!.releaseNotes.isNullOrBlank()) {
+                                Text(
+                                    updateInfo!!.releaseNotes!!,
+                                    color = textSub,
+                                    fontSize = 12.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            if (updateDownloadProgress != null) {
+                                val prog = updateDownloadProgress!!
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Downloading update...", color = textSub, fontSize = 11.sp)
+                                        Text("${(prog * 100).toInt()}%", color = AccentOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { prog },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                        color = AccentOrange
+                                    )
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.downloadAndInstallUpdate(context) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Download & Install ${updateInfo!!.tagName}", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ─── 8. Force Refresh & Info ───
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -456,7 +635,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Mueso Player v0.2.5 • Open Source MIT",
+                        text = "Mueso Player v1.0.0 • Open Source MIT",
                         color = textSub,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
@@ -466,6 +645,14 @@ fun SettingsScreen(
 
         }
     }
+
+    if (showSpotifyImport) {
+        SpotifyImportScreen(
+            viewModel = viewModel,
+            onBackClick = { showSpotifyImport = false }
+        )
+    }
+}
 }
 
 @Composable
@@ -480,6 +667,12 @@ private fun SettingsToggleItem(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
 
+    val iconTint by animateColorAsState(
+        targetValue = if (checked) AccentOrange else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF8E8E93)),
+        animationSpec = tween(250),
+        label = "iconTint"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -493,7 +686,7 @@ private fun SettingsToggleItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
             Column {
                 Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, color = textSub, fontSize = 12.sp)
@@ -517,14 +710,15 @@ private fun SettingsSelectorItem(
     isDarkMode: Boolean,
     onSelect: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -532,6 +726,7 @@ private fun SettingsSelectorItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -541,30 +736,84 @@ private fun SettingsSelectorItem(
                     Text(subtitle, color = textSub, fontSize = 12.sp)
                 }
             }
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(currentValue, color = AccentOrange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+
+            AnimatedContent(
+                targetState = currentValue,
+                transitionSpec = {
+                    (fadeIn(tween(200))).togetherWith(fadeOut(tween(150)))
+                },
+                label = "ValueTextAnimation"
+            ) { targetText ->
+                Text(
+                    text = targetText,
+                    color = AccentOrange,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
-        if (expanded) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                options.forEach { option ->
-                    val isSelected = option == currentValue
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            onSelect(option)
-                            expanded = false
-                        },
-                        label = { Text(option, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AccentOrange,
-                            selectedLabelColor = Color.White
-                        )
+        // Integrated Segmented Selection Row with smooth animated color & scale micro-animations
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerBg)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEach { option ->
+                val isSelected = option == currentValue ||
+                    (option.contains("1080p") && currentValue.contains("1080p")) ||
+                    (option.contains("320") && currentValue.contains("320")) ||
+                    (option.contains("256") && currentValue.contains("256")) ||
+                    (option.contains("160") && currentValue.contains("160")) ||
+                    (option.contains("128") && currentValue.contains("128")) ||
+                    (option.contains("96") && currentValue.contains("96")) ||
+                    (option.contains("720p") && currentValue.contains("720p")) ||
+                    (option.contains("480p") && currentValue.contains("480p"))
+
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) AccentOrange else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "pillBgColor"
+                )
+
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else textSub,
+                    animationSpec = tween(250),
+                    label = "pillTextColor"
+                )
+
+                val scale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.0f else 0.97f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "pillScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer(scaleX = scale, scaleY = scale)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .clickable { onSelect(option) }
+                        .padding(vertical = 7.dp, horizontal = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = option,
+                        color = textColor,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

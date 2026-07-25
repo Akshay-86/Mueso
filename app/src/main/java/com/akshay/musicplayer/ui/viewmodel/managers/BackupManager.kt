@@ -84,48 +84,60 @@ class BackupManager(
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val driveRepo = GoogleDriveBackupRepository(context)
+                android.util.Log.d("MUESO_BACKUP", "Getting access token for $email...")
                 val token = driveRepo.getAccessToken(email)
                     ?: throw Exception("Failed to acquire Google Drive access token")
 
+                android.util.Log.d("MUESO_BACKUP", "Token acquired. Checking for existing backup...")
                 val existingBackupInfo = driveRepo.findBackupFile(token)
+                android.util.Log.d("MUESO_BACKUP", "Existing backup: ${existingBackupInfo != null}")
 
-                val localOnlineEntities = onlinePlaylistDao.getAllOnlinePlaylists().first()
-                val localPlaylistEntities = playlistDao.getAllPlaylists().first()
+                android.util.Log.d("MUESO_BACKUP", "Fetching local playlists...")
+                val localOnlineEntities = onlinePlaylistDao.getAllOnlinePlaylists().first() ?: emptyList()
+                val localPlaylistEntities = playlistDao.getAllPlaylists().first() ?: emptyList()
+                android.util.Log.d("MUESO_BACKUP", "Local: ${localOnlineEntities.size} online, ${localPlaylistEntities.size} local playlists")
 
                 if (existingBackupInfo != null) {
+                    android.util.Log.d("MUESO_BACKUP", "Downloading existing backup from Drive...")
                     val downloadResult = driveRepo.downloadBackup(email)
                     if (downloadResult.isSuccess) {
                         val backupData = downloadResult.getOrNull()
                         if (backupData != null) {
+                            android.util.Log.d("MUESO_BACKUP", "Backup parsed. onlinePlaylists=${backupData.onlinePlaylists?.size ?: "null"}, localPlaylists=${backupData.localPlaylists?.size ?: "null"}")
                             var restoredCount = 0
                             val existingNames = localOnlineEntities.map { it.name }.toSet()
 
-                            backupData.onlinePlaylists.forEach { op ->
-                                if (!existingNames.contains(op.name)) {
-                                    val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
-                                        com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
-                                            name = op.name,
-                                            description = op.description,
-                                            artworkUrl = op.artworkUrl,
-                                            dateCreated = op.dateCreated
+                            val onlineList = backupData.onlinePlaylists ?: emptyList()
+                            for (op in onlineList) {
+                                if (op == null) continue
+                                val opName = op.name ?: "Restored Playlist"
+                                if (existingNames.contains(opName)) continue
+
+                                val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
+                                    com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
+                                        name = opName,
+                                        description = op.description,
+                                        artworkUrl = op.artworkUrl,
+                                        dateCreated = op.dateCreated
+                                    )
+                                )
+                                val trackList = op.tracks ?: emptyList()
+                                for (t in trackList) {
+                                    if (t == null) continue
+                                    onlinePlaylistDao.insertOnlineTrack(
+                                        com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
+                                            onlinePlaylistId = playlistId,
+                                            trackId = System.currentTimeMillis() + (0..10000).random(),
+                                            title = t.title ?: "Unknown Title",
+                                            artist = t.artist ?: "Unknown Artist",
+                                            artworkUrl = t.artworkUrl,
+                                            filePath = t.filePath ?: "",
+                                            duration = t.duration,
+                                            orderIndex = t.orderIndex
                                         )
                                     )
-                                    op.tracks.forEach { t ->
-                                        onlinePlaylistDao.insertOnlineTrack(
-                                            com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
-                                                onlinePlaylistId = playlistId,
-                                                trackId = System.currentTimeMillis() + (0..10000).random(),
-                                                title = t.title,
-                                                artist = t.artist,
-                                                artworkUrl = t.artworkUrl,
-                                                filePath = t.filePath,
-                                                duration = t.duration,
-                                                orderIndex = t.orderIndex
-                                            )
-                                        )
-                                    }
-                                    restoredCount++
                                 }
+                                restoredCount++
                             }
 
                             withContext(Dispatchers.Main) {
@@ -153,9 +165,10 @@ class BackupManager(
                     }
                 }
 
-                // Initial backup
+                // No existing backup found — perform initial backup
+                android.util.Log.d("MUESO_BACKUP", "No existing backup. Creating initial backup...")
                 val backupOnlineList = localOnlineEntities.map { p ->
-                    val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id)
+                    val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id) ?: emptyList()
                     com.akshay.musicplayer.data.backup.BackupOnlinePlaylist(
                         name = p.name,
                         description = p.description,
@@ -175,7 +188,7 @@ class BackupManager(
                 }
 
                 val backupLocalList = localPlaylistEntities.map { p ->
-                    val refs = playlistDao.getPlaylistTracksSync(p.id)
+                    val refs = playlistDao.getPlaylistTracksSync(p.id) ?: emptyList()
                     com.akshay.musicplayer.data.backup.BackupLocalPlaylist(
                         name = p.name,
                         dateCreated = p.dateCreated,
@@ -194,6 +207,7 @@ class BackupManager(
                     localPlaylists = backupLocalList
                 )
 
+                android.util.Log.d("MUESO_BACKUP", "Uploading backup: ${backupOnlineList.size} online, ${backupLocalList.size} local playlists")
                 val result = driveRepo.uploadBackup(email, backupData)
                 withContext(Dispatchers.Main) {
                     _isBackupInProgress.value = false
@@ -212,6 +226,7 @@ class BackupManager(
                     }
                 }
             } catch (e: Exception) {
+                android.util.Log.e("MUESO_BACKUP", "connectAndBackupGoogleAccount error: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     _isBackupInProgress.value = false
                     onResult(false, e.message ?: "Sign-in verification failed")
@@ -316,25 +331,27 @@ class BackupManager(
                     if (result.isSuccess) {
                         val backupData = result.getOrNull()
                         if (backupData != null) {
+                            val onlineList = backupData.onlinePlaylists ?: emptyList()
                             coroutineScope.launch(Dispatchers.IO) {
-                                backupData.onlinePlaylists.forEach { op ->
+                                onlineList.forEach { op ->
                                     val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
                                         com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
-                                            name = op.name,
+                                            name = op.name ?: "Restored Playlist",
                                             description = op.description,
                                             artworkUrl = op.artworkUrl,
                                             dateCreated = op.dateCreated
                                         )
                                     )
-                                    op.tracks.forEach { t ->
+                                    val trackList = op.tracks ?: emptyList()
+                                    trackList.forEach { t ->
                                         onlinePlaylistDao.insertOnlineTrack(
                                             com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
                                                 onlinePlaylistId = playlistId,
                                                 trackId = System.currentTimeMillis() + (0..10000).random(),
-                                                title = t.title,
-                                                artist = t.artist,
+                                                title = t.title ?: "Unknown Title",
+                                                artist = t.artist ?: "Unknown Artist",
                                                 artworkUrl = t.artworkUrl,
-                                                filePath = t.filePath,
+                                                filePath = t.filePath ?: "",
                                                 duration = t.duration,
                                                 orderIndex = t.orderIndex
                                             )
@@ -342,7 +359,7 @@ class BackupManager(
                                     }
                                 }
                             }
-                            onResult(true, "Restored ${backupData.onlinePlaylists.size} online playlists successfully!")
+                            onResult(true, "Restored ${onlineList.size} online playlists successfully!")
                         } else {
                             onResult(false, "No backup data found")
                         }

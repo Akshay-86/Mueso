@@ -34,6 +34,8 @@ import com.akshay.musicplayer.ui.viewmodel.managers.BackupManager
 import com.akshay.musicplayer.ui.viewmodel.managers.SearchManager
 import com.akshay.musicplayer.ui.viewmodel.managers.DownloadManager
 import com.akshay.musicplayer.ui.viewmodel.managers.PlaylistManager
+import com.akshay.musicplayer.ui.viewmodel.managers.SpotifyImportManager
+import com.akshay.musicplayer.data.remote.SpotifyImportRepository
 
 enum class LyricsFetchStatus {
     IDLE,
@@ -64,6 +66,15 @@ class PlayerViewModel(
     val searchManager = SearchManager(onlineRepository, viewModelScope) { currentTracks }
     val downloadManager = DownloadManager(onlineRepository, { settingsManager.downloadFolder.value }, viewModelScope)
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
+    val spotifyImportManager = SpotifyImportManager(SpotifyImportRepository(), onlineRepository, onlinePlaylistDao, viewModelScope, { backupManager.markDirty() })
+    val updateManager = com.akshay.musicplayer.ui.viewmodel.managers.UpdateManager(viewModelScope)
+
+    val isCheckingUpdate = updateManager.isChecking
+    val updateInfo = updateManager.updateInfo
+    val updateDownloadProgress = updateManager.downloadProgress
+    val updateStatusMessage = updateManager.statusMessage
+    fun checkForUpdates(context: android.content.Context, showToast: Boolean = false) = updateManager.checkForUpdates(context, showToast)
+    fun downloadAndInstallUpdate(context: android.content.Context) = updateManager.downloadAndInstallApk(context)
 
     val isDarkMode = settingsManager.isDarkMode
     val heroPlaylistId = settingsManager.heroPlaylistId
@@ -119,6 +130,7 @@ class PlayerViewModel(
 
     val downloadStates = downloadManager.downloadStates
     fun downloadOnlineTrack(context: android.content.Context, track: com.akshay.musicplayer.domain.models.TrackEntity) = downloadManager.downloadOnlineTrack(context, track)
+    fun cancelDownload(trackId: Long) = downloadManager.cancelDownload(trackId)
 
     val playlists = playlistManager.playlists
     val onlinePlaylists = playlistManager.onlinePlaylists
@@ -138,6 +150,19 @@ class PlayerViewModel(
     fun getOnlinePlaylistTracks(playlistId: Long) = playlistManager.getOnlinePlaylistTracks(playlistId)
     suspend fun getCuratedPlaylistTracks(query: String) = playlistManager.getCuratedPlaylistTracks(query)
     fun updateOnlinePlaylistDetails(playlistId: Long, name: String, description: String) = playlistManager.updateOnlinePlaylistDetails(playlistId, name, description)
+
+    // Spotify Import delegates
+    val spotifyImportState = spotifyImportManager.importState
+    val spotifyPlaylistData = spotifyImportManager.spotifyPlaylistData
+    val spotifyMatchResults = spotifyImportManager.matchResults
+    val spotifyMatchProgress = spotifyImportManager.matchProgress
+    val spotifyErrorMessage = spotifyImportManager.errorMessage
+    fun fetchSpotifyPlaylist(context: android.content.Context, url: String) = spotifyImportManager.fetchAndMatch(context, url)
+    fun retrySpotifyMatch(index: Int, query: String) = spotifyImportManager.retryMatch(index, query)
+    fun selectSpotifyMatch(index: Int, track: com.akshay.musicplayer.domain.models.TrackEntity) = spotifyImportManager.selectMatch(index, track)
+    fun toggleSpotifyAlternatives(index: Int) = spotifyImportManager.toggleAlternatives(index)
+    fun createSpotifyPlaylist() = spotifyImportManager.createPlaylist()
+    fun resetSpotifyImport() = spotifyImportManager.reset()
 
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -322,6 +347,193 @@ class PlayerViewModel(
                 }
             }.onFailure { exception ->
                 _uiState.value = PlayerUiState.Error(exception.message ?: "Unknown error")
+            }
+        }
+    }
+
+    val pendingDeleteIntent = MutableStateFlow<android.content.IntentSender?>(null)
+    val pendingWriteIntent = MutableStateFlow<android.content.IntentSender?>(null)
+
+    fun clearPendingDeleteIntent() {
+        pendingDeleteIntent.value = null
+    }
+
+    fun clearPendingWriteIntent() {
+        pendingWriteIntent.value = null
+    }
+
+    fun renameTrack(context: android.content.Context, trackId: Long, newTitle: String) {
+        Log.d("MUESO_FILE_OP", "=== RENAME TRACK STARTED ===")
+        Log.d("MUESO_FILE_OP", "Track ID: $trackId -> New Title: \"$newTitle\"")
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentState = _uiState.value
+            val targetTrack = (currentState as? PlayerUiState.Success)?.tracks?.find { it.id == trackId }
+            var updatedPath: String? = null
+
+            if (targetTrack != null && targetTrack.filePath.isNotBlank()) {
+                val contentUri = android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    trackId
+                )
+                val oldFile = java.io.File(targetTrack.filePath)
+                Log.d("MUESO_FILE_OP", "[1/4] Old file path: ${oldFile.absolutePath}, exists: ${oldFile.exists()}")
+                var renamedDisk = false
+                if (oldFile.exists()) {
+                    val sanitizedTitle = newTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    val ext = oldFile.extension.ifBlank { "mp3" }
+                    val newFile = java.io.File(oldFile.parentFile, "$sanitizedTitle.$ext")
+                    renamedDisk = oldFile.renameTo(newFile)
+                    if (renamedDisk) {
+                        updatedPath = newFile.absolutePath
+                        Log.d("MUESO_FILE_OP", "[1/4] File successfully renamed on disk to: $updatedPath")
+                    } else {
+                        Log.e("MUESO_FILE_OP", "[1/4] File.renameTo() returned false for target: ${newFile.absolutePath}")
+                    }
+                }
+                val pathToUse = updatedPath ?: targetTrack.filePath
+
+                if (!renamedDisk && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    try {
+                        val pi = android.provider.MediaStore.createWriteRequest(context.contentResolver, listOf(contentUri))
+                        pendingWriteIntent.value = pi.intentSender
+                        Log.d("MUESO_FILE_OP", "[1/4] MediaStore.createWriteRequest created IntentSender")
+                    } catch (e: Exception) {
+                        Log.e("MUESO_FILE_OP", "[1/4] createWriteRequest error: ${e.message}")
+                    }
+                }
+
+                // Update MP3 ID3 Tag via Chaquopy Mutagen if available
+                try {
+                    if (com.chaquo.python.Python.isStarted() && pathToUse.endsWith(".mp3", ignoreCase = true)) {
+                        val py = com.chaquo.python.Python.getInstance()
+                        val mutagen = py.getModule("mutagen.easyid3")
+                        val audio = mutagen.callAttr("EasyID3", pathToUse)
+                        audio.callAttr("__setitem__", "title", newTitle)
+                        audio.callAttr("save")
+                        Log.d("MUESO_FILE_OP", "[2/4] ID3 metadata tag saved successfully via Mutagen")
+                    } else {
+                        Log.d("MUESO_FILE_OP", "[2/4] Skip Mutagen ID3 tag update (Python started: ${com.chaquo.python.Python.isStarted()})")
+                    }
+                } catch (e: Exception) {
+                    Log.e("MUESO_FILE_OP", "[2/4] ID3 rename error: ${e.message}", e)
+                }
+
+                // Update Android MediaStore
+                try {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Audio.Media.TITLE, newTitle)
+                        if (updatedPath != null) {
+                            put(android.provider.MediaStore.Audio.Media.DATA, updatedPath)
+                        }
+                    }
+                    val updatedRows = context.contentResolver.update(contentUri, values, null, null)
+                    Log.d("MUESO_FILE_OP", "[3/4] MediaStore updated rows: $updatedRows")
+                } catch (rse: android.app.RecoverableSecurityException) {
+                    Log.w("MUESO_FILE_OP", "[3/4] RecoverableSecurityException caught! Requesting user permission intent...")
+                    pendingWriteIntent.value = rse.userAction.actionIntent.intentSender
+                } catch (e: Exception) {
+                    Log.e("MUESO_FILE_OP", "[3/4] MediaStore update error: ${e.message}", e)
+                }
+
+                // Trigger MediaScanner
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(pathToUse), null) { path, uri ->
+                    Log.d("MUESO_FILE_OP", "[4/4] MediaScanner scan completed for path=$path, uri=$uri")
+                }
+            } else {
+                Log.e("MUESO_FILE_OP", "Target track not found in state or filePath empty!")
+            }
+
+            withContext(Dispatchers.Main) {
+                if (currentState is PlayerUiState.Success) {
+                    val updatedTracks = currentState.tracks.map { track ->
+                        if (track.id == trackId) track.copy(title = newTitle, filePath = updatedPath ?: track.filePath) else track
+                    }
+                    _uiState.value = PlayerUiState.Success(updatedTracks)
+                    if (currentTracks.isNotEmpty()) {
+                        currentTracks = currentTracks.map { if (it.id == trackId) it.copy(title = newTitle, filePath = updatedPath ?: it.filePath) else it }
+                    }
+                    Log.d("MUESO_FILE_OP", "=== RENAME TRACK FINISHED (UI Updated) ===")
+                }
+            }
+        }
+    }
+
+    fun deleteTrack(context: android.content.Context, track: TrackEntity) {
+        Log.d("MUESO_FILE_OP", "=== DELETE TRACK STARTED ===")
+        Log.d("MUESO_FILE_OP", "Track ID: ${track.id}, Title: \"${track.title}\", FilePath: ${track.filePath}")
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val contentUri = android.content.ContentUris.withAppendedId(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                track.id
+            )
+
+            // 1. Try direct File.delete() first
+            var directDeleted = false
+            if (track.filePath.isNotBlank()) {
+                val file = java.io.File(track.filePath)
+                val existsBefore = file.exists()
+                Log.d("MUESO_FILE_OP", "[1/4] Direct file exists before delete: $existsBefore (${file.absolutePath})")
+                if (existsBefore) {
+                    directDeleted = file.delete()
+                    Log.d("MUESO_FILE_OP", "[1/4] Direct file.delete() returned: $directDeleted")
+                }
+            }
+
+            if (!directDeleted) {
+                // 2. Perform ContentResolver delete or catch RecoverableSecurityException for system consent dialog
+                try {
+                    val rows = context.contentResolver.delete(contentUri, null, null)
+                    Log.d("MUESO_FILE_OP", "[2/4] ContentResolver delete returned rows: $rows")
+                    if (rows == 0 && track.filePath.isNotBlank()) {
+                        val rowsData = context.contentResolver.delete(
+                            android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                            "${android.provider.MediaStore.Audio.Media.DATA} = ?",
+                            arrayOf(track.filePath)
+                        )
+                        Log.d("MUESO_FILE_OP", "[2/4] ContentResolver delete by DATA column rows: $rowsData")
+                    }
+                } catch (rse: android.app.RecoverableSecurityException) {
+                    Log.w("MUESO_FILE_OP", "[2/4] RecoverableSecurityException caught! Requesting user permission intent...")
+                    pendingDeleteIntent.value = rse.userAction.actionIntent.intentSender
+                } catch (e: SecurityException) {
+                    Log.w("MUESO_FILE_OP", "[2/4] SecurityException: ${e.message}")
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        try {
+                            val pi = android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
+                            pendingDeleteIntent.value = pi.intentSender
+                            Log.d("MUESO_FILE_OP", "[2/4] MediaStore.createDeleteRequest created IntentSender successfully!")
+                        } catch (ex: Exception) {
+                            Log.e("MUESO_FILE_OP", "[2/4] createDeleteRequest failed: ${ex.message}", ex)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MUESO_FILE_OP", "[2/4] Delete error: ${e.message}", e)
+                }
+            }
+
+            // 3. Trigger MediaScanner to rescan file path
+            if (track.filePath.isNotBlank()) {
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(track.filePath),
+                    null
+                ) { path, uri ->
+                    Log.d("MUESO_FILE_OP", "[3/4] MediaScanner scan completed for path=$path, uri=$uri")
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                val currentState = _uiState.value
+                if (currentState is PlayerUiState.Success) {
+                    val updatedTracks = currentState.tracks.filter { it.id != track.id }
+                    _uiState.value = if (updatedTracks.isEmpty()) PlayerUiState.Empty else PlayerUiState.Success(updatedTracks)
+                    if (currentTracks.isNotEmpty()) {
+                        currentTracks = currentTracks.filter { it.id != track.id }
+                    }
+                }
+                Log.d("MUESO_FILE_OP", "=== DELETE TRACK FINISHED (UI Updated) ===")
             }
         }
     }
@@ -1064,19 +1276,5 @@ class PlayerViewModel(
     }
 
     fun getQueueTracks(): List<TrackEntity> = currentTracks
-
-    // --- Google Drive Backup & Dirty State Tracking ---
-
-
-
-
-
-
-
-
-
-
-
-
 
 }

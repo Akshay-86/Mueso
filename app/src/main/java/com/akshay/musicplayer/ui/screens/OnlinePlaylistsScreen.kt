@@ -417,6 +417,7 @@ fun OnlinePlaylistsScreen(
                 isLoading = isFetchingCuratedTracks && curatedTracks.isEmpty(),
                 isCustomUserPlaylist = false,
                 isDarkMode = isDarkMode,
+                viewModel = viewModel,
                 onBackClick = { selectedCuratedPlaylist = null },
                 onPlayAllClick = {
                     if (curatedTracks.isNotEmpty()) {
@@ -460,6 +461,7 @@ fun OnlinePlaylistsScreen(
                 isLoading = false,
                 isCustomUserPlaylist = true,
                 isDarkMode = isDarkMode,
+                viewModel = viewModel,
                 onBackClick = { selectedCustomPlaylist = null },
                 onPlayAllClick = {
                     if (userTracks.isNotEmpty()) {

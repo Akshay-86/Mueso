@@ -40,6 +40,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -116,6 +119,7 @@ fun OfflineLibraryScreen(
                     uiState = uiState,
                     sortOption = sortOption,
                     isDarkMode = isDarkMode,
+                    viewModel = viewModel,
                     onSortChange = { sortOption = it },
                     onTrackClick = { track ->
                         viewModel.playTrack(track)
@@ -199,11 +203,40 @@ private fun AllSongsTab(
     uiState: PlayerUiState,
     sortOption: SortOption,
     isDarkMode: Boolean,
+    viewModel: PlayerViewModel,
     onSortChange: (SortOption) -> Unit,
     onTrackClick: (TrackEntity) -> Unit,
     onAddToPlaylist: (TrackEntity) -> Unit,
     onRefresh: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    var trackToRename by remember { mutableStateOf<TrackEntity?>(null) }
+    var trackToDelete by remember { mutableStateOf<TrackEntity?>(null) }
+
+    if (trackToRename != null) {
+        RenameTrackDialog(
+            track = trackToRename!!,
+            isDarkMode = isDarkMode,
+            onConfirm = { newTitle ->
+                viewModel.renameTrack(context, trackToRename!!.id, newTitle)
+                trackToRename = null
+            },
+            onDismiss = { trackToRename = null }
+        )
+    }
+
+    if (trackToDelete != null) {
+        DeleteTrackConfirmationDialog(
+            track = trackToDelete!!,
+            isDarkMode = isDarkMode,
+            onConfirm = {
+                viewModel.deleteTrack(context, trackToDelete!!)
+                trackToDelete = null
+            },
+            onDismiss = { trackToDelete = null }
+        )
+    }
+
     when (val state = uiState) {
         is PlayerUiState.Success -> {
             val tracks = state.tracks
@@ -310,7 +343,9 @@ private fun AllSongsTab(
                                 track = track,
                                 isDarkMode = isDarkMode,
                                 onClick = { onTrackClick(track) },
-                                onAddToPlaylist = { onAddToPlaylist(track) }
+                                onAddToPlaylist = { onAddToPlaylist(track) },
+                                onRename = { trackToRename = track },
+                                onDelete = { trackToDelete = track }
                             )
                         }
                     }
@@ -474,7 +509,9 @@ fun TrackListItem(
     track: TrackEntity,
     isDarkMode: Boolean = true,
     onClick: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onRename: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val minutes = (track.duration / 1000) / 60
@@ -488,14 +525,14 @@ fun TrackListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 24.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Album art placeholder
+        // Thumbnail icon
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(46.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(
                     if (isDarkMode)
@@ -589,6 +626,50 @@ fun TrackListItem(
                     onClick = {
                         showMenu = false
                         onAddToPlaylist()
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                null,
+                                tint = AccentOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text("Rename Song", color = itemTextColor)
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        onRename()
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                null,
+                                tint = Color(0xFFEF5350),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text("Delete Song", color = Color(0xFFEF5350))
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
                     },
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
@@ -927,10 +1008,11 @@ private fun CreatePlaylistDialog(
     )
 }
 
-// ─── Add to Playlist Dialog ──────────────────────────────────
+// ─── Add to Playlist Bottom Sheet ────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddToPlaylistDialog(
+fun AddToPlaylistDialog(
     playlists: List<PlaylistEntity>,
     trackToAdd: TrackEntity? = null,
     viewModel: PlayerViewModel? = null,
@@ -938,45 +1020,136 @@ private fun AddToPlaylistDialog(
     onPlaylistSelected: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val dialogBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val sheetState = rememberModalBottomSheetState()
+    val context = LocalContext.current
+    var showCreateDialog by remember { mutableStateOf(false) }
+
+    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val itemBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+    val cardBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
 
-    AlertDialog(
+    if (showCreateDialog) {
+        CreatePlaylistDialog(
+            isDarkMode = isDarkMode,
+            onConfirm = { name ->
+                viewModel?.createPlaylist(name)
+                showCreateDialog = false
+                Toast.makeText(context, "Created \"$name\"", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = dialogBg,
-        title = {
-            Text(
-                "Add to Playlist",
-                color = textPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp
-            )
-        },
-        text = {
-            if (playlists.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+        sheetState = sheetState,
+        containerColor = sheetBg,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.2f))
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Add to Playlist",
+                    color = textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (trackToAdd != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = trackToAdd.title,
+                        color = AccentOrange,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            // Create New Playlist Option Card
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(AccentOrange.copy(alpha = 0.15f))
+                    .clickable { showCreateDialog = true }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AccentOrange),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.LibraryMusic,
-                        null,
-                        tint = textSecondary,
-                        modifier = Modifier.size(40.dp)
+                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Create New Playlist",
+                        color = textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "No playlists yet. Create one first!",
+                        text = "Specify playlist name",
+                        color = textSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (playlists.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No custom playlists created yet",
                         color = textSecondary,
                         fontSize = 14.sp
                     )
                 }
             } else {
+                Text(
+                    text = "Select Playlist",
+                    color = textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(playlists) { playlist ->
                         val playlistTracks by viewModel?.getPlaylistTracks(playlist.id)?.collectAsState(initial = emptyList())
@@ -989,55 +1162,174 @@ private fun AddToPlaylistDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(itemBg)
-                                .clickable { onPlaylistSelected(playlist.id) }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.QueueMusic,
-                                null,
-                                tint = AccentOrange.copy(alpha = 0.8f),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    playlist.name,
-                                    color = textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                if (isAlreadyInPlaylist) {
-                                    Text(
-                                        "(Already added)",
-                                        color = Color(0xFF34C759),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                .background(cardBg)
+                                .clickable {
+                                    onPlaylistSelected(playlist.id)
+                                    val msg = if (isAlreadyInPlaylist) "Already in \"${playlist.name}\"" else "Added to \"${playlist.name}\""
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    onDismiss()
                                 }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.linearGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlaylistPlay, contentDescription = null, tint = Color.White)
                             }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = playlist.name,
+                                        color = textPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isAlreadyInPlaylist) {
+                                        Text(
+                                            text = "(Already added)",
+                                            color = Color(0xFF34C759),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "${playlistTracks.size} tracks",
+                                    color = textSecondary,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
                             if (isAlreadyInPlaylist) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = "Already Added",
                                     tint = Color(0xFF34C759),
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+enum class SortOption {
+    A_Z, DATE_ADDED
+}
+
+@Composable
+private fun RenameTrackDialog(
+    track: TrackEntity,
+    isDarkMode: Boolean = true,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var nameInput by remember { mutableStateOf(track.title) }
+    val dialogBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = dialogBg,
+        title = {
+            Text("Rename Song", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Enter a new title for this song:", color = textSecondary, fontSize = 13.sp)
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AccentOrange,
+                        unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f),
+                        cursorColor = AccentOrange,
+                        focusedLabelColor = AccentOrange,
+                        unfocusedLabelColor = textSecondary,
+                        focusedTextColor = textPrimary,
+                        unfocusedTextColor = textPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = {
+            Button(
+                onClick = {
+                    if (nameInput.isNotBlank()) onConfirm(nameInput.trim())
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = textSecondary)
+                Text("Cancel", color = textSecondary)
             }
         }
     )
 }
 
-enum class SortOption {
-    A_Z, DATE_ADDED
+@Composable
+private fun DeleteTrackConfirmationDialog(
+    track: TrackEntity,
+    isDarkMode: Boolean = true,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dialogBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = dialogBg,
+        title = {
+            Text("Delete Song?", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        },
+        text = {
+            Text(
+                "Are you sure you want to delete \"${track.title}\"? This song will be removed from your offline library.",
+                color = textSecondary,
+                fontSize = 14.sp
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textSecondary)
+            }
+        }
+    )
 }

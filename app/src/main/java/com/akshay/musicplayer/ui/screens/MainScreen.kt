@@ -151,13 +151,19 @@ fun MainScreen(viewModel: PlayerViewModel) {
             }
         }
 
-        // Top Navigation Bar with integrated search (hidden when viewing a playlist detail)
-        if (selectedPlaylist == null && !isOnlineDetailActive) {
+        val activeQueue by viewModel.activeQueue.collectAsState()
+        val hasTrackPlaying = activeQueue.isNotEmpty()
+
+        // Top Navigation Bar with integrated search (hidden when viewing a playlist detail on active page)
+        val shouldHideTopBar = (selectedPlaylist != null) || (pagerState.currentPage == 2 && isOnlineDetailActive)
+        if (!shouldHideTopBar) {
             TopNavigationBarWithSearch(
                 isOnlineActive = isOnlineActive,
                 isSearchActive = isSearchActive,
                 searchQuery = searchQuery,
                 isDarkMode = isDarkMode,
+                currentPage = pagerState.currentPage,
+                hasTrackPlaying = hasTrackPlaying,
                 onSearchClick = { isSearchActive = true },
                 onSearchClose = {
                     isSearchActive = false
@@ -439,6 +445,8 @@ fun TopNavigationBarWithSearch(
     isSearchActive: Boolean,
     searchQuery: String,
     isDarkMode: Boolean = true,
+    currentPage: Int = 1,
+    hasTrackPlaying: Boolean = false,
     onSearchClick: () -> Unit,
     onSearchClose: () -> Unit,
     onQueryChange: (String) -> Unit,
@@ -447,9 +455,27 @@ fun TopNavigationBarWithSearch(
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
-    val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.4f)
-    val searchBg = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f)
+    val isPage1 = currentPage == 1
+    val isPage1NoTrackLightMode = isPage1 && !isDarkMode && !hasTrackPlaying
+
+    val textColor = when {
+        isPage1NoTrackLightMode -> Color(0xFF1D1D1F)
+        isPage1 -> Color.White
+        isDarkMode -> Color.White
+        else -> Color(0xFF1D1D1F)
+    }
+    val textSub = when {
+        isPage1NoTrackLightMode -> Color.Black.copy(alpha = 0.5f)
+        isPage1 -> Color.White.copy(alpha = 0.6f)
+        isDarkMode -> Color.White.copy(alpha = 0.4f)
+        else -> Color.Black.copy(alpha = 0.4f)
+    }
+    val searchBg = when {
+        isPage1NoTrackLightMode -> Color.Black.copy(alpha = 0.05f)
+        isPage1 -> Color.White.copy(alpha = 0.2f)
+        isDarkMode -> Color.White.copy(alpha = 0.1f)
+        else -> Color.Black.copy(alpha = 0.05f)
+    }
 
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
@@ -462,12 +488,15 @@ fun TopNavigationBarWithSearch(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    colors = listOf(
-                        topBarBg,
-                        topBarBg.copy(alpha = 0.9f),
-                        Color.Transparent
+            .then(
+                if (isPage1) Modifier
+                else Modifier.background(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            topBarBg,
+                            topBarBg.copy(alpha = 0.8f),
+                            Color.Transparent
+                        )
                     )
                 )
             )
@@ -507,7 +536,7 @@ fun TopNavigationBarWithSearch(
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = AccentOrange,
+                            tint = if (isPage1NoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
                             modifier = Modifier.size(36.dp)
                         )
                     }
