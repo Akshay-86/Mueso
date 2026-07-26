@@ -133,12 +133,11 @@ fun AlbumArtBackground(
             exit = fadeOut(),
             modifier = Modifier
                 .align(androidx.compose.ui.Alignment.TopCenter)
-                .padding(top = 60.dp)
+                .padding(top = 90.dp)
         ) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.88f))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(

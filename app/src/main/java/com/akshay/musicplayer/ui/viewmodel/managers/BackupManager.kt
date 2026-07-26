@@ -19,8 +19,51 @@ class BackupManager(
     private val sharedPreferences: SharedPreferences,
     private val playlistDao: PlaylistDao,
     private val onlinePlaylistDao: OnlinePlaylistDao,
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+    private val settingsManager: SettingsManager? = null
 ) {
+    private fun buildBackupSettings(): com.akshay.musicplayer.data.backup.BackupSettings {
+        return com.akshay.musicplayer.data.backup.BackupSettings(
+            heroPlaylistId = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global",
+            isDarkMode = sharedPreferences.getBoolean("is_dark_mode", true),
+            showOnLockscreen = sharedPreferences.getBoolean("show_on_lockscreen", true),
+            highRefreshRate = sharedPreferences.getBoolean("high_refresh_rate", false),
+            audioQuality = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)",
+            thumbnailQuality = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)",
+            downloadQuality = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)",
+            playButtonPosition = sharedPreferences.getString("play_button_position", "Left") ?: "Left",
+            enableLyrics = sharedPreferences.getBoolean("enable_lyrics", true),
+            enableSponsorBlock = sharedPreferences.getBoolean("enable_sponsorblock", true),
+            skipSponsor = sharedPreferences.getBoolean("skip_sponsor", true),
+            skipSelfPromo = sharedPreferences.getBoolean("skip_self_promo", true),
+            skipInteraction = sharedPreferences.getBoolean("skip_interaction", true),
+            skipIntroOutro = sharedPreferences.getBoolean("skip_intro_outro", true),
+            skipNonMusicOffTopic = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
+        )
+    }
+
+    private fun restoreBackupSettings(settings: com.akshay.musicplayer.data.backup.BackupSettings?) {
+        if (settings == null) return
+        sharedPreferences.edit()
+            .putString("hero_playlist_id", settings.heroPlaylistId)
+            .putBoolean("is_dark_mode", settings.isDarkMode)
+            .putBoolean("show_on_lockscreen", settings.showOnLockscreen)
+            .putBoolean("high_refresh_rate", settings.highRefreshRate)
+            .putString("audio_quality", settings.audioQuality)
+            .putString("thumbnail_quality", settings.thumbnailQuality)
+            .putString("download_quality", settings.downloadQuality)
+            .putString("play_button_position", settings.playButtonPosition)
+            .putBoolean("enable_lyrics", settings.enableLyrics)
+            .putBoolean("enable_sponsorblock", settings.enableSponsorBlock)
+            .putBoolean("skip_sponsor", settings.skipSponsor)
+            .putBoolean("skip_self_promo", settings.skipSelfPromo)
+            .putBoolean("skip_interaction", settings.skipInteraction)
+            .putBoolean("skip_intro_outro", settings.skipIntroOutro)
+            .putBoolean("skip_non_music_off_topic", settings.skipNonMusicOffTopic)
+            .apply()
+        settingsManager?.reloadFromPreferences()
+    }
+
     private val _hasUnbackedUpChanges = MutableStateFlow(sharedPreferences.getBoolean("has_unbacked_up_changes", false))
     val hasUnbackedUpChanges: StateFlow<Boolean> = _hasUnbackedUpChanges.asStateFlow()
 
@@ -109,7 +152,6 @@ class BackupManager(
 
                             val onlineList = backupData.onlinePlaylists ?: emptyList()
                             for (op in onlineList) {
-                                if (op == null) continue
                                 val opName = op.name ?: "Restored Playlist"
                                 if (existingNames.contains(opName)) continue
 
@@ -123,7 +165,6 @@ class BackupManager(
                                 )
                                 val trackList = op.tracks ?: emptyList()
                                 for (t in trackList) {
-                                    if (t == null) continue
                                     onlinePlaylistDao.insertOnlineTrack(
                                         com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
                                             onlinePlaylistId = playlistId,
@@ -141,6 +182,7 @@ class BackupManager(
                             }
 
                             withContext(Dispatchers.Main) {
+                                restoreBackupSettings(backupData.settings)
                                 _isBackupInProgress.value = false
                                 setGoogleAccountEmail(email)
                                 _hasUnbackedUpChanges.value = false
@@ -158,7 +200,7 @@ class BackupManager(
                                     .putBoolean("has_unbacked_up_changes", false)
                                     .putLong("last_backup_timestamp", modTime)
                                     .apply()
-                                onResult(true, if (restoredCount > 0) "Found existing backup! Restored $restoredCount playlist(s)." else "Connected! Restored playlists from Google Drive.")
+                                onResult(true, if (restoredCount > 0) "Found existing backup! Restored $restoredCount playlist(s) & settings." else "Connected! Restored playlists & settings from Google Drive.")
                             }
                             return@launch
                         }
@@ -204,7 +246,8 @@ class BackupManager(
 
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
                     onlinePlaylists = backupOnlineList,
-                    localPlaylists = backupLocalList
+                    localPlaylists = backupLocalList,
+                    settings = buildBackupSettings()
                 )
 
                 android.util.Log.d("MUESO_BACKUP", "Uploading backup: ${backupOnlineList.size} online, ${backupLocalList.size} local playlists")
@@ -301,7 +344,8 @@ class BackupManager(
 
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
                     onlinePlaylists = backupOnlineList,
-                    localPlaylists = backupLocalList
+                    localPlaylists = backupLocalList,
+                    settings = buildBackupSettings()
                 )
 
                 val result = driveRepo.uploadBackup(email, backupData)
@@ -315,8 +359,8 @@ class BackupManager(
                             .putBoolean("has_unbacked_up_changes", false)
                             .putLong("last_backup_timestamp", now)
                             .apply()
-                        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists backed up to Google Drive!")
-                        onResult(true, "Playlists backed up to Google Drive!")
+                        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists & Settings backed up to Google Drive!")
+                        onResult(true, "Playlists & Settings backed up to Google Drive!")
                     } else {
                         com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
                         onResult(false, result.exceptionOrNull()?.message ?: "Backup failed")
@@ -348,6 +392,7 @@ class BackupManager(
                     if (result.isSuccess) {
                         val backupData = result.getOrNull()
                         if (backupData != null) {
+                            restoreBackupSettings(backupData.settings)
                             val onlineList = backupData.onlinePlaylists ?: emptyList()
                             coroutineScope.launch(Dispatchers.IO) {
                                 onlineList.forEach { op ->
@@ -376,7 +421,7 @@ class BackupManager(
                                     }
                                 }
                             }
-                            onResult(true, "Restored ${onlineList.size} online playlists successfully!")
+                            onResult(true, "Restored ${onlineList.size} online playlist(s) & app settings successfully!")
                         } else {
                             onResult(false, "No backup data found")
                         }

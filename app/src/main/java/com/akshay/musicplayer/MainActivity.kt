@@ -147,6 +147,13 @@ class MainActivity : ComponentActivity() {
         ).get(PlayerViewModel::class.java)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::playerViewModel.isInitialized) {
+            playerViewModel.checkAndResumePendingInstall(this)
+        }
+    }
+
     private fun setupLockScreenDisplay() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)

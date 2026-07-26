@@ -202,12 +202,36 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         }
     }
 
+    var pendingApkFile: File? = null
+        private set
+
+    fun resetUpdateState() {
+        _updateInfo.value = null
+        _downloadProgress.value = null
+        _statusMessage.value = null
+        _isChecking.value = false
+    }
+
+    fun checkAndResumePendingInstall(context: Context) {
+        val apk = pendingApkFile ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (context.packageManager.canRequestPackageInstalls()) {
+                pendingApkFile = null
+                installApk(context, apk)
+            }
+        } else {
+            pendingApkFile = null
+            installApk(context, apk)
+        }
+    }
+
     fun installApk(context: Context, apkFile: File) {
         // Step 1: Check Install Unknown Apps permission on Android 8.0+ (API 26+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!context.packageManager.canRequestPackageInstalls()) {
+                pendingApkFile = apkFile
                 Log.w(TAG, "Install unknown apps permission not granted. Requesting from user...")
-                Toast.makeText(context, "Please allow Mueso to install unknown apps, then tap Install again.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Please allow Mueso to install unknown apps. Installation will continue automatically when you return.", Toast.LENGTH_LONG).show()
                 val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                     data = Uri.parse("package:${context.packageName}")
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -219,6 +243,7 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
 
         // Step 2: Launch APK Installer via FileProvider
         try {
+            pendingApkFile = null
             Log.d(TAG, "Launching APK installer for ${apkFile.absolutePath}...")
             val apkUri: Uri = FileProvider.getUriForFile(
                 context,

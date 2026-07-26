@@ -120,6 +120,12 @@ fun SettingsScreen(
 
     val listState = rememberLazyListState()
 
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.resetUpdateState()
+        }
+    }
+
     // Handle Spotify Import sub-screen navigation
     androidx.activity.compose.BackHandler(enabled = showSpotifyImport) {
         showSpotifyImport = false

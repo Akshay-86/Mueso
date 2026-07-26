@@ -135,4 +135,23 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _skipNonMusicOffTopic.value = enabled
         sharedPreferences.edit().putBoolean("skip_non_music_off_topic", enabled).apply()
     }
+
+    fun reloadFromPreferences() {
+        _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
+        _heroPlaylistId.value = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global"
+        _showOnLockscreen.value = sharedPreferences.getBoolean("show_on_lockscreen", true)
+        _highRefreshRate.value = sharedPreferences.getBoolean("high_refresh_rate", false)
+        _audioQuality.value = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)"
+        _thumbnailQuality.value = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
+        _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
+        _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
+        _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
+        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", true)
+        _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)
+        _skipSelfPromo.value = sharedPreferences.getBoolean("skip_self_promo", true)
+        _skipInteraction.value = sharedPreferences.getBoolean("skip_interaction", true)
+        _skipIntroOutro.value = sharedPreferences.getBoolean("skip_intro_outro", true)
+        _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
+        _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
+    }
 }

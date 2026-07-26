@@ -62,7 +62,7 @@ class PlayerViewModel(
     private val onlineRepository = OnlineMusicRepository()
 
     val settingsManager = SettingsManager(sharedPreferences)
-    val backupManager = BackupManager(sharedPreferences, playlistDao, onlinePlaylistDao, viewModelScope)
+    val backupManager = BackupManager(sharedPreferences, playlistDao, onlinePlaylistDao, viewModelScope, settingsManager)
     val searchManager = SearchManager(onlineRepository, viewModelScope) { currentTracks }
     val downloadManager = DownloadManager(onlineRepository, { settingsManager.downloadFolder.value }, viewModelScope)
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
@@ -76,6 +76,8 @@ class PlayerViewModel(
     fun checkForUpdates(context: android.content.Context, showToast: Boolean = false) = updateManager.checkForUpdates(context, showToast)
     fun downloadAndInstallUpdate(context: android.content.Context) = updateManager.downloadAndInstallApk(context)
     fun installPreBuildRelease(context: android.content.Context) = updateManager.installPreBuildRelease(context)
+    fun resetUpdateState() = updateManager.resetUpdateState()
+    fun checkAndResumePendingInstall(context: android.content.Context) = updateManager.checkAndResumePendingInstall(context)
 
     val isDarkMode = settingsManager.isDarkMode
     val heroPlaylistId = settingsManager.heroPlaylistId
