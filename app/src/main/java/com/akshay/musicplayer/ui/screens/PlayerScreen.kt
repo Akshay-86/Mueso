@@ -27,13 +27,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Icon
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
+
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.AlbumArtBackground
 import com.akshay.musicplayer.ui.components.LyricsView
@@ -42,9 +57,12 @@ import com.akshay.musicplayer.ui.components.OfflineActionsOverlay
 import com.akshay.musicplayer.ui.components.QueueBottomSheet
 import com.akshay.musicplayer.ui.components.SleepTimerBottomSheet
 import com.akshay.musicplayer.ui.components.SleepTimerMode
+
 import com.akshay.musicplayer.ui.components.SongInfo
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+
+private val AccentOrange = Color(0xFFFF512F)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -154,58 +172,27 @@ fun VerticalPagerScreen(
     val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
 
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val playButtonPosition by viewModel.playButtonPosition.collectAsState()
 
     Box(modifier = modifier.fillMaxSize()) {
-        VerticalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            key = { page -> if (page in tracks.indices) "${tracks[page].id}_$page" else page }
-        ) { page ->
-            if (page < tracks.size) {
-                val track = tracks[page]
-                PlayerPageContent(
-                    track = track,
-                    viewModel = viewModel,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-
-        // Preparing Track Stream Loading Overlay
-        if (isResolvingTrack) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.88f))
-                    .clickable(enabled = false) {},
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    CircularProgressIndicator(
-                        color = Color(0xFFFF512F),
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(48.dp)
+        if (tracks.isNotEmpty()) {
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                key = { page -> if (page in tracks.indices) "${tracks[page].id}_$page" else page }
+            ) { page ->
+                if (page < tracks.size) {
+                    val track = tracks[page]
+                    PlayerPageContent(
+                        track = track,
+                        viewModel = viewModel,
+                        modifier = Modifier.fillMaxSize()
                     )
-                    Text(
-                        text = "Preparing track...",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (!resolvingTrackTitle.isNullOrBlank()) {
-                        Text(
-                            text = resolvingTrackTitle!!,
-                            color = Color.White.copy(alpha = 0.6f),
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                    }
                 }
             }
+        } else {
+            // Modern Empty State when nothing is playing
+            PlayerEmptyStateView(isDarkMode = isDarkMode)
         }
 
         // Queue bottom sheet
@@ -321,6 +308,7 @@ fun PlayerPageContent(
 
             val enableLyrics by viewModel.enableLyrics.collectAsState()
             val isDarkMode by viewModel.isDarkMode.collectAsState()
+            val playButtonPosition by viewModel.playButtonPosition.collectAsState()
             val lyricsFetchStatusMap by viewModel.lyricsFetchStatus.collectAsState()
             val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
             val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
@@ -420,9 +408,62 @@ fun PlayerPageContent(
                     onPreviousClick = { viewModel.playPreviousTrack() },
                     onSeek = { viewModel.seekTo(it) },
                     isResolvingTrack = isResolvingTrack,
+                    playButtonPosition = playButtonPosition,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        }
+    }
+}
+
+// ─── Modern Empty Player View ───
+
+@Composable
+private fun PlayerEmptyStateView(isDarkMode: Boolean) {
+    val bgColor = if (isDarkMode) Color(0xFF0F0F14) else Color(0xFFF2F2F7)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .clip(CircleShape)
+                    .background(AccentOrange.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = AccentOrange,
+                    modifier = Modifier.size(44.dp)
+                )
+            }
+
+            Text(
+                text = "No Song Playing",
+                color = textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = "Pick a song from your Offline Library or Online Charts to start playing",
+                color = textSub,
+                fontSize = 14.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.widthIn(max = 280.dp)
+            )
         }
     }
 }

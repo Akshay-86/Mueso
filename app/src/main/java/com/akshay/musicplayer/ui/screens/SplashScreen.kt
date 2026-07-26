@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.R
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun SplashScreen(onAnimationFinished: () -> Unit) {
@@ -97,9 +98,9 @@ fun SplashScreen(onAnimationFinished: () -> Unit) {
 
     LaunchedEffect(Unit) {
         startAnimation = true // Logo springs up
-        delay(400) // Wait for logo to expand
+        delay(400.milliseconds) // Wait for logo to expand
         textVisible = true // Slide out logo & reveal title and soundwave
-        delay(1600) // Display time
+        delay(1600.milliseconds) // Display time
         onAnimationFinished()
     }
 

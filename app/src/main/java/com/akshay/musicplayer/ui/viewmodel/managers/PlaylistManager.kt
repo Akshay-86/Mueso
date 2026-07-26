@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -140,6 +141,23 @@ class PlaylistManager(
         }
     }
 
+    fun updateCachedPlaylistArtwork(playlistId: Long) {
+        val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
+        val firstArtwork = tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl
+        onlinePlaylistDao.updateOnlinePlaylistArtwork(playlistId, firstArtwork)
+    }
+
+    fun refreshAllPlaylistArtworks() {
+        coroutineScope.launch(Dispatchers.IO) {
+            val playlists = onlinePlaylistDao.getAllOnlinePlaylistsSync()
+            playlists.forEach { p ->
+                val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id)
+                val firstArtwork = tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl
+                onlinePlaylistDao.updateOnlinePlaylistArtwork(p.id, firstArtwork)
+            }
+        }
+    }
+
     fun addTrackToOnlinePlaylist(playlistId: Long, track: TrackEntity) {
         coroutineScope.launch(Dispatchers.IO) {
             val existing = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
@@ -156,6 +174,7 @@ class PlaylistManager(
                     orderIndex = nextOrder
                 )
             )
+            updateCachedPlaylistArtwork(playlistId)
             markDirty()
         }
     }
@@ -175,6 +194,7 @@ class PlaylistManager(
                 tracks.add(toIndex, item)
                 val updated = tracks.mapIndexed { index, track -> track.copy(orderIndex = index) }
                 onlinePlaylistDao.updateOnlinePlaylistTracks(updated)
+                updateCachedPlaylistArtwork(playlistId)
                 markDirty()
             }
         }
@@ -183,6 +203,7 @@ class PlaylistManager(
     fun removeTrackFromOnlinePlaylist(playlistId: Long, trackId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
             onlinePlaylistDao.removeOnlineTrack(playlistId, trackId)
+            updateCachedPlaylistArtwork(playlistId)
             markDirty()
         }
     }
@@ -270,5 +291,92 @@ class PlaylistManager(
             }
         }
         return freshTracks
+    }
+
+    suspend fun exportPlaylistsToJson(context: android.content.Context): String? = withContext(Dispatchers.IO) {
+        try {
+            val playlists = onlinePlaylistDao.getAllOnlinePlaylistsSync()
+            val rootArray = JSONArray()
+            playlists.forEach { p ->
+                val pObj = JSONObject()
+                pObj.put("id", p.id)
+                pObj.put("name", p.name)
+                pObj.put("description", p.description ?: "")
+                pObj.put("artworkUrl", p.artworkUrl ?: "")
+                pObj.put("dateCreated", p.dateCreated)
+
+                val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id)
+                val tracksArr = JSONArray()
+                tracks.forEach { t ->
+                    val tObj = JSONObject()
+                    tObj.put("trackId", t.trackId)
+                    tObj.put("title", t.title)
+                    tObj.put("artist", t.artist)
+                    tObj.put("artworkUrl", t.artworkUrl ?: "")
+                    tObj.put("filePath", t.filePath)
+                    tObj.put("duration", t.duration)
+                    tObj.put("orderIndex", t.orderIndex)
+                    tracksArr.put(tObj)
+                }
+                pObj.put("tracks", tracksArr)
+                rootArray.put(pObj)
+            }
+            val jsonString = rootArray.toString(2)
+            
+            val file = java.io.File(
+                context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir,
+                "mueso_playlists_backup.json"
+            )
+            file.writeText(jsonString)
+            file.absolutePath
+        } catch (e: Exception) {
+            Log.e("MUESO_EXPORT", "Failed to export playlists JSON", e)
+            null
+        }
+    }
+
+    suspend fun importPlaylistsFromJson(context: android.content.Context, jsonString: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val rootArray = JSONArray(jsonString)
+            for (i in 0 until rootArray.length()) {
+                val pObj = rootArray.getJSONObject(i)
+                val name = pObj.getString("name")
+                val desc = pObj.optString("description", "")
+                val artwork = pObj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
+
+                val newId = onlinePlaylistDao.insertOnlinePlaylist(
+                    OnlinePlaylistEntity(
+                        name = name,
+                        description = desc,
+                        artworkUrl = artwork
+                    )
+                )
+
+                val tracksArr = pObj.optJSONArray("tracks")
+                if (tracksArr != null) {
+                    for (j in 0 until tracksArr.length()) {
+                        val tObj = tracksArr.getJSONObject(j)
+                        onlinePlaylistDao.insertOnlineTrack(
+                            OnlinePlaylistTrackEntity(
+                                onlinePlaylistId = newId,
+                                trackId = tObj.optLong("trackId", System.currentTimeMillis() + j),
+                                title = tObj.getString("title"),
+                                artist = tObj.optString("artist", "Unknown Artist"),
+                                artworkUrl = tObj.optString("artworkUrl", "").takeIf { it.isNotBlank() },
+                                filePath = tObj.getString("filePath"),
+                                duration = tObj.optLong("duration", 0L),
+                                orderIndex = tObj.optInt("orderIndex", j)
+                            )
+                        )
+                    }
+                }
+                updateCachedPlaylistArtwork(newId)
+            }
+            markDirty()
+            true
+        } catch (e: Exception) {
+            Log.e("MUESO_IMPORT", "Failed to import playlists JSON", e)
+            false
+        }
     }
 }

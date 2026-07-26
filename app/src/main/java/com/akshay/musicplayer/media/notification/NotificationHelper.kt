@@ -152,4 +152,61 @@ object NotificationHelper {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(IMPORT_NOTIFICATION_ID)
     }
+
+    private const val BACKUP_NOTIFICATION_ID = 2003
+    var onCancelBackupRequested: (() -> Unit)? = null
+
+    fun showBackupProgress(context: Context) {
+        ensureChannel(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val cancelIntent = Intent(context, BackupCancelReceiver::class.java)
+        val pendingCancel = PendingIntent.getBroadcast(
+            context,
+            0,
+            cancelIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle("Google Drive Backup")
+            .setContentText("Backing up playlist changes to Google Drive...")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(0, 0, true)
+            .setContentIntent(getLaunchIntent(context))
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel Backup", pendingCancel)
+            .build()
+
+        manager.notify(BACKUP_NOTIFICATION_ID, notification)
+    }
+
+    fun showBackupComplete(context: Context, message: String) {
+        ensureChannel(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+            .setContentTitle("Google Drive Backup")
+            .setContentText(message)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setContentIntent(getLaunchIntent(context))
+            .build()
+
+        manager.notify(BACKUP_NOTIFICATION_ID, notification)
+    }
+
+    fun dismissBackupNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(BACKUP_NOTIFICATION_ID)
+    }
+}
+
+class BackupCancelReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        NotificationHelper.onCancelBackupRequested?.invoke()
+        NotificationHelper.dismissBackupNotification(context)
+    }
 }

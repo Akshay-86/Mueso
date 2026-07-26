@@ -255,4 +255,78 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         }
         return false
     }
+
+    fun installPreBuildRelease(context: Context) {
+        coroutineScope.launch(Dispatchers.IO) {
+            _isChecking.value = true
+            _statusMessage.value = "Fetching Pre_Builds release from GitHub..."
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Checking GitHub tag: Pre_Builds...", Toast.LENGTH_SHORT).show()
+            }
+
+            try {
+                val url = "https://api.github.com/repos/Akshay-86/Mueso/releases/tags/Pre_Builds"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "MuesoMusicPlayerApp")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .get()
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val body = response.body?.string()
+
+                if (!response.isSuccessful || body.isNullOrBlank()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Pre_Builds tag not found on GitHub yet", Toast.LENGTH_LONG).show()
+                    }
+                    _statusMessage.value = "Pre_Builds release not found"
+                    _isChecking.value = false
+                    return@launch
+                }
+
+                val json = JSONObject(body)
+                val assets = json.optJSONArray("assets")
+                var apkUrl: String? = null
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(i) ?: continue
+                        val downloadUrl = asset.optString("browser_download_url", "")
+                        val assetName = asset.optString("name", "")
+                        if (assetName.endsWith(".apk", ignoreCase = true) || downloadUrl.endsWith(".apk", ignoreCase = true)) {
+                            apkUrl = downloadUrl
+                            break
+                        }
+                    }
+                }
+
+                if (apkUrl.isNullOrBlank()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "No APK file found in Pre_Builds release assets", Toast.LENGTH_LONG).show()
+                    }
+                    _statusMessage.value = "No APK asset in Pre_Builds release"
+                    _isChecking.value = false
+                    return@launch
+                }
+
+                _updateInfo.value = UpdateInfo(
+                    tagName = "Pre_Builds",
+                    releaseName = "Pre-Build Release",
+                    releaseNotes = json.optString("body", ""),
+                    apkUrl = apkUrl,
+                    isNewVersionAvailable = true
+                )
+
+                _statusMessage.value = "Downloading Pre_Builds release..."
+                downloadAndInstallApk(context)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching Pre_Builds release", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Failed to fetch Pre_Builds: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                _isChecking.value = false
+            }
+        }
+    }
 }

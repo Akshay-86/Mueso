@@ -60,6 +60,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Receiver for notification cancel action -->
+        <receiver
+            android:name=".media.notification.BackupCancelReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

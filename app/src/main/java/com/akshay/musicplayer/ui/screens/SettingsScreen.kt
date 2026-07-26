@@ -38,9 +38,12 @@ import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private val AccentOrange = Color(0xFFFF512F)
 
@@ -67,6 +70,8 @@ fun SettingsScreen(
     val downloadFolder by viewModel.downloadFolder.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
 
+    val playButtonPosition by viewModel.playButtonPosition.collectAsState()
+    var showPreBuildOption by remember { mutableStateOf(false) }
     val enableSponsorBlock by viewModel.enableSponsorBlock.collectAsState()
     val skipSponsor by viewModel.skipSponsor.collectAsState()
     val skipSelfPromo by viewModel.skipSelfPromo.collectAsState()
@@ -100,6 +105,8 @@ fun SettingsScreen(
             android.widget.Toast.makeText(context, "Sign-in cancelled", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
+
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.initGoogleDriveAccount(context)
@@ -282,6 +289,79 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    HorizontalDivider(color = dividerColor)
+
+                    // Local Playlist Backup (JSON) & Thumbnail Refresh
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Local Playlists",
+                            color = textPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Export playlists locally to JSON or import from file.",
+                            color = textSub,
+                            fontSize = 11.sp
+                        )
+
+                        val jsonPickerLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.GetContent()
+                        ) { uri ->
+                            if (uri != null) {
+                                coroutineScope.launch {
+                                    try {
+                                        val content = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+                                        if (!content.isNullOrBlank()) {
+                                            val success = viewModel.importPlaylistsFromJson(context, content)
+                                            if (success) {
+                                                android.widget.Toast.makeText(context, "Playlists imported successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Invalid JSON playlist format", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "Failed to read file", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val path = viewModel.exportPlaylistsToJson(context)
+                                        if (path != null) {
+                                            android.widget.Toast.makeText(context, "Exported JSON to Downloads!", android.widget.Toast.LENGTH_LONG).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Export failed", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Export JSON", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { jsonPickerLauncher.launch("*/*") },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import File", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -328,6 +408,16 @@ fun SettingsScreen(
                         checked = highRefreshRate,
                         isDarkMode = isDarkMode,
                         onCheckedChange = { viewModel.setHighRefreshRate(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsSelectorItem(
+                        title = "Play Button Position",
+                        subtitle = "Position of main play control button",
+                        icon = Icons.Default.PlayCircle,
+                        currentValue = playButtonPosition,
+                        options = listOf("Left", "Right", "Center"),
+                        isDarkMode = isDarkMode,
+                        onSelect = { viewModel.setPlayButtonPosition(it) }
                     )
                 }
             }
@@ -616,22 +706,60 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 8. Force Refresh & Info ───
+            // ─── 8. Force Refresh & Developer Pre-Builds ───
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Button(
-                        onClick = { viewModel.forceRefreshAll(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = cardBg),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    androidx.compose.animation.AnimatedVisibility(visible = showPreBuildOption) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(cardBg)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Developer Options (GitHub Pre-Builds)", color = AccentOrange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Fetch & install test release APK from GitHub tag 'Pre_Builds'", color = textSub, fontSize = 11.sp)
+                            Button(
+                                onClick = { viewModel.installPreBuildRelease(context) },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Install Pre-Build (Tag: Pre_Builds)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cardBg)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { viewModel.forceRefreshAll(context) },
+                                    onLongPress = {
+                                        showPreBuildOption = !showPreBuildOption
+                                        val status = if (showPreBuildOption) "Pre-Build Developer Mode Enabled" else "Pre-Build Developer Mode Disabled"
+                                        android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Force Refresh Playlists & Rescan Songs", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Force Refresh Playlists & Rescan Songs", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
                     Text(

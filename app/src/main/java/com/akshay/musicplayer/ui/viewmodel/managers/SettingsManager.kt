@@ -123,6 +123,14 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putBoolean("skip_intro_outro", enabled).apply()
     }
 
+    private val _playButtonPosition = MutableStateFlow(sharedPreferences.getString("play_button_position", "Left") ?: "Left")
+    val playButtonPosition: StateFlow<String> = _playButtonPosition.asStateFlow()
+
+    fun setPlayButtonPosition(position: String) {
+        _playButtonPosition.value = position
+        sharedPreferences.edit().putString("play_button_position", position).apply()
+    }
+
     fun setSkipNonMusicOffTopic(enabled: Boolean) {
         _skipNonMusicOffTopic.value = enabled
         sharedPreferences.edit().putBoolean("skip_non_music_off_topic", enabled).apply()

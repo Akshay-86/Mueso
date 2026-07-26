@@ -48,6 +48,7 @@ private val AccentOrange = Color(0xFFFF512F)
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: PlayerViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     var selectedPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
@@ -57,7 +58,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     var showSettingsScreen by remember { mutableStateOf(false) }
-    var showExitBackupDialog by remember { mutableStateOf(false) }
     val hasUnbackedUpChanges by viewModel.hasUnbackedUpChanges.collectAsState()
     val googleAccount by viewModel.googleAccount.collectAsState()
 
@@ -77,14 +77,14 @@ fun MainScreen(viewModel: PlayerViewModel) {
     }
 
     androidx.activity.compose.BackHandler(enabled = pagerState.currentPage == 1 && selectedPlaylist == null && !isSearchActive && !showSettingsScreen && hasUnbackedUpChanges && googleAccount != null) {
-        showExitBackupDialog = true
+        viewModel.performDriveBackup(context)
+        (context as? android.app.Activity)?.moveTaskToBack(true)
     }
 
     var isOnlineDetailActive by remember { mutableStateOf(false) }
 
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 
-    val context = androidx.compose.ui.platform.LocalContext.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE) }
     var showOnboardingDialog by remember { mutableStateOf(!sharedPreferences.getBoolean("has_seen_google_onboarding", false)) }
 
@@ -403,22 +403,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
             )
         }
 
-        // Unsaved Changes Exit Dialog
-        if (showExitBackupDialog) {
-            com.akshay.musicplayer.ui.components.UnsavedChangesExitDialog(
-                isDarkMode = isDarkMode,
-                onBackupAndExit = {
-                    viewModel.performDriveBackup(context)
-                    showExitBackupDialog = false
-                    (context as? android.app.Activity)?.finish()
-                },
-                onExitOnly = {
-                    showExitBackupDialog = false
-                    (context as? android.app.Activity)?.finish()
-                },
-                onDismiss = { showExitBackupDialog = false }
-            )
-        }
+
         // First-Launch Google Drive Backup Onboarding Dialog
         if (showOnboardingDialog) {
             com.akshay.musicplayer.ui.components.GoogleBackupOnboardingDialog(

@@ -49,6 +49,9 @@ fun SpotifyImportScreen(
     val matchResults by viewModel.spotifyMatchResults.collectAsState()
     val matchProgress by viewModel.spotifyMatchProgress.collectAsState()
     val errorMessage by viewModel.spotifyErrorMessage.collectAsState()
+    val previewingTrackId by viewModel.previewingTrackId.collectAsState()
+    val isPreviewLoading by viewModel.isPreviewLoading.collectAsState()
+    val isPreviewPlaying by viewModel.isPreviewPlaying.collectAsState()
 
     var spotifyUrl by remember { mutableStateOf("") }
 
@@ -60,12 +63,19 @@ fun SpotifyImportScreen(
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    val handleBack = {
+        viewModel.stopSpotifyPreview()
+        onBackClick()
+    }
+
+    androidx.activity.compose.BackHandler(onBack = { handleBack() })
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Import from Spotify", color = textPrimary, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(onClick = { handleBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
                     }
                 },
@@ -319,6 +329,7 @@ fun SpotifyImportScreen(
             // ─── Track Match List ───
             if (matchResults.isNotEmpty()) {
                 itemsIndexed(matchResults) { index, matchResult ->
+                    val isThisPreviewing = previewingTrackId == matchResult.matchedTrack?.id
                     TrackMatchItem(
                         index = index,
                         matchResult = matchResult,
@@ -327,6 +338,11 @@ fun SpotifyImportScreen(
                         textPrimary = textPrimary,
                         textSub = textSub,
                         dividerColor = dividerColor,
+                        isPlaying = isThisPreviewing && isPreviewPlaying,
+                        isPreviewLoading = isThisPreviewing && isPreviewLoading,
+                        onPlayPreview = { track ->
+                            viewModel.toggleSpotifyPreview(context, track)
+                        },
                         onRetrySearch = { query -> viewModel.retrySpotifyMatch(index, query) },
                         onSelectMatch = { track -> viewModel.selectSpotifyMatch(index, track) },
                         onToggleAlternatives = { viewModel.toggleSpotifyAlternatives(index) }
@@ -419,6 +435,9 @@ private fun TrackMatchItem(
     textPrimary: Color,
     textSub: Color,
     dividerColor: Color,
+    isPlaying: Boolean,
+    isPreviewLoading: Boolean,
+    onPlayPreview: (TrackEntity) -> Unit,
     onRetrySearch: (String) -> Unit,
     onSelectMatch: (TrackEntity) -> Unit,
     onToggleAlternatives: () -> Unit
@@ -557,6 +576,27 @@ private fun TrackMatchItem(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+
+                    // Play Preview Button
+                    IconButton(
+                        onClick = { matchResult.matchedTrack?.let { onPlayPreview(it) } },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        if (isPreviewLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = AccentOrange,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Preview Track",
+                                tint = AccentOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     // Expand/collapse alternatives

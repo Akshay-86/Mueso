@@ -3,6 +3,8 @@ package com.akshay.musicplayer.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -395,106 +397,118 @@ fun OnlinePlaylistsScreen(
         }
 
         // Overlay for selected Curated Playlist Detail
-        if (selectedCuratedPlaylist != null) {
-            val playlist = selectedCuratedPlaylist!!
-            val curatedTracks = curatedTracksMap[playlist.id] ?: emptyList()
-            val isFetchingCuratedTracks = isFetchingCuratedMap[playlist.id] ?: false
+        AnimatedVisibility(
+            visible = selectedCuratedPlaylist != null,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(androidx.compose.animation.core.tween(250)),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(androidx.compose.animation.core.tween(200))
+        ) {
+            if (selectedCuratedPlaylist != null) {
+                val playlist = selectedCuratedPlaylist!!
+                val curatedTracks = curatedTracksMap[playlist.id] ?: emptyList()
+                val isFetchingCuratedTracks = isFetchingCuratedMap[playlist.id] ?: false
 
-            LaunchedEffect(playlist.id) {
-                if (!curatedTracksMap.containsKey(playlist.id)) {
-                    isFetchingCuratedMap[playlist.id] = true
-                    val fetched = viewModel.getCuratedPlaylistTracks(playlist.searchQuery)
-                    curatedTracksMap[playlist.id] = fetched
-                    isFetchingCuratedMap[playlist.id] = false
+                LaunchedEffect(playlist.id) {
+                    if (!curatedTracksMap.containsKey(playlist.id)) {
+                        isFetchingCuratedMap[playlist.id] = true
+                        val fetched = viewModel.getCuratedPlaylistTracks(playlist.searchQuery)
+                        curatedTracksMap[playlist.id] = fetched
+                        isFetchingCuratedMap[playlist.id] = false
+                    }
                 }
+
+                OnlinePlaylistDetailScreen(
+                    title = playlist.title,
+                    subtitle = playlist.subtitle,
+                    gradientColors = playlist.gradientColors.map { Color(it) },
+                    tracks = curatedTracks,
+                    isLoading = isFetchingCuratedTracks && curatedTracks.isEmpty(),
+                    isCustomUserPlaylist = false,
+                    isDarkMode = isDarkMode,
+                    viewModel = viewModel,
+                    onBackClick = { selectedCuratedPlaylist = null },
+                    onPlayAllClick = {
+                        if (curatedTracks.isNotEmpty()) {
+                            viewModel.playOnlinePlaylist(curatedTracks, 0)
+                            selectedCuratedPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onShuffleAllClick = {
+                        if (curatedTracks.isNotEmpty()) {
+                            val shuffled = curatedTracks.shuffled()
+                            viewModel.playOnlinePlaylist(shuffled, 0)
+                            selectedCuratedPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onTrackClick = { index ->
+                        if (index in curatedTracks.indices) {
+                            viewModel.playOnlinePlaylist(curatedTracks, index)
+                            selectedCuratedPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onDownloadTrack = { track ->
+                        viewModel.downloadOnlineTrack(context, track)
+                    }
+                )
             }
-
-            OnlinePlaylistDetailScreen(
-                title = playlist.title,
-                subtitle = playlist.subtitle,
-                gradientColors = playlist.gradientColors.map { Color(it) },
-                tracks = curatedTracks,
-                isLoading = isFetchingCuratedTracks && curatedTracks.isEmpty(),
-                isCustomUserPlaylist = false,
-                isDarkMode = isDarkMode,
-                viewModel = viewModel,
-                onBackClick = { selectedCuratedPlaylist = null },
-                onPlayAllClick = {
-                    if (curatedTracks.isNotEmpty()) {
-                        viewModel.playOnlinePlaylist(curatedTracks, 0)
-                        selectedCuratedPlaylist = null
-                        onNavigateToPlayer()
-                    }
-                },
-                onShuffleAllClick = {
-                    if (curatedTracks.isNotEmpty()) {
-                        val shuffled = curatedTracks.shuffled()
-                        viewModel.playOnlinePlaylist(shuffled, 0)
-                        selectedCuratedPlaylist = null
-                        onNavigateToPlayer()
-                    }
-                },
-                onTrackClick = { index ->
-                    if (index in curatedTracks.indices) {
-                        viewModel.playOnlinePlaylist(curatedTracks, index)
-                        selectedCuratedPlaylist = null
-                        onNavigateToPlayer()
-                    }
-                },
-                onDownloadTrack = { track ->
-                    viewModel.downloadOnlineTrack(context, track)
-                }
-            )
         }
 
         // Overlay for selected Custom User Playlist Detail
-        if (selectedCustomPlaylist != null) {
-            val playlist = selectedCustomPlaylist!!
-            val userTracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
-            val userTracks by userTracksFlow.collectAsState(initial = emptyList())
+        AnimatedVisibility(
+            visible = selectedCustomPlaylist != null,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(androidx.compose.animation.core.tween(250)),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(androidx.compose.animation.core.tween(200))
+        ) {
+            if (selectedCustomPlaylist != null) {
+                val playlist = selectedCustomPlaylist!!
+                val userTracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
+                val userTracks by userTracksFlow.collectAsState(initial = emptyList())
 
-            OnlinePlaylistDetailScreen(
-                title = playlist.name,
-                subtitle = playlist.description ?: "Custom Online Playlist",
-                gradientColors = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
-                tracks = userTracks,
-                isLoading = false,
-                isCustomUserPlaylist = true,
-                isDarkMode = isDarkMode,
-                viewModel = viewModel,
-                onBackClick = { selectedCustomPlaylist = null },
-                onPlayAllClick = {
-                    if (userTracks.isNotEmpty()) {
-                        viewModel.playOnlinePlaylist(userTracks, 0)
-                        selectedCustomPlaylist = null
-                        onNavigateToPlayer()
+                OnlinePlaylistDetailScreen(
+                    title = playlist.name,
+                    subtitle = playlist.description ?: "Custom Online Playlist",
+                    gradientColors = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
+                    tracks = userTracks,
+                    isLoading = false,
+                    isCustomUserPlaylist = true,
+                    isDarkMode = isDarkMode,
+                    viewModel = viewModel,
+                    onBackClick = { selectedCustomPlaylist = null },
+                    onPlayAllClick = {
+                        if (userTracks.isNotEmpty()) {
+                            viewModel.playOnlinePlaylist(userTracks, 0)
+                            selectedCustomPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onShuffleAllClick = {
+                        if (userTracks.isNotEmpty()) {
+                            val shuffled = userTracks.shuffled()
+                            viewModel.playOnlinePlaylist(shuffled, 0)
+                            selectedCustomPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onTrackClick = { index ->
+                        if (index in userTracks.indices) {
+                            viewModel.playOnlinePlaylist(userTracks, index)
+                            selectedCustomPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onRemoveTrack = { track ->
+                        viewModel.removeTrackFromOnlinePlaylist(playlist.id, track.id)
+                    },
+                    onMoveTrack = { fromIndex, toIndex ->
+                        viewModel.moveTrackInOnlinePlaylist(playlist.id, fromIndex, toIndex)
+                    },
+                    onDownloadTrack = { track ->
+                        viewModel.downloadOnlineTrack(context, track)
                     }
-                },
-                onShuffleAllClick = {
-                    if (userTracks.isNotEmpty()) {
-                        val shuffled = userTracks.shuffled()
-                        viewModel.playOnlinePlaylist(shuffled, 0)
-                        selectedCustomPlaylist = null
-                        onNavigateToPlayer()
-                    }
-                },
-                onTrackClick = { index ->
-                    if (index in userTracks.indices) {
-                        viewModel.playOnlinePlaylist(userTracks, index)
-                        selectedCustomPlaylist = null
-                        onNavigateToPlayer()
-                    }
-                },
-                onRemoveTrack = { track ->
-                    viewModel.removeTrackFromOnlinePlaylist(playlist.id, track.id)
-                },
-                onMoveTrack = { fromIndex, toIndex ->
-                    viewModel.moveTrackInOnlinePlaylist(playlist.id, fromIndex, toIndex)
-                },
-                onDownloadTrack = { track ->
-                    viewModel.downloadOnlineTrack(context, track)
-                }
-            )
+                )
+            }
         }
     }
 }

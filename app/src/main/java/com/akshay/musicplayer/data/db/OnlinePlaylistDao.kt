@@ -42,6 +42,12 @@ interface OnlinePlaylistDao {
     @Query("DELETE FROM online_playlist_tracks WHERE onlinePlaylistId = :playlistId")
     fun clearOnlinePlaylistTracks(playlistId: Long): Int
 
+    @Query("SELECT * FROM online_playlists ORDER BY dateCreated DESC")
+    fun getAllOnlinePlaylistsSync(): List<OnlinePlaylistEntity>
+
+    @Query("UPDATE online_playlists SET artworkUrl = :artworkUrl WHERE id = :playlistId")
+    fun updateOnlinePlaylistArtwork(playlistId: Long, artworkUrl: String?): Int
+
     @androidx.room.Update
     fun updateOnlinePlaylistTracks(tracks: List<OnlinePlaylistTrackEntity>)
 }

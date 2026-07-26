@@ -27,7 +27,17 @@ fun PlaylistCollageArt(
     thumbnailQuality: String = "Highest (1080p Maxres)"
 ) {
     val artworkUrls = tracks.mapNotNull { track ->
-        track.artworkUrl ?: if (track.albumId > 0) "content://media/external/audio/albumart/${track.albumId}" else null
+        val url = track.artworkUrl
+        if (!url.isNullOrBlank()) {
+            url
+        } else if (track.filePath.startsWith("online:")) {
+            val videoId = track.filePath.removePrefix("online:")
+            if (videoId.isNotBlank()) "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" else null
+        } else if (track.albumId > 0) {
+            "content://media/external/audio/albumart/${track.albumId}"
+        } else {
+            null
+        }
     }.take(4)
 
     Box(

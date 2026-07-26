@@ -75,6 +75,7 @@ class PlayerViewModel(
     val updateStatusMessage = updateManager.statusMessage
     fun checkForUpdates(context: android.content.Context, showToast: Boolean = false) = updateManager.checkForUpdates(context, showToast)
     fun downloadAndInstallUpdate(context: android.content.Context) = updateManager.downloadAndInstallApk(context)
+    fun installPreBuildRelease(context: android.content.Context) = updateManager.installPreBuildRelease(context)
 
     val isDarkMode = settingsManager.isDarkMode
     val heroPlaylistId = settingsManager.heroPlaylistId
@@ -85,6 +86,7 @@ class PlayerViewModel(
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
     val enableLyrics = settingsManager.enableLyrics
+    val playButtonPosition = settingsManager.playButtonPosition
     val enableSponsorBlock = settingsManager.enableSponsorBlock
     val skipSponsor = settingsManager.skipSponsor
     val skipSelfPromo = settingsManager.skipSelfPromo
@@ -101,6 +103,7 @@ class PlayerViewModel(
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
+    fun setPlayButtonPosition(position: String) = settingsManager.setPlayButtonPosition(position)
     fun setEnableSponsorBlock(enabled: Boolean) = settingsManager.setEnableSponsorBlock(enabled)
     fun setSkipSponsor(enabled: Boolean) = settingsManager.setSkipSponsor(enabled)
     fun setSkipSelfPromo(enabled: Boolean) = settingsManager.setSkipSelfPromo(enabled)
@@ -150,6 +153,9 @@ class PlayerViewModel(
     fun getOnlinePlaylistTracks(playlistId: Long) = playlistManager.getOnlinePlaylistTracks(playlistId)
     suspend fun getCuratedPlaylistTracks(query: String) = playlistManager.getCuratedPlaylistTracks(query)
     fun updateOnlinePlaylistDetails(playlistId: Long, name: String, description: String) = playlistManager.updateOnlinePlaylistDetails(playlistId, name, description)
+    fun refreshAllPlaylistArtworks() = playlistManager.refreshAllPlaylistArtworks()
+    suspend fun exportPlaylistsToJson(context: android.content.Context) = playlistManager.exportPlaylistsToJson(context)
+    suspend fun importPlaylistsFromJson(context: android.content.Context, jsonString: String) = playlistManager.importPlaylistsFromJson(context, jsonString)
 
     // Spotify Import delegates
     val spotifyImportState = spotifyImportManager.importState
@@ -162,7 +168,54 @@ class PlayerViewModel(
     fun selectSpotifyMatch(index: Int, track: com.akshay.musicplayer.domain.models.TrackEntity) = spotifyImportManager.selectMatch(index, track)
     fun toggleSpotifyAlternatives(index: Int) = spotifyImportManager.toggleAlternatives(index)
     fun createSpotifyPlaylist() = spotifyImportManager.createPlaylist()
-    fun resetSpotifyImport() = spotifyImportManager.reset()
+    fun resetSpotifyImport() {
+        stopSpotifyPreview()
+        spotifyImportManager.reset()
+    }
+
+    private var previewPlayer: com.akshay.musicplayer.ui.viewmodel.managers.SpotifyPreviewPlayer? = null
+
+    private val _previewingTrackId = MutableStateFlow<Long?>(null)
+    val previewingTrackId: StateFlow<Long?> = _previewingTrackId.asStateFlow()
+
+    private val _isPreviewLoading = MutableStateFlow(false)
+    val isPreviewLoading: StateFlow<Boolean> = _isPreviewLoading.asStateFlow()
+
+    private val _isPreviewPlaying = MutableStateFlow(false)
+    val isPreviewPlaying: StateFlow<Boolean> = _isPreviewPlaying.asStateFlow()
+
+    private var previewJobs: List<Job> = emptyList()
+
+    fun toggleSpotifyPreview(context: android.content.Context, track: TrackEntity) {
+        val player = previewPlayer ?: com.akshay.musicplayer.ui.viewmodel.managers.SpotifyPreviewPlayer(
+            context.applicationContext,
+            onlineRepository,
+            viewModelScope
+        ).also {
+            previewPlayer = it
+            previewJobs.forEach { j -> j.cancel() }
+            previewJobs = listOf(
+                viewModelScope.launch { it.previewTrackId.collect { id -> _previewingTrackId.value = id } },
+                viewModelScope.launch { it.isLoading.collect { loading -> _isPreviewLoading.value = loading } },
+                viewModelScope.launch { it.isPlaying.collect { playing -> _isPreviewPlaying.value = playing } }
+            )
+        }
+        player.togglePreview(track)
+    }
+
+    fun stopSpotifyPreview() {
+        previewPlayer?.stop()
+        _previewingTrackId.value = null
+        _isPreviewLoading.value = false
+        _isPreviewPlaying.value = false
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        previewJobs.forEach { j -> j.cancel() }
+        previewPlayer?.release()
+        previewPlayer = null
+    }
 
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -968,16 +1021,25 @@ class PlayerViewModel(
                         playNextTrack()
                     }
                     is PlayerEvent.PlaybackError -> {
-                        Log.w("MUESO_STREAM", "Playback error encountered: ${event.message}. Auto-advancing to next track.")
-                        delay(500)
-                        playNextTrack()
+                        val isRecentUserAction = (System.currentTimeMillis() - lastUserSkipTime) < 2500
+                        val isCancelError = event.message.contains("cancel", ignoreCase = true) || event.message.contains("interrupted", ignoreCase = true)
+                        if (isRecentUserAction || isCancelError) {
+                            Log.d("MUESO_STREAM", "Ignoring transient error during rapid track switch: ${event.message}")
+                        } else {
+                            Log.w("MUESO_STREAM", "Playback error encountered: ${event.message}. Auto-advancing to next track.")
+                            delay(500)
+                            playNextTrack()
+                        }
                     }
                 }
             }
         }
     }
 
+    private var lastUserSkipTime: Long = 0
+
     fun playNextTrack() {
+        lastUserSkipTime = System.currentTimeMillis()
         viewModelScope.launch {
             mediaPlayerController.seekToNext()
         }
@@ -989,6 +1051,7 @@ class PlayerViewModel(
     }
 
     fun playPreviousTrack() {
+        lastUserSkipTime = System.currentTimeMillis()
         viewModelScope.launch {
             mediaPlayerController.seekToPrevious()
         }
@@ -1001,14 +1064,16 @@ class PlayerViewModel(
     val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
+        lastUserSkipTime = System.currentTimeMillis()
         cancelRestoration()
+        val target = if (startIndex in tracks.indices) tracks[startIndex] else null
+        val isOnline = target != null && target.filePath.startsWith("online:")
+        if (isOnline) {
+            _resolvingTrackTitle.value = target?.title
+            _isResolvingTrack.value = true
+        }
+        currentTracks = tracks.toList()
         viewModelScope.launch(Dispatchers.IO) {
-            val target = if (startIndex in tracks.indices) tracks[startIndex] else null
-            if (target != null && target.filePath.startsWith("online:")) {
-                _resolvingTrackTitle.value = target.title
-                _isResolvingTrack.value = true
-            }
-
             val mutableTracks = tracks.toMutableList()
             if (startIndex in mutableTracks.indices) {
                 mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
@@ -1029,14 +1094,14 @@ class PlayerViewModel(
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
         lastRequestedTrackId = track.id
+        val isOnline = track.filePath.startsWith("online:")
+        if (isOnline) {
+            _resolvingTrackTitle.value = track.title
+            _isResolvingTrack.value = true
+        }
+        currentTracks = listOf(track)
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch(Dispatchers.IO) {
-            val isOnline = track.filePath.startsWith("online:")
-            if (isOnline) {
-                _resolvingTrackTitle.value = track.title
-                _isResolvingTrack.value = true
-            }
-
             val resolved = resolveTrack(track)
 
             withContext(Dispatchers.Main) {
@@ -1271,8 +1336,9 @@ class PlayerViewModel(
         }
         editor.apply()
 
+        playlistManager.refreshAllPlaylistArtworks()
         loadLocalTracks(forceReload = true)
-        android.widget.Toast.makeText(context, "App refreshed! Caches cleared & songs rescanned.", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, "App refreshed! Caches cleared & playlist covers updated.", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     fun getQueueTracks(): List<TrackEntity> = currentTracks

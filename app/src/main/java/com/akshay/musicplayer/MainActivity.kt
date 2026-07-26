@@ -106,21 +106,14 @@ class MainActivity : ComponentActivity() {
             MusicPlayerTheme(darkTheme = isDarkMode) {
                 var showSplash by remember { mutableStateOf(true) }
 
-                androidx.compose.animation.Crossfade(
-                    targetState = showSplash,
-                    animationSpec = androidx.compose.animation.core.tween(400),
-                    modifier = Modifier.fillMaxSize(),
-                    label = "SplashCrossfade"
-                ) { splashActive ->
-                    if (splashActive) {
-                        SplashScreen(
-                            onAnimationFinished = {
-                                showSplash = false
-                            }
-                        )
-                    } else {
-                        PermissionAwarePlayerScreen()
-                    }
+                if (showSplash) {
+                    SplashScreen(
+                        onAnimationFinished = {
+                            showSplash = false
+                        }
+                    )
+                } else {
+                    PermissionAwarePlayerScreen()
                 }
             }
         }

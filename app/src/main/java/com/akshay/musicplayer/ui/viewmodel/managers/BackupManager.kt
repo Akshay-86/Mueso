@@ -235,14 +235,28 @@ class BackupManager(
         }
     }
 
-    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+    private var activeBackupJob: kotlinx.coroutines.Job? = null
+
+    fun cancelBackup(context: Context) {
+        activeBackupJob?.cancel()
+        activeBackupJob = null
+        _isBackupInProgress.value = false
+        com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
+    }
+
     fun performDriveBackup(context: Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val email = _googleAccountEmail.value ?: _googleAccount.value?.email
         if (email.isNullOrBlank()) return onResult(false, "Not signed in to Google")
         if (_isBackupInProgress.value) return
         _isBackupInProgress.value = true
 
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupProgress(context)
+        com.akshay.musicplayer.media.notification.NotificationHelper.onCancelBackupRequested = {
+            cancelBackup(context)
+            onResult(false, "Backup cancelled")
+        }
+
+        activeBackupJob = coroutineScope.launch(Dispatchers.IO) {
             try {
                 val driveRepo = GoogleDriveBackupRepository(context)
                 
@@ -301,14 +315,17 @@ class BackupManager(
                             .putBoolean("has_unbacked_up_changes", false)
                             .putLong("last_backup_timestamp", now)
                             .apply()
+                        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists backed up to Google Drive!")
                         onResult(true, "Playlists backed up to Google Drive!")
                     } else {
+                        com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
                         onResult(false, result.exceptionOrNull()?.message ?: "Backup failed")
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     _isBackupInProgress.value = false
+                    com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
                     onResult(false, e.message ?: "Backup failed")
                 }
             }
