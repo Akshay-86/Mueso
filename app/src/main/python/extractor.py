@@ -1,5 +1,16 @@
 import yt_dlp
 import traceback
+import sys
+import os
+
+# Prevent native _posixsubprocess crashes in Chaquopy on Android when yt-dlp checks for external tools
+try:
+    import subprocess
+    def _disabled_popen(*args, **kwargs):
+        raise OSError("Subprocesses are disabled on Android")
+    subprocess.Popen = _disabled_popen
+except Exception:
+    pass
 
 def search_tracks(query, max_results=20):
     print(f"[EXTRACTOR] search_tracks called with query='{query}', max_results={max_results}", flush=True)
@@ -13,6 +24,8 @@ def search_tracks(query, max_results=20):
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
+        'external_downloader': None,
+        'noplaylist': True,
     }
 
     search_target = query if query.startswith("http") else f"ytsearch{max_results}:{query}"
@@ -59,9 +72,11 @@ def search_and_extract(query):
         'extract_flat': False,
         'nocheckcertificate': True,
         'ignoreerrors': True,
+        'external_downloader': None,
+        'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']
+                'player_client': ['android_vr', 'web_embedded', 'android', 'web']
             }
         }
     }

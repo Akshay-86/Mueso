@@ -270,7 +270,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun updateTrackInQueue(index: Int, track: TrackEntity) {
         mediaController?.let { controller ->
-            if (index in 0 until controller.mediaItemCount) {
+            if (index in 0 until controller.mediaItemCount && track.filePath.startsWith("http")) {
                 Log.d("MUESO_SYNC", "ExoPlayer updateTrackInQueue: updating item at index=$index with resolved url=${track.filePath.take(30)}...")
                 val oldItem = controller.getMediaItemAt(index)
                 val updatedItem = MediaItem.Builder()

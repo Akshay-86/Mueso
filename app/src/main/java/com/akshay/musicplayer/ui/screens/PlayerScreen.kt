@@ -132,15 +132,25 @@ fun VerticalPagerScreen(
     // Keep latest tracks for LaunchedEffect
     val currentTracksList by rememberUpdatedState(tracks)
 
+    var isFirstSync by remember { mutableStateOf(true) }
+
     // Sync Pager with ViewModel (when ExoPlayer changes track, e.g. auto-advance)
     LaunchedEffect(currentTrackIndex) {
         Log.d("MUESO_SYNC", "PlayerScreen UI: currentTrackIndex changed to $currentTrackIndex, pagerState is ${pagerState.currentPage}")
         if (pagerState.currentPage != currentTrackIndex) {
             isSyncingFromVM = true
-            Log.d("MUESO_SYNC", "PlayerScreen UI: animating pager to $currentTrackIndex")
-            pagerState.animateScrollToPage(currentTrackIndex)
-            Log.d("MUESO_SYNC", "PlayerScreen UI: done animating pager to $currentTrackIndex")
+            if (isFirstSync) {
+                isFirstSync = false
+                Log.d("MUESO_SYNC", "PlayerScreen UI: initial instant scrollToPage to $currentTrackIndex")
+                pagerState.scrollToPage(currentTrackIndex)
+            } else {
+                Log.d("MUESO_SYNC", "PlayerScreen UI: animating pager to $currentTrackIndex")
+                pagerState.animateScrollToPage(currentTrackIndex)
+                Log.d("MUESO_SYNC", "PlayerScreen UI: done animating pager to $currentTrackIndex")
+            }
             isSyncingFromVM = false
+        } else {
+            isFirstSync = false
         }
     }
 

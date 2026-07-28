@@ -119,28 +119,81 @@ class OnlineMusicRepository {
     }
 
     private fun cleanTitleAndArtist(title: String, artist: String): Pair<String, String> {
-        var cTitle = title
-        var cArtist = artist
+        val rawTitle = title.trim()
+        val rawArtist = artist.trim()
 
-        if (cTitle.contains(" - ")) {
-            val parts = cTitle.split(" - ", limit = 2)
-            if (cArtist == "Unknown Artist" || cArtist.isBlank() || cArtist.contains("Music") || cArtist.contains("Station") || cArtist.contains("Topic") || cArtist.contains("Records") || cArtist.contains("Channel") || cArtist.contains("VEVO") || cArtist.contains("YouTube") || cArtist.contains("&")) {
-                cArtist = parts[0].trim()
-            }
-            cTitle = parts[1].trim()
+        // 1. Remove bracketed noise: (Full Video), [4K], {Audio}, (Telugu), etc.
+        val bracketRegex = Regex("(?i)\\(.*?\\)|\\[.*?\\]|\\{.*?\\}")
+        var cleaned = bracketRegex.replace(rawTitle, " ").trim()
+
+        // 2. Strip common YouTube video/audio suffix keywords
+        val suffixKeywords = listOf(
+            "full video song", "lyrical video song", "full video", "video song", "lyrical song", "lyrical video",
+            "official video", "official audio", "full audio song", "full song", "audio song",
+            "4k video", "8k video", "hd video", "video", "audio", "lyrical", "remix", "slowed", "reverb"
+        )
+
+        for (kw in suffixKeywords) {
+            val re = Regex("(?i)\\b" + Regex.escape(kw) + "\\b")
+            cleaned = re.replace(cleaned, " ").trim()
         }
 
-        val noiseRegex = Regex(
-            "(?i)(\\(.*?\\)|\\[.*?\\]|\\{.*?\\}|4k|8k|1080p|720p|video song|lyrical song|lyrical video|official video|full video song|full video|audio song|official audio|visualizer|hd|4k video|remix|slowed|reverb|cover|version)",
-            RegexOption.IGNORE_CASE
-        )
-        cTitle = noiseRegex.replace(cTitle, " ").trim()
-        cArtist = noiseRegex.replace(cArtist, " ").trim()
+        // 3. Split by common YouTube title delimiters: '|', ':', '/', '-'
+        val segments = cleaned.split(Regex("[|:/\\-]"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
-        cTitle = cTitle.replace(Regex("[^a-zA-Z0-9\\s\\u0C00-\\u0C7F\\u0900-\\u097F]"), " ").replace(Regex("\\s+"), " ").trim()
-        cArtist = cArtist.replace(Regex("[^a-zA-Z0-9\\s\\u0C00-\\u0C7F\\u0900-\\u097F]"), " ").replace(Regex("\\s+"), " ").trim()
+        val cleanCharRegex = Regex("[^a-zA-Z0-9\\s\\u0C00-\\u0C7F\\u0900-\\u097F]")
+        val cleanedSegments = segments.map {
+            cleanCharRegex.replace(it, " ").replace(Regex("\\s+"), " ").trim()
+        }.filter { it.isNotBlank() }
 
-        return Pair(cTitle, cArtist)
+        var candidateTitle = ""
+        var candidateMovieOrArtist = ""
+
+        if (cleanedSegments.isNotEmpty()) {
+            candidateTitle = cleanedSegments[0]
+            if (cleanedSegments.size > 1) {
+                candidateMovieOrArtist = cleanedSegments[1]
+            }
+        }
+
+        if (candidateTitle.isBlank()) {
+            candidateTitle = cleanCharRegex.replace(rawTitle, " ").replace(Regex("\\s+"), " ").trim()
+        }
+
+        val isGenericLabel = rawArtist.isBlank() || rawArtist == "Unknown Artist" ||
+                listOf("music", "series", "records", "channel", "vevo", "topic", "station", "aditya", "lahari", "saregama", "sony", "zee", "tips", "t-series")
+                    .any { rawArtist.lowercase().contains(it) }
+
+        val finalArtist = if (isGenericLabel && candidateMovieOrArtist.isNotBlank()) {
+            candidateMovieOrArtist
+        } else if (!isGenericLabel) {
+            cleanCharRegex.replace(rawArtist, " ").replace(Regex("\\s+"), " ").trim()
+        } else {
+            ""
+        }
+
+        return Pair(candidateTitle, finalArtist)
+    }
+
+    private fun matchesTrackTitle(candidateTrackName: String, targetTitle: String): Boolean {
+        if (candidateTrackName.isBlank() || targetTitle.isBlank()) return false
+        val c = candidateTrackName.lowercase().replace(Regex("[^a-z0-9\\s\\u0C00-\\u0C7F\\u0900-\\u097F]"), "")
+        val t = targetTitle.lowercase().replace(Regex("[^a-z0-9\\s\\u0C00-\\u0C7F\\u0900-\\u097F]"), "")
+        if (c.isBlank() || t.isBlank()) return false
+
+        val cNoSpace = c.replace(" ", "")
+        val tNoSpace = t.replace(" ", "")
+
+        if (cNoSpace.contains(tNoSpace) || tNoSpace.contains(cNoSpace)) return true
+
+        val tWords = t.split(" ").filter { it.length > 2 }
+        if (tWords.isEmpty()) return true
+        val cWords = c.split(" ").filter { it.length > 2 }
+
+        val matchedCount = tWords.count { tw -> cWords.any { cw -> cw.contains(tw) || tw.contains(cw) } }
+        return (matchedCount.toDouble() / tWords.size.toDouble()) >= 0.5
     }
 
     suspend fun fetchLyrics(title: String, artist: String): LyricsData? = withContext(Dispatchers.IO) {
@@ -148,40 +201,81 @@ class OnlineMusicRepository {
             val (cleanTitle, cleanArtist) = cleanTitleAndArtist(title, artist)
             Log.d("MUESO_LYRICS", "Original ('$title', '$artist') -> Cleaned ('$cleanTitle', '$cleanArtist')")
 
-            val firstWord = cleanTitle.split(" ").firstOrNull { it.length > 2 } ?: cleanTitle
+            // 1. LRCLIB Direct GET
+            val directRes = tryLrclibGet(cleanTitle, cleanArtist)
+            if (directRes != null) return@withContext directRes
 
-            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
-            val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-            val encFirstWord = URLEncoder.encode(firstWord, "UTF-8")
-
-            // Stage 1: Verome API with clean title & artist
-            val url1 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle&artist=$encArtist"
-            var result = tryFetchFromUrl(url1, cleanTitle)
-            if (result != null) return@withContext result
-
-            // Stage 2: Verome API with FIRST WORD of title
-            val url2 = "https://verome-api.deno.dev/api/lyrics?title=$encFirstWord"
-            result = tryFetchFromUrl(url2, firstWord)
-            if (result != null) return@withContext result
-
-            // Stage 3: LRCLIB Search API with title & artist query
-            val queryStr = if (cleanArtist.isNotBlank() && cleanArtist != "Unknown Artist") "$cleanTitle $cleanArtist" else cleanTitle
-            result = tryLrclibSearch(queryStr)
-            if (result != null) return@withContext result
-
-            // Stage 4: LRCLIB Search API with clean title
-            result = tryLrclibSearch(cleanTitle)
-            if (result != null) return@withContext result
-
-            // Stage 5: LRCLIB Search API with FIRST WORD of title
-            if (firstWord != cleanTitle && firstWord.length > 2) {
-                result = tryLrclibSearch(firstWord)
-                if (result != null) return@withContext result
+            // 2. LRCLIB Search with Title & Artist
+            if (cleanArtist.isNotBlank()) {
+                val res1 = tryLrclibSearch(cleanTitle, "$cleanTitle $cleanArtist")
+                if (res1 != null) return@withContext res1
             }
 
+            // 3. LRCLIB Search with Clean Title
+            val res2 = tryLrclibSearch(cleanTitle, cleanTitle)
+            if (res2 != null) return@withContext res2
+
+            // 4. Verome API with clean title & artist
+            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
+            val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
+            if (cleanArtist.isNotBlank()) {
+                val url1 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle&artist=$encArtist"
+                val res3 = tryFetchFromUrl(url1, cleanTitle)
+                if (res3 != null) return@withContext res3
+            }
+
+            // 5. Verome API with clean title
+            val url2 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle"
+            val res4 = tryFetchFromUrl(url2, cleanTitle)
+            if (res4 != null) return@withContext res4
+
+            Log.w("MUESO_LYRICS", "No matching lyrics found for '$cleanTitle' ('$cleanArtist')")
             null
         } catch (e: Exception) {
             Log.e("MUESO_LYRICS", "Error fetching lyrics from API pipeline for $title", e)
+            null
+        }
+    }
+
+    private fun tryLrclibGet(trackName: String, artistName: String): LyricsData? {
+        if (trackName.isBlank()) return null
+        return try {
+            val encTitle = URLEncoder.encode(trackName, "UTF-8")
+            val encArtist = URLEncoder.encode(artistName, "UTF-8")
+            val url = if (artistName.isNotBlank()) {
+                "https://lrclib.net/api/get?track_name=$encTitle&artist_name=$encArtist"
+            } else {
+                "https://lrclib.net/api/get?track_name=$encTitle"
+            }
+            Log.d("MUESO_LYRICS", "LRCLIB direct GET request: $url")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "MuesoMusicPlayer/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank() && jsonStr.trim().startsWith("{")) {
+                        val jsonObj = JSONObject(jsonStr)
+                        val synced = jsonObj.optString("syncedLyrics", "")
+                        val plain = jsonObj.optString("plainLyrics", "")
+
+                        if (synced.isNotBlank()) {
+                            val parsedLines = LrcParser.parse(synced)
+                            if (parsedLines.isNotEmpty()) {
+                                Log.d("MUESO_LYRICS", "LRCLIB direct GET returned ${parsedLines.size} synced lines for '$trackName'")
+                                return LyricsData(lines = parsedLines)
+                            }
+                        } else if (plain.isNotBlank()) {
+                            Log.d("MUESO_LYRICS", "LRCLIB direct GET returned plain lyrics for '$trackName'")
+                            return LyricsData(rawText = plain)
+                        }
+                    }
+                }
+                null
+            }
+        } catch (e: Exception) {
             null
         }
     }
@@ -222,11 +316,11 @@ class OnlineMusicRepository {
         }
     }
 
-    private fun tryLrclibSearch(query: String): LyricsData? {
+    private fun tryLrclibSearch(targetTitle: String, query: String): LyricsData? {
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
             val url = "https://lrclib.net/api/search?q=$encQuery"
-            Log.d("MUESO_LYRICS", "Searching LRCLIB API for query: '$query'")
+            Log.d("MUESO_LYRICS", "Searching LRCLIB API for query: '$query' (targetTitle: '$targetTitle')")
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "MuesoMusicPlayer/1.0")
@@ -242,6 +336,13 @@ class OnlineMusicRepository {
 
                         for (i in 0 until jsonArr.length()) {
                             val item = jsonArr.optJSONObject(i) ?: continue
+                            val trackName = item.optString("trackName", "")
+
+                            if (!matchesTrackTitle(trackName, targetTitle)) {
+                                Log.d("MUESO_LYRICS", "Skipping LRCLIB item '$trackName' (does not match target '$targetTitle')")
+                                continue
+                            }
+
                             val synced = item.optString("syncedLyrics", "")
                             val plain = item.optString("plainLyrics", "")
 
@@ -250,6 +351,8 @@ class OnlineMusicRepository {
                             } else if (plain.isNotBlank() && bestPlain == null) {
                                 bestPlain = plain
                             }
+
+                            if (bestSynced != null) break
                         }
 
                         if (!bestSynced.isNullOrBlank()) {

@@ -260,56 +260,126 @@ class PlayerViewModel(
     private val _activeQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
     val activeQueue: StateFlow<List<TrackEntity>> = _activeQueue.asStateFlow()
 
-    val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
-        val currentTrackId = state.currentTrackId ?: return@combine 0
-        val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 } ?: 0
-        Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: calculated index $index for track $currentTrackId")
-        index
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
     private var currentTracks: List<TrackEntity> = emptyList()
         set(value) {
             field = value
             _activeQueue.value = value
         }
+
+    val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
+        val currentTrackId = state.currentTrackId
+        if (currentTrackId != null) {
+            val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 }
+            if (index != null) {
+                Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: calculated index $index for track $currentTrackId")
+                return@combine index
+            }
+        }
+        val restoredIndex = getRestoredTrackIndex()
+        Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: fallback to restored index $restoredIndex")
+        restoredIndex
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), getRestoredTrackIndex())
+
     // Guard against re-entrant play calls during async IPC transitions
     private var lastRequestedTrackId: Long? = null
 
     // Search
 
+    private val _isPlaylistContext = MutableStateFlow(false)
+    val isPlaylistContext: StateFlow<Boolean> = _isPlaylistContext.asStateFlow()
 
-
-
-
+    private val _playlistTrackCount = MutableStateFlow(0)
+    val playlistTrackCount: StateFlow<Int> = _playlistTrackCount.asStateFlow()
 
     /** Read the restored track index synchronously — used for initial pager page */
     fun getRestoredTrackIndex(): Int {
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
         if (lastTrackId == -1L) return 0
-        return currentTracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
+        
+        val tracks = currentTracks ?: emptyList()
+        if (tracks.isNotEmpty()) {
+            return tracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
+        }
+
+        val isPlaylist = sharedPreferences.getBoolean("last_is_playlist_context", false)
+        val queueJson = sharedPreferences.getString("last_playlist_queue_json", null)
+        if (isPlaylist && !queueJson.isNullOrBlank()) {
+            try {
+                val jsonArr = org.json.JSONArray(queueJson)
+                for (i in 0 until jsonArr.length()) {
+                    val obj = jsonArr.getJSONObject(i)
+                    if (obj.optLong("id", -1L) == lastTrackId) {
+                        return i
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return 0
     }
+
+
+
+
+
+
+
 
     private fun initRestoredTrackPreview() {
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
-        if (lastTrackId != -1L) {
-            val title = sharedPreferences.getString("last_track_title", "") ?: ""
-            val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
-            val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
-            val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
-            val duration = sharedPreferences.getLong("last_track_duration", 0L)
-            if (title.isNotBlank()) {
-                val previewTrack = TrackEntity(
-                    id = lastTrackId,
-                    title = title,
-                    artist = artist,
-                    album = "Last Played",
-                    duration = duration,
-                    albumId = 0L,
-                    filePath = filePath,
-                    artworkUrl = artworkUrl
-                )
-                currentTracks = listOf(previewTrack)
+        if (lastTrackId == -1L) return
+
+        val isPlaylist = sharedPreferences.getBoolean("last_is_playlist_context", false)
+        val savedCount = sharedPreferences.getInt("last_playlist_track_count", 0)
+        val queueJson = sharedPreferences.getString("last_playlist_queue_json", null)
+
+        if (isPlaylist && !queueJson.isNullOrBlank()) {
+            try {
+                val jsonArr = org.json.JSONArray(queueJson)
+                val restoredPlaylistTracks = mutableListOf<TrackEntity>()
+                for (i in 0 until jsonArr.length()) {
+                    val obj = jsonArr.getJSONObject(i)
+                    restoredPlaylistTracks.add(
+                        TrackEntity(
+                            id = obj.getLong("id"),
+                            title = obj.getString("title"),
+                            artist = obj.getString("artist"),
+                            album = "Online Playlist Track",
+                            duration = obj.getLong("duration"),
+                            albumId = 0L,
+                            filePath = obj.getString("filePath"),
+                            artworkUrl = obj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+
+                if (restoredPlaylistTracks.isNotEmpty()) {
+                    _isPlaylistContext.value = true
+                    _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
+                    currentTracks = restoredPlaylistTracks
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w("MUESO_RESTORE", "Failed to synchronously restore preview queue from JSON cache", e)
             }
+        }
+
+        val title = sharedPreferences.getString("last_track_title", "") ?: ""
+        val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
+        val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
+        val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
+        val duration = sharedPreferences.getLong("last_track_duration", 0L)
+        if (title.isNotBlank()) {
+            val previewTrack = TrackEntity(
+                id = lastTrackId,
+                title = title,
+                artist = artist,
+                album = "Last Played",
+                duration = duration,
+                albumId = 0L,
+                filePath = filePath,
+                artworkUrl = artworkUrl
+            )
+            currentTracks = listOf(previewTrack)
         }
     }
     
@@ -326,11 +396,7 @@ class PlayerViewModel(
 
 
 
-    private val _isPlaylistContext = MutableStateFlow(false)
-    val isPlaylistContext: StateFlow<Boolean> = _isPlaylistContext.asStateFlow()
 
-    private val _playlistTrackCount = MutableStateFlow(0)
-    val playlistTrackCount: StateFlow<Int> = _playlistTrackCount.asStateFlow()
 
 
 
@@ -354,8 +420,13 @@ class PlayerViewModel(
             }
             if (videoId.isNotBlank()) {
                 val streamUrl = onlineRepository.getStreamUrl(videoId)
-                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
-                track.copy(filePath = streamUrl, artworkUrl = artwork)
+                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                    val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                    track.copy(filePath = streamUrl, artworkUrl = artwork)
+                } else {
+                    Log.w("MUESO_RESOLVE", "Failed to resolve valid HTTP stream URL for track '${track.title}' (videoId: $videoId)")
+                    track
+                }
             } else {
                 track
             }
