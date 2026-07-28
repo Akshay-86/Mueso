@@ -34,6 +34,14 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _enableLyrics = MutableStateFlow(sharedPreferences.getBoolean("enable_lyrics", true))
     val enableLyrics: StateFlow<Boolean> = _enableLyrics.asStateFlow()
 
+    private val _preferredLanguage = MutableStateFlow(sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu")
+    val preferredLanguage: StateFlow<String> = _preferredLanguage.asStateFlow()
+
+    fun setPreferredLanguage(language: String) {
+        _preferredLanguage.value = language
+        sharedPreferences.edit().putString("preferred_language", language).apply()
+    }
+
     // SponsorBlock Settings
     private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", true))
     val enableSponsorBlock: StateFlow<Boolean> = _enableSponsorBlock.asStateFlow()

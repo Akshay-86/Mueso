@@ -83,6 +83,8 @@ class BackupManager(
     val googleAccount: StateFlow<GoogleSignInAccount?> = _googleAccount.asStateFlow()
 
     fun markDirty() {
+        val autoBackupEnabled = sharedPreferences.getBoolean("auto_cloud_backup", true)
+        if (!autoBackupEnabled) return
         _hasUnbackedUpChanges.value = true
         sharedPreferences.edit().putBoolean("has_unbacked_up_changes", true).apply()
     }

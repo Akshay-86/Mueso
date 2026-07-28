@@ -196,38 +196,50 @@ class OnlineMusicRepository {
         return (matchedCount.toDouble() / tWords.size.toDouble()) >= 0.5
     }
 
-    suspend fun fetchLyrics(title: String, artist: String): LyricsData? = withContext(Dispatchers.IO) {
+    suspend fun fetchLyrics(title: String, artist: String, language: String = ""): LyricsData? = withContext(Dispatchers.IO) {
         try {
             val (cleanTitle, cleanArtist) = cleanTitleAndArtist(title, artist)
-            Log.d("MUESO_LYRICS", "Original ('$title', '$artist') -> Cleaned ('$cleanTitle', '$cleanArtist')")
+            Log.d("MUESO_LYRICS", "Original ('$title', '$artist') -> Cleaned ('$cleanTitle', '$cleanArtist') [Lang: '$language']")
 
             // 1. LRCLIB Direct GET
             val directRes = tryLrclibGet(cleanTitle, cleanArtist)
             if (directRes != null) return@withContext directRes
 
-            // 2. LRCLIB Search with Title & Artist
+            // 2. LRCLIB Search with Clean Title & Artist (Direct exact query)
             if (cleanArtist.isNotBlank()) {
                 val res1 = tryLrclibSearch(cleanTitle, "$cleanTitle $cleanArtist")
                 if (res1 != null) return@withContext res1
             }
 
-            // 3. LRCLIB Search with Clean Title
-            val res2 = tryLrclibSearch(cleanTitle, cleanTitle)
-            if (res2 != null) return@withContext res2
+            // 3. LRCLIB Search with Title, Artist & Language hint
+            if (cleanArtist.isNotBlank() && language.isNotBlank() && !language.startsWith("All", ignoreCase = true) && !cleanArtist.lowercase().contains(language.lowercase())) {
+                val res2 = tryLrclibSearch(cleanTitle, "$cleanTitle $cleanArtist $language")
+                if (res2 != null) return@withContext res2
+            }
 
-            // 4. Verome API with clean title & artist
+            // 4. LRCLIB Search with Clean Title
+            val res3 = tryLrclibSearch(cleanTitle, cleanTitle)
+            if (res3 != null) return@withContext res3
+
+            // 5. LRCLIB Search with Clean Title & Language hint
+            if (language.isNotBlank() && !language.startsWith("All", ignoreCase = true)) {
+                val res4 = tryLrclibSearch(cleanTitle, "$cleanTitle $language")
+                if (res4 != null) return@withContext res4
+            }
+
+            // 6. Verome API with clean title & artist
             val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
             val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
             if (cleanArtist.isNotBlank()) {
                 val url1 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle&artist=$encArtist"
-                val res3 = tryFetchFromUrl(url1, cleanTitle)
-                if (res3 != null) return@withContext res3
+                val res5 = tryFetchFromUrl(url1, cleanTitle)
+                if (res5 != null) return@withContext res5
             }
 
-            // 5. Verome API with clean title
+            // 7. Verome API with clean title
             val url2 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle"
-            val res4 = tryFetchFromUrl(url2, cleanTitle)
-            if (res4 != null) return@withContext res4
+            val res6 = tryFetchFromUrl(url2, cleanTitle)
+            if (res6 != null) return@withContext res6
 
             Log.w("MUESO_LYRICS", "No matching lyrics found for '$cleanTitle' ('$cleanArtist')")
             null
@@ -362,8 +374,9 @@ class OnlineMusicRepository {
                                 return LyricsData(lines = parsedLines)
                             }
                         } else if (!bestPlain.isNullOrBlank()) {
-                            Log.d("MUESO_LYRICS", "Found plain lyrics via LRCLIB search for '$query'")
-                            return LyricsData(rawText = bestPlain)
+                            val parsedLines = LrcParser.parse(bestPlain)
+                            Log.d("MUESO_LYRICS", "Found plain lyrics (${parsedLines.size} lines) via LRCLIB search for '$query'")
+                            return LyricsData(lines = parsedLines, rawText = bestPlain)
                         }
                     }
                 }
@@ -372,6 +385,60 @@ class OnlineMusicRepository {
         } catch (e: Exception) {
             Log.w("MUESO_LYRICS", "LRCLIB search error for query '$query'", e)
             null
+        }
+    }
+
+    suspend fun searchLrclibCandidates(query: String): List<com.akshay.musicplayer.domain.models.LrclibSearchResultItem> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        return@withContext try {
+            val encQuery = URLEncoder.encode(query.trim(), "UTF-8")
+            val url = "https://lrclib.net/api/search?q=$encQuery"
+            Log.d("MUESO_LYRICS", "Searching LRCLIB candidate list for: '$query'")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "MuesoMusicPlayer/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank() && jsonStr.trim().startsWith("[")) {
+                        val jsonArr = JSONArray(jsonStr)
+                        val candidates = mutableListOf<com.akshay.musicplayer.domain.models.LrclibSearchResultItem>()
+                        for (i in 0 until jsonArr.length()) {
+                            val item = jsonArr.optJSONObject(i) ?: continue
+                            val id = item.optLong("id", i.toLong())
+                            val trackName = item.optString("trackName", "Unknown Title")
+                            val artistName = item.optString("artistName", "Unknown Artist")
+                            val albumName = item.optString("albumName", "")
+                            val duration = item.optInt("duration", 0)
+                            val synced = item.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
+                            val plain = item.optString("plainLyrics", "").takeIf { it.isNotBlank() }
+
+                            if (synced != null || plain != null) {
+                                candidates.add(
+                                    com.akshay.musicplayer.domain.models.LrclibSearchResultItem(
+                                        id = id,
+                                        trackName = trackName,
+                                        artistName = artistName,
+                                        albumName = albumName,
+                                        durationSeconds = duration,
+                                        isSynced = synced != null,
+                                        syncedLyrics = synced,
+                                        plainLyrics = plain
+                                    )
+                                )
+                            }
+                        }
+                        Log.d("MUESO_LYRICS", "LRCLIB returned ${candidates.size} candidate items for '$query'")
+                        return@withContext candidates
+                    }
+                }
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.w("MUESO_LYRICS", "Failed to search LRCLIB candidates for '$query'", e)
+            emptyList()
         }
     }
 
@@ -434,6 +501,79 @@ class OnlineMusicRepository {
             Log.w("MUESO_CHARTS", "Failed to fetch iTunes Top 50 Global Chart, falling back to search...", e)
         }
         return@withContext searchOnlineTracks("top 50 global songs")
+    }
+
+    suspend fun fetchCuratedPlaylistTracks(query: String, language: String = ""): List<TrackEntity> = withContext(Dispatchers.IO) {
+        try {
+            val lang = language.trim()
+            val isSpecificLang = lang.isNotBlank() && !lang.startsWith("All", ignoreCase = true)
+            val isIndianLang = isSpecificLang && listOf("Telugu", "Hindi", "Tamil", "Punjabi", "Malayalam", "Kannada").any { lang.equals(it, ignoreCase = true) }
+
+            val targetQuery = when {
+                isSpecificLang && query.contains("indian trending", ignoreCase = true) -> "$lang top hit songs"
+                isSpecificLang && query.contains("lofi", ignoreCase = true) -> "$lang lofi songs"
+                isSpecificLang && query.contains("workout", ignoreCase = true) -> "$lang workout songs"
+                isSpecificLang && query.contains("romantic", ignoreCase = true) -> "$lang romantic songs"
+                isSpecificLang && query.contains("party", ignoreCase = true) -> "$lang party dance hits"
+                isSpecificLang && query.contains("90s", ignoreCase = true) -> "$lang 90s hits"
+                isSpecificLang && !query.lowercase().contains(lang.lowercase()) -> "$lang $query"
+                query.contains("indian trending", ignoreCase = true) -> "top indian hit songs"
+                else -> query
+            }
+
+            val countryParam = if (isIndianLang || query.contains("indian", ignoreCase = true)) "country=IN&" else ""
+
+            val encQuery = URLEncoder.encode(targetQuery, "UTF-8")
+            val url = "https://itunes.apple.com/search?term=$encQuery&${countryParam}entity=song&limit=30"
+            Log.d("MUESO_CURATED", "Fetching curated tracks from iTunes API: $url (Query: '$targetQuery', Lang: '$lang')")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrBlank()) {
+                        val jsonObj = JSONObject(jsonStr)
+                        val results = jsonObj.optJSONArray("results")
+                        if (results != null && results.length() > 0) {
+                            val tracks = mutableListOf<TrackEntity>()
+                            for (i in 0 until results.length()) {
+                                val item = results.optJSONObject(i) ?: continue
+                                val trackName = item.optString("trackName", "").takeIf { it.isNotBlank() } ?: continue
+                                val artistName = item.optString("artistName", "Unknown Artist")
+                                val albumName = item.optString("collectionName", "Curated Playlist")
+                                val artworkUrl = item.optString("artworkUrl100", "").takeIf { it.isNotBlank() }
+                                val durationMs = item.optLong("trackTimeMillis", 210_000L)
+
+                                val trackId = (trackName + artistName).hashCode().toLong()
+                                tracks.add(
+                                    TrackEntity(
+                                        id = trackId,
+                                        title = trackName,
+                                        artist = artistName,
+                                        album = albumName,
+                                        duration = durationMs,
+                                        albumId = 0L,
+                                        filePath = "online:$trackName $artistName",
+                                        artworkUrl = getHighResArtworkUrl(artworkUrl)
+                                    )
+                                )
+                            }
+                            if (tracks.isNotEmpty()) {
+                                Log.d("MUESO_CURATED", "Successfully loaded ${tracks.size} curated tracks via iTunes API for '$query'")
+                                return@withContext tracks
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MUESO_CURATED", "iTunes API curated fetch failed for '$query', falling back to searchOnlineTracks", e)
+        }
+
+        return@withContext searchOnlineTracks(query)
     }
 
     suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {

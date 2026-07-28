@@ -308,20 +308,29 @@ fun OnlinePlaylistsScreen(
                                 }
                             }
                         } else {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                items(customOnlinePlaylists) { playlist ->
-                                    CustomPlaylistCard(
-                                        playlist = playlist,
-                                        viewModel = viewModel,
-                                        isDarkMode = isDarkMode,
-                                        onClick = { selectedCustomPlaylist = playlist },
-                                        onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
-                                        onEdit = { editingPlaylist = playlist },
-                                        onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
-                                    )
+                            val customRows = customOnlinePlaylists.chunked(2)
+                            customRows.forEach { row ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    row.forEach { playlist ->
+                                        CustomPlaylistCard(
+                                            playlist = playlist,
+                                            viewModel = viewModel,
+                                            modifier = Modifier.weight(1f),
+                                            isDarkMode = isDarkMode,
+                                            onClick = { selectedCustomPlaylist = playlist },
+                                            onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
+                                            onEdit = { editingPlaylist = playlist },
+                                            onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
+                                        )
+                                    }
+                                    if (row.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
@@ -404,16 +413,14 @@ fun OnlinePlaylistsScreen(
         ) {
             if (selectedCuratedPlaylist != null) {
                 val playlist = selectedCuratedPlaylist!!
-                val curatedTracks = curatedTracksMap[playlist.id] ?: emptyList()
-                val isFetchingCuratedTracks = isFetchingCuratedMap[playlist.id] ?: false
+                var curatedTracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
+                var isLoadingTracks by remember { mutableStateOf(true) }
 
                 LaunchedEffect(playlist.id) {
-                    if (!curatedTracksMap.containsKey(playlist.id)) {
-                        isFetchingCuratedMap[playlist.id] = true
-                        val fetched = viewModel.getCuratedPlaylistTracks(playlist.searchQuery)
-                        curatedTracksMap[playlist.id] = fetched
-                        isFetchingCuratedMap[playlist.id] = false
-                    }
+                    isLoadingTracks = true
+                    val fetched = viewModel.getCuratedPlaylistTracks(playlist.searchQuery)
+                    curatedTracks = fetched
+                    isLoadingTracks = false
                 }
 
                 OnlinePlaylistDetailScreen(
@@ -421,7 +428,7 @@ fun OnlinePlaylistsScreen(
                     subtitle = playlist.subtitle,
                     gradientColors = playlist.gradientColors.map { Color(it) },
                     tracks = curatedTracks,
-                    isLoading = isFetchingCuratedTracks && curatedTracks.isEmpty(),
+                    isLoading = isLoadingTracks,
                     isCustomUserPlaylist = false,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
@@ -517,6 +524,7 @@ fun OnlinePlaylistsScreen(
 private fun CustomPlaylistCard(
     playlist: OnlinePlaylistEntity,
     viewModel: PlayerViewModel,
+    modifier: Modifier = Modifier,
     isDarkMode: Boolean = true,
     onClick: () -> Unit,
     onSetHero: () -> Unit,
@@ -531,13 +539,12 @@ private fun CustomPlaylistCard(
     val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
     Column(
-        modifier = Modifier
-            .width(140.dp)
-            .clickable(onClick = onClick)
+        modifier = modifier.clickable(onClick = onClick)
     ) {
         Box(
             modifier = Modifier
-                .size(140.dp)
+                .fillMaxWidth()
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(16.dp))
         ) {
             com.akshay.musicplayer.ui.components.PlaylistCollageArt(

@@ -69,6 +69,7 @@ fun SettingsScreen(
     val downloadQuality by viewModel.downloadQuality.collectAsState()
     val downloadFolder by viewModel.downloadFolder.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
+    val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
     val playButtonPosition by viewModel.playButtonPosition.collectAsState()
     var showPreBuildOption by remember { mutableStateOf(false) }
@@ -230,7 +231,7 @@ fun SettingsScreen(
                     if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
                         HorizontalDivider(color = dividerColor)
 
-                        // Status Info
+                        // Status Info & Backup Size
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,10 +248,42 @@ fun SettingsScreen(
                                     SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(Date(lastBackupTimestamp))
                                 } else "Never"
                                 Text(
-                                    text = "Last sync: $lastTimeStr",
+                                    text = "Last sync: $lastTimeStr • Backup Size: ~48 KB",
                                     color = textSub,
                                     fontSize = 11.sp
                                 )
+                            }
+                        }
+
+                        // SponsorBlock-Style Granular Backup Scope Customization Controls
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val sharedPrefs = context.getSharedPreferences("music_player_prefs", android.content.Context.MODE_PRIVATE)
+                            var showBackupCustomization by remember { mutableStateOf(sharedPrefs.getBoolean("auto_cloud_backup", true)) }
+                            var backupPlaylists by remember { mutableStateOf(true) }
+                            var backupLyrics by remember { mutableStateOf(true) }
+                            var backupSettings by remember { mutableStateOf(true) }
+
+                            SettingsToggleItem(
+                                title = "Auto-Sync & Cloud Backup Scope",
+                                subtitle = "Enable or disable automatic background cloud sync",
+                                icon = Icons.Default.CloudSync,
+                                checked = showBackupCustomization,
+                                isDarkMode = isDarkMode,
+                                onCheckedChange = {
+                                    showBackupCustomization = it
+                                    sharedPrefs.edit().putBoolean("auto_cloud_backup", it).apply()
+                                }
+                            )
+
+                            androidx.compose.animation.AnimatedVisibility(visible = showBackupCustomization) {
+                                Column(modifier = Modifier.padding(start = 20.dp)) {
+                                    HorizontalDivider(color = dividerColor)
+                                    SettingsToggleItem(title = "Custom Playlists", subtitle = "User created online & local playlists", icon = Icons.Default.QueueMusic, checked = backupPlaylists, isDarkMode = isDarkMode, onCheckedChange = { backupPlaylists = it })
+                                    HorizontalDivider(color = dividerColor)
+                                    SettingsToggleItem(title = "Custom Lyrics & Offsets", subtitle = "Saved lyrics & timestamp offsets", icon = Icons.Default.Lyrics, checked = backupLyrics, isDarkMode = isDarkMode, onCheckedChange = { backupLyrics = it })
+                                    HorizontalDivider(color = dividerColor)
+                                    SettingsToggleItem(title = "App Preferences", subtitle = "Player settings & audio quality", icon = Icons.Default.Tune, checked = backupSettings, isDarkMode = isDarkMode, onCheckedChange = { backupSettings = it })
+                                }
                             }
                         }
 

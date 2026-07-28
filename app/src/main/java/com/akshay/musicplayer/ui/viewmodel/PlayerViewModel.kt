@@ -88,6 +88,7 @@ class PlayerViewModel(
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
     val enableLyrics = settingsManager.enableLyrics
+    val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
     val enableSponsorBlock = settingsManager.enableSponsorBlock
     val skipSponsor = settingsManager.skipSponsor
@@ -105,6 +106,10 @@ class PlayerViewModel(
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
+    fun setPreferredLanguage(language: String) {
+        settingsManager.setPreferredLanguage(language)
+        playlistManager.clearCuratedCache()
+    }
     fun setPlayButtonPosition(position: String) = settingsManager.setPlayButtonPosition(position)
     fun setEnableSponsorBlock(enabled: Boolean) = settingsManager.setEnableSponsorBlock(enabled)
     fun setSkipSponsor(enabled: Boolean) = settingsManager.setSkipSponsor(enabled)
@@ -1043,10 +1048,20 @@ class PlayerViewModel(
         if (track.lyrics != null || fetchedLyricsTrackIds.contains(track.id)) return
         fetchedLyricsTrackIds.add(track.id)
 
+        // 1. Check local saved custom lyrics first
+        val savedLyrics = getSavedCustomLyrics(track.id)
+        if (savedLyrics != null && (savedLyrics.lines.isNotEmpty() || !savedLyrics.rawText.isNullOrBlank())) {
+            currentTracks = currentTracks.map {
+                if (it.id == track.id) it.copy(lyrics = savedLyrics) else it
+            }
+            _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+            return
+        }
+
         _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FETCHING)
 
         viewModelScope.launch(Dispatchers.IO) {
-            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist)
+            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value)
             withContext(Dispatchers.Main) {
                 if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
                     val updatedTracks = currentTracks.map {
@@ -1058,6 +1073,96 @@ class PlayerViewModel(
                     _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
                 }
             }
+        }
+    }
+
+    fun searchAndApplyLyrics(trackId: Long, customTitle: String, customArtist: String = "", customLang: String = "") {
+        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.FETCHING)
+        viewModelScope.launch(Dispatchers.IO) {
+            val lyricsData = onlineRepository.fetchLyrics(customTitle, customArtist, customLang)
+            withContext(Dispatchers.Main) {
+                if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
+                    currentTracks = currentTracks.map {
+                        if (it.id == trackId) it.copy(lyrics = lyricsData) else it
+                    }
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.FOUND)
+                } else {
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.NOT_FOUND)
+                }
+            }
+        }
+    }
+
+    suspend fun searchLrclibCandidates(query: String): List<com.akshay.musicplayer.domain.models.LrclibSearchResultItem> {
+        return onlineRepository.searchLrclibCandidates(query)
+    }
+
+    fun applyLrclibCandidate(trackId: Long, candidate: com.akshay.musicplayer.domain.models.LrclibSearchResultItem) {
+        val rawContent = candidate.syncedLyrics ?: candidate.plainLyrics ?: return
+        val parsedLines = com.akshay.musicplayer.domain.models.LrcParser.parse(rawContent)
+        val lyricsData = com.akshay.musicplayer.domain.models.LyricsData(
+            lines = parsedLines,
+            rawText = candidate.plainLyrics
+        )
+        currentTracks = currentTracks.map {
+            if (it.id == trackId) it.copy(lyrics = lyricsData) else it
+        }
+        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.FOUND)
+
+        // Save custom lyrics
+        saveCustomLyrics(trackId, lyricsData)
+    }
+
+    fun getSavedCustomLyrics(trackId: Long): com.akshay.musicplayer.domain.models.LyricsData? {
+        val jsonStr = sharedPreferences.getString("custom_lyrics_$trackId", null) ?: return null
+        return try {
+            val jsonObj = org.json.JSONObject(jsonStr)
+            val rawText = jsonObj.optString("rawText", "")
+            val linesArr = jsonObj.optJSONArray("lines")
+            val linesList = mutableListOf<com.akshay.musicplayer.domain.models.LyricLine>()
+            if (linesArr != null) {
+                for (i in 0 until linesArr.length()) {
+                    val lineObj = linesArr.getJSONObject(i)
+                    val time = lineObj.getLong("time")
+                    val text = lineObj.getString("text")
+                    linesList.add(com.akshay.musicplayer.domain.models.LyricLine(time, text))
+                }
+            }
+            com.akshay.musicplayer.domain.models.LyricsData(lines = linesList, rawText = rawText.ifBlank { null })
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveCustomLyrics(trackId: Long, lyricsData: com.akshay.musicplayer.domain.models.LyricsData) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val jsonObj = org.json.JSONObject()
+                jsonObj.put("rawText", lyricsData.rawText ?: "")
+                val linesArr = org.json.JSONArray()
+                lyricsData.lines.forEach { line ->
+                    val lObj = org.json.JSONObject()
+                    lObj.put("time", line.timestampMs)
+                    lObj.put("text", line.text)
+                    linesArr.put(lObj)
+                }
+                jsonObj.put("lines", linesArr)
+                sharedPreferences.edit().putString("custom_lyrics_$trackId", jsonObj.toString()).apply()
+            } catch (e: Exception) {
+                android.util.Log.e("MUESO_LYRICS", "Failed to save custom lyrics", e)
+            }
+        }
+    }
+
+    fun isTrackInUserPlaylists(trackId: Long): Boolean {
+        return try {
+            val playlists = playlistManager.onlinePlaylists.value
+            playlists.any { p ->
+                val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id)
+                tracks.any { it.trackId == trackId }
+            }
+        } catch (e: Exception) {
+            false
         }
     }
 

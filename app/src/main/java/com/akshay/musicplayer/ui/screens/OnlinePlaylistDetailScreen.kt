@@ -651,22 +651,6 @@ private fun OnlineTrackListItem(
                             onCancelDownload?.invoke()
                         }
                     )
-                } else if (downloadState?.isDownloaded != true) {
-                    DropdownMenuItem(
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                                Text("Download Track", color = textColor)
-                            }
-                        },
-                        onClick = {
-                            showMenu = false
-                            onDownload?.invoke()
-                        }
-                    )
                 }
                 if (isCustomUserPlaylist) {
                     if (index > 1) {

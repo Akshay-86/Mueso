@@ -12,6 +12,11 @@ class BackupWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        val sharedPrefs = applicationContext.getSharedPreferences("music_player_prefs", Context.MODE_PRIVATE)
+        if (!sharedPrefs.getBoolean("auto_cloud_backup", true)) {
+            return Result.success()
+        }
+
         val driveRepo = GoogleDriveBackupRepository(applicationContext)
         val account = driveRepo.getSignedInAccount() ?: return Result.success()
 

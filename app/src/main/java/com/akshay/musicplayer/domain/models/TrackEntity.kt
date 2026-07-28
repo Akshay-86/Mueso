@@ -30,6 +30,17 @@ data class LyricsData(
     }
 }
 
+data class LrclibSearchResultItem(
+    val id: Long,
+    val trackName: String,
+    val artistName: String,
+    val albumName: String,
+    val durationSeconds: Int,
+    val isSynced: Boolean,
+    val syncedLyrics: String? = null,
+    val plainLyrics: String? = null
+)
+
 data class SocialMetrics(
     val likeCount: String,
     val commentCount: String,

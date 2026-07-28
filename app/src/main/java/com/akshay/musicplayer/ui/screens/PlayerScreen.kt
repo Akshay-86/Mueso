@@ -299,12 +299,28 @@ fun PlayerPageContent(
         null -> null
     }
 
+    var isLyricsExpanded by remember { mutableStateOf(false) }
+
     Box(modifier = modifier.fillMaxSize()) {
         // Full-screen immersive album art background
         AlbumArtBackground(
             albumArtUri = albumArtUri,
             modifier = Modifier.fillMaxSize()
         )
+
+        // Full-screen scrim: tapping anywhere outside the lyrics card closes it!
+        if (isLyricsExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        isLyricsExpanded = false
+                    }
+            )
+        }
 
         // Main content
         Column(
@@ -330,8 +346,16 @@ fun PlayerPageContent(
                     currentPositionMs = playbackState.currentPositionMs,
                     lyricsFetchStatus = trackLyricsStatus,
                     lyricsOffsetMs = lyricsOffsetMs,
+                    trackTitle = track.title,
+                    trackArtist = track.artist,
+                    isSavedInUserPlaylist = viewModel.isTrackInUserPlaylists(track.id),
+                    isExpanded = isLyricsExpanded,
+                    onExpandedChange = { isLyricsExpanded = it },
                     onAdjustOffset = { viewModel.adjustLyricsOffset(it) },
                     onResetOffset = { viewModel.resetLyricsOffset() },
+                    onSearchCandidates = { query -> viewModel.searchLrclibCandidates(query) },
+                    onApplyCandidate = { candidate -> viewModel.applyLrclibCandidate(track.id, candidate) },
+                    onSeekTo = { timestampMs -> viewModel.seekTo(timestampMs) },
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
