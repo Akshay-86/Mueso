@@ -13,8 +13,8 @@ android {
         applicationId = "com.akshay.musicplayer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "v1.0.0"
+        versionCode = 6
+        versionName = "v1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -57,6 +57,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

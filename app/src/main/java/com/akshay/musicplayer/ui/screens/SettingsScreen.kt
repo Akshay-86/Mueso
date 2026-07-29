@@ -801,8 +801,17 @@ fun SettingsScreen(
                         }
                     }
 
+                    val appVersionName = remember(context) {
+                        try {
+                            val name = com.akshay.musicplayer.BuildConfig.VERSION_NAME
+                            if (name.startsWith("v", ignoreCase = true)) name else "v$name"
+                        } catch (_: Exception) {
+                            "v1.1.0"
+                        }
+                    }
+
                     Text(
-                        text = "Mueso Player v1.0.0 • Open Source MIT",
+                        text = "Mueso Player $appVersionName • Open Source MIT",
                         color = textSub,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium

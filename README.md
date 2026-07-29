@@ -18,20 +18,67 @@
 
 <br />
 
-**Mueso** is a next-generation, high-performance Android music player built with **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It seamlessly bridges local offline audio libraries with online streaming, ready-made curated top charts, smart SponsorBlock audio segment filtering, embedded ID3 metadata tagging, and batch playlist downloads.
+**Mueso** is a next-generation, high-performance Android music player built with **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It seamlessly bridges local offline audio libraries with online streaming, ready-made curated top charts, smart SponsorBlock audio segment filtering, embedded ID3 metadata tagging, real-time LRCLIB synced lyrics search, and batch playlist downloads.
+
+> [!TIP]
+> **Creating or importing a playlist is recommended for the best experience!** Import your favorite Spotify playlists or create custom online playlists to enjoy seamless queue management and reels-style vertical playback.
+
+---
+
+## 📱 Screenshots & Previews
+
+<div align="center">
+  <table>
+    <tr valign="top">
+      <td align="center" valign="top" width="25%">
+        <img src="previews/mainPlayerScreen.jpg" alt="Reels-Style Vertical Player" width="100%" /><br />
+        <sub><b>Reels-Style Player</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/searchLyricsScreen.jpg" alt="Manual Lyrics Search" width="100%" /><br />
+        <sub><b>Search & Pick Lyrics</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/searchScreen.jpg" alt="Online Search" width="100%" /><br />
+        <sub><b>Online Track Search</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/onlinePlaylistsScreen.jpg" alt="Online Playlists" width="100%" /><br />
+        <sub><b>Curated Playlists</b></sub>
+      </td>
+    </tr>
+    <tr valign="top">
+      <td align="center" valign="top" width="25%">
+        <img src="previews/importPlaylistScreen.jpg" alt="Spotify Import" width="100%" /><br />
+        <sub><b>Spotify Playlist Import</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/importPlaylistScreen1.jpg" alt="Stream Matching" width="100%" /><br />
+        <sub><b>Stream Matching Review</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/sponsorsBlockSettings.jpg" alt="SponsorBlock" width="100%" /><br />
+        <sub><b>SponsorBlock Settings</b></sub>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <img src="previews/settingsScreen.jpg" alt="App Settings" width="100%" /><br />
+        <sub><b>App Settings</b></sub>
+      </td>
+    </tr>
+  </table>
+</div>
 
 ---
 
 ## ✨ Features
 
+- **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view.
+- **🔍 Synced Lyrics & Manual Search**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, strict **Synced** / **Plain** tag classification, and an interactive manual lyrics search screen to look up and select alternate lyrics for any song.
 - **🟢 Spotify Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and manual alternative selection.
 - **🌐 Online Streaming & Curated Playlists**: Stream online tracks, browse curated top charts (YouTube & Spotify), create custom online playlists, and set custom Hero Banner playlists.
 - **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, and intros/outros in real-time during online streaming.
 - **📥 Batch Playlist Downloads**: Download full online playlists directly to your local device with embedded high-resolution album artwork and ID3 tags powered by Chaquopy Python & Mutagen.
-- **🎵 Synced & Unsynced Lyrics**: Automatically fetches real-time synced lyrics via LRCLIB with line-by-line karaoke highlights and fallback unsynced lyric viewer.
-- **🎨 Dynamic Light & Dark Theme Adaptation**: Fully adaptive glassmorphism & Material 3 color system with status bar color syncing across Light and Dark themes.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
-- **⚡ High Refresh Rate Display Mode**: Force 120Hz / 90Hz display refresh rates for butter-smooth scrolling and zero-lag Compose UI animations.
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers.
 - **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, hero banners, and app preferences securely to Google Drive AppData.
 
