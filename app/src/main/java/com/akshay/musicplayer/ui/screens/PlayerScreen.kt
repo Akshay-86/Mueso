@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloat
@@ -109,7 +110,7 @@ fun PlayerScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun VerticalPagerScreen(
     tracks: List<TrackEntity>,
@@ -118,8 +119,14 @@ fun VerticalPagerScreen(
 ) {
     val currentTrackIndex by viewModel.currentTrackIndexState.collectAsState()
 
-    // Read the restored index SYNCHRONOUSLY so the pager never starts at 0
-    val initialIndex = remember { viewModel.getRestoredTrackIndex() }
+    val initialIndex = remember(tracks) {
+        val requestedId = viewModel.lastRequestedTrackId
+        if (requestedId != null) {
+            val idx = tracks.indexOfFirst { it.id == requestedId }
+            if (idx >= 0) return@remember idx
+        }
+        currentTrackIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
+    }
 
     val pagerState = rememberPagerState(
         initialPage = initialIndex,
@@ -158,6 +165,7 @@ fun VerticalPagerScreen(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }
             .drop(1)
+            .debounce(300) // Wait for user to truly settle during rapid swiping
             .collect { page ->
                 Log.d("MUESO_SYNC", "PlayerScreen UI: pager settled on page $page. isSyncingFromVM=$isSyncingFromVM")
                 if (!isSyncingFromVM && currentTracksList.isNotEmpty() && page < currentTracksList.size) {

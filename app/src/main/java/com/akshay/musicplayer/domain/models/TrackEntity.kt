@@ -18,14 +18,23 @@ data class LyricsData(
     val rawText: String? = null
 ) {
     fun getDisplayLines(positionMs: Long): Triple<String?, String, String?> {
+        val cleanRaw = if (rawText.isNullOrBlank() || rawText.equals("null", ignoreCase = true)) null else rawText
         if (lines.isEmpty()) {
-            return Triple(null, rawText ?: "No lyrics available", null)
+            if (cleanRaw != null) {
+                val rawLines = cleanRaw.lines().map { it.trim() }.filter { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                if (rawLines.isNotEmpty()) {
+                    val curr = rawLines.getOrNull(0) ?: ""
+                    val next = rawLines.getOrNull(1)
+                    return Triple(null, curr, next)
+                }
+            }
+            return Triple(null, cleanRaw ?: "No lyrics available", null)
         }
         var activeIdx = lines.indexOfLast { it.timestampMs <= positionMs }
         if (activeIdx < 0) activeIdx = 0
-        val prev = if (activeIdx > 0) lines[activeIdx - 1].text else null
-        val curr = lines[activeIdx].text
-        val next = if (activeIdx < lines.size - 1) lines[activeIdx + 1].text else null
+        val prev = if (activeIdx > 0) lines[activeIdx - 1].text.takeIf { !it.equals("null", ignoreCase = true) } else null
+        val curr = lines[activeIdx].text.takeIf { !it.equals("null", ignoreCase = true) } ?: ""
+        val next = if (activeIdx < lines.size - 1) lines[activeIdx + 1].text.takeIf { !it.equals("null", ignoreCase = true) } else null
         return Triple(prev, curr, next)
     }
 }

@@ -42,6 +42,26 @@ class BackupManager(
         )
     }
 
+    private fun buildCustomLyricsMap(): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        val allEntries = sharedPreferences.all
+        for ((key, value) in allEntries) {
+            if (key.startsWith("custom_lyrics_") && value is String) {
+                map[key] = value
+            }
+        }
+        return map
+    }
+
+    private fun restoreCustomLyrics(customLyricsMap: Map<String, String>?) {
+        if (customLyricsMap.isNullOrEmpty()) return
+        val editor = sharedPreferences.edit()
+        for ((key, jsonStr) in customLyricsMap) {
+            editor.putString(key, jsonStr)
+        }
+        editor.apply()
+    }
+
     private fun restoreBackupSettings(settings: com.akshay.musicplayer.data.backup.BackupSettings?) {
         if (settings == null) return
         sharedPreferences.edit()
@@ -167,10 +187,11 @@ class BackupManager(
                                 )
                                 val trackList = op.tracks ?: emptyList()
                                 for (t in trackList) {
+                                    val restoredTrackId = if (t.trackId > 0L) t.trackId else (System.currentTimeMillis() + (0..10000).random())
                                     onlinePlaylistDao.insertOnlineTrack(
                                         com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
                                             onlinePlaylistId = playlistId,
-                                            trackId = System.currentTimeMillis() + (0..10000).random(),
+                                            trackId = restoredTrackId,
                                             title = t.title ?: "Unknown Title",
                                             artist = t.artist ?: "Unknown Artist",
                                             artworkUrl = t.artworkUrl,
@@ -185,6 +206,7 @@ class BackupManager(
 
                             withContext(Dispatchers.Main) {
                                 restoreBackupSettings(backupData.settings)
+                                restoreCustomLyrics(backupData.customLyrics)
                                 _isBackupInProgress.value = false
                                 setGoogleAccountEmail(email)
                                 _hasUnbackedUpChanges.value = false
@@ -220,6 +242,7 @@ class BackupManager(
                         dateCreated = p.dateCreated,
                         tracks = tracks.map { t ->
                             com.akshay.musicplayer.data.backup.BackupTrack(
+                                trackId = t.trackId,
                                 title = t.title,
                                 artist = t.artist,
                                 artworkUrl = t.artworkUrl,
@@ -249,7 +272,8 @@ class BackupManager(
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
                     onlinePlaylists = backupOnlineList,
                     localPlaylists = backupLocalList,
-                    settings = buildBackupSettings()
+                    settings = buildBackupSettings(),
+                    customLyrics = buildCustomLyricsMap()
                 )
 
                 android.util.Log.d("MUESO_BACKUP", "Uploading backup: ${backupOnlineList.size} online, ${backupLocalList.size} local playlists")
@@ -316,6 +340,7 @@ class BackupManager(
                         dateCreated = p.dateCreated,
                         tracks = tracks.map { t ->
                             com.akshay.musicplayer.data.backup.BackupTrack(
+                                trackId = t.trackId,
                                 title = t.title,
                                 artist = t.artist,
                                 artworkUrl = t.artworkUrl,
@@ -347,7 +372,8 @@ class BackupManager(
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
                     onlinePlaylists = backupOnlineList,
                     localPlaylists = backupLocalList,
-                    settings = buildBackupSettings()
+                    settings = buildBackupSettings(),
+                    customLyrics = buildCustomLyricsMap()
                 )
 
                 val result = driveRepo.uploadBackup(email, backupData)
@@ -361,8 +387,8 @@ class BackupManager(
                             .putBoolean("has_unbacked_up_changes", false)
                             .putLong("last_backup_timestamp", now)
                             .apply()
-                        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists & Settings backed up to Google Drive!")
-                        onResult(true, "Playlists & Settings backed up to Google Drive!")
+                        com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists, Lyrics & Settings backed up to Google Drive!")
+                        onResult(true, "Playlists, Lyrics & Settings backed up to Google Drive!")
                     } else {
                         com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
                         onResult(false, result.exceptionOrNull()?.message ?: "Backup failed")
@@ -395,6 +421,7 @@ class BackupManager(
                         val backupData = result.getOrNull()
                         if (backupData != null) {
                             restoreBackupSettings(backupData.settings)
+                            restoreCustomLyrics(backupData.customLyrics)
                             val onlineList = backupData.onlinePlaylists ?: emptyList()
                             coroutineScope.launch(Dispatchers.IO) {
                                 onlineList.forEach { op ->
@@ -408,10 +435,11 @@ class BackupManager(
                                     )
                                     val trackList = op.tracks ?: emptyList()
                                     trackList.forEach { t ->
+                                        val restoredTrackId = if (t.trackId > 0L) t.trackId else (System.currentTimeMillis() + (0..10000).random())
                                         onlinePlaylistDao.insertOnlineTrack(
                                             com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
                                                 onlinePlaylistId = playlistId,
-                                                trackId = System.currentTimeMillis() + (0..10000).random(),
+                                                trackId = restoredTrackId,
                                                 title = t.title ?: "Unknown Title",
                                                 artist = t.artist ?: "Unknown Artist",
                                                 artworkUrl = t.artworkUrl,
@@ -423,7 +451,7 @@ class BackupManager(
                                     }
                                 }
                             }
-                            onResult(true, "Restored ${onlineList.size} online playlist(s) & app settings successfully!")
+                            onResult(true, "Restored ${onlineList.size} online playlist(s), custom lyrics & app settings successfully!")
                         } else {
                             onResult(false, "No backup data found")
                         }

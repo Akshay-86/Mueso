@@ -9,7 +9,8 @@ data class MuesoBackupData(
     val deviceInfo: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
     val onlinePlaylists: List<BackupOnlinePlaylist> = emptyList(),
     val localPlaylists: List<BackupLocalPlaylist> = emptyList(),
-    val settings: BackupSettings? = null
+    val settings: BackupSettings? = null,
+    val customLyrics: Map<String, String>? = emptyMap()
 )
 
 @JsonClass(generateAdapter = true)
@@ -56,6 +57,7 @@ data class BackupLocalTrackInfo(
 
 @JsonClass(generateAdapter = true)
 data class BackupTrack(
+    val trackId: Long = 0L,
     val title: String,
     val artist: String,
     val artworkUrl: String? = null,

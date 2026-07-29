@@ -227,22 +227,10 @@ class OnlineMusicRepository {
                 if (res4 != null) return@withContext res4
             }
 
-            // 6. Verome API with clean title & artist
-            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
-            val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-            if (cleanArtist.isNotBlank()) {
-                val url1 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle&artist=$encArtist"
-                val res5 = tryFetchFromUrl(url1, cleanTitle)
-                if (res5 != null) return@withContext res5
-            }
-
-            // 7. Verome API with clean title
-            val url2 = "https://verome-api.deno.dev/api/lyrics?title=$encTitle"
-            val res6 = tryFetchFromUrl(url2, cleanTitle)
-            if (res6 != null) return@withContext res6
-
-            Log.w("MUESO_LYRICS", "No matching lyrics found for '$cleanTitle' ('$cleanArtist')")
+            Log.w("MUESO_LYRICS", "No matching lyrics found on LRCLIB for '$cleanTitle' ('$cleanArtist')")
             null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("MUESO_LYRICS", "Error fetching lyrics from API pipeline for $title", e)
             null
@@ -412,8 +400,8 @@ class OnlineMusicRepository {
                             val artistName = item.optString("artistName", "Unknown Artist")
                             val albumName = item.optString("albumName", "")
                             val duration = item.optInt("duration", 0)
-                            val synced = item.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
-                            val plain = item.optString("plainLyrics", "").takeIf { it.isNotBlank() }
+                            val synced = item.optString("syncedLyrics", "").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val plain = item.optString("plainLyrics", "").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 
                             if (synced != null || plain != null) {
                                 candidates.add(

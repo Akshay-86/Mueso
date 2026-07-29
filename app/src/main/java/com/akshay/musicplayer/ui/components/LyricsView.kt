@@ -111,7 +111,7 @@ fun LyricsView(
                     ) { (previous, current, next) ->
                         Column(modifier = Modifier.fillMaxWidth()) {
                             // Previous Line
-                            if (!previous.isNullOrBlank()) {
+                            if (!previous.isNullOrBlank() && !previous.equals("null", ignoreCase = true)) {
                                 Text(
                                     text = previous,
                                     style = MaterialTheme.typography.bodyLarge.copy(
@@ -128,7 +128,7 @@ fun LyricsView(
 
                             // Current Active Line (26sp ExtraBold)
                             Text(
-                                text = current,
+                                text = if (current.equals("null", ignoreCase = true)) "" else current,
                                 style = MaterialTheme.typography.displayMedium.copy(
                                     fontSize = 26.sp,
                                     lineHeight = 34.sp,
@@ -143,7 +143,7 @@ fun LyricsView(
                             )
 
                             // Next Line
-                            if (!next.isNullOrBlank()) {
+                            if (!next.isNullOrBlank() && !next.equals("null", ignoreCase = true)) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = next,
@@ -166,8 +166,13 @@ fun LyricsView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val footerMsg = if (lyrics != null && lyrics.lines.isEmpty() && !lyrics.rawText.isNullOrBlank()) {
+                            "Synced lyrics not available (Plain text)"
+                        } else {
+                            "Tap for controls & search 🔍"
+                        }
                         Text(
-                            text = "Tap for controls & search 🔍",
+                            text = footerMsg,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFFF512F).copy(alpha = 0.9f)
@@ -525,6 +530,48 @@ private fun InlineLyricsGlassCard(
                             .clickable { onSeekTo(line.timestampMs) }
                             .padding(vertical = 2.dp)
                     )
+                }
+            }
+        } else if (lyrics != null && !lyrics.rawText.isNullOrBlank() && !lyrics.rawText.equals("null", ignoreCase = true)) {
+            val plainLines = lyrics.rawText.lines().map { it.trim() }.filter { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = "Synced lyrics not available • Showing plain text",
+                        color = Color(0xFFFF512F),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(plainLines) { lineText ->
+                        Text(
+                            text = lineText,
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         } else {

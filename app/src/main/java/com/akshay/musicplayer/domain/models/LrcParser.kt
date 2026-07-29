@@ -17,7 +17,7 @@ object LrcParser {
                 val matches = timeRegex.findAll(trimmed).toList()
                 if (matches.isNotEmpty()) {
                     val lyricText = timeRegex.replace(trimmed, "").trim()
-                    if (lyricText.isNotBlank()) {
+                    if (lyricText.isNotBlank() && !lyricText.equals("null", ignoreCase = true)) {
                         for (match in matches) {
                             val (minStr, secStr, msStr) = match.destructured
                             val minutes = minStr.toLongOrNull() ?: 0L
@@ -36,7 +36,7 @@ object LrcParser {
 
         // Fallback: parse plain text lines with sequential 4-second estimates
         val plainLines = mutableListOf<LyricLine>()
-        val textLines = lrcText.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val textLines = lrcText.lines().map { it.trim() }.filter { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
         textLines.forEachIndexed { index, line ->
             plainLines.add(LyricLine(index * 4000L, line))
         }

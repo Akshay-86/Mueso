@@ -34,6 +34,7 @@ class BackupWorker(
                     dateCreated = p.dateCreated,
                     tracks = tracks.map { t ->
                         BackupTrack(
+                            trackId = t.trackId,
                             title = t.title,
                             artist = t.artist,
                             artworkUrl = t.artworkUrl,
@@ -62,9 +63,17 @@ class BackupWorker(
                 )
             }
 
+            val customLyricsMap = mutableMapOf<String, String>()
+            for ((key, value) in sharedPrefs.all) {
+                if (key.startsWith("custom_lyrics_") && value is String) {
+                    customLyricsMap[key] = value
+                }
+            }
+
             val backupData = MuesoBackupData(
                 onlinePlaylists = backupOnlineList,
-                localPlaylists = backupLocalList
+                localPlaylists = backupLocalList,
+                customLyrics = customLyricsMap
             )
 
             val uploadResult = driveRepo.uploadBackup(account, backupData)

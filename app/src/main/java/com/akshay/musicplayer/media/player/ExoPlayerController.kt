@@ -80,7 +80,17 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             updatePlaybackState()
             handlePositionUpdates(false)
             scope.launch {
-                _mediaEvents.emit(PlayerEvent.PlaybackError(error.message ?: "Playback error"))
+                val fullMessage = buildString {
+                    append(error.message ?: "Playback error")
+                    append(" [code=").append(error.errorCode).append(": ").append(error.errorCodeName).append("]")
+                    var cause = error.cause
+                    while (cause != null) {
+                        append(" | ")
+                        append(cause.message ?: cause.javaClass.simpleName)
+                        cause = cause.cause
+                    }
+                }
+                _mediaEvents.emit(PlayerEvent.PlaybackError(fullMessage))
             }
         }
     }
@@ -279,6 +289,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     .setMediaMetadata(oldItem.mediaMetadata)
                     .build()
                 controller.replaceMediaItem(index, updatedItem)
+                if (index == controller.currentMediaItemIndex && (controller.playbackState == androidx.media3.common.Player.STATE_IDLE || controller.playbackState == androidx.media3.common.Player.STATE_ENDED)) {
+                    Log.d("MUESO_SYNC", "ExoPlayer updateTrackInQueue: current item updated while IDLE/ENDED. Calling prepare() and play()...")
+                    controller.prepare()
+                    controller.play()
+                }
             }
         }
     }

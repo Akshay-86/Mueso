@@ -280,13 +280,23 @@ class PlayerViewModel(
                 return@combine index
             }
         }
+        // Use the pending requested track as a secondary lookup (e.g. user clicked song #4 but ExoPlayer hasn't confirmed yet)
+        val requestedId = lastRequestedTrackId
+        if (requestedId != null) {
+            val pendingIndex = queue.indexOfFirst { it.id == requestedId }.takeIf { it >= 0 }
+            if (pendingIndex != null) {
+                Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: using pending requested index $pendingIndex for track $requestedId")
+                return@combine pendingIndex
+            }
+        }
         val restoredIndex = getRestoredTrackIndex()
         Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: fallback to restored index $restoredIndex")
         restoredIndex
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), getRestoredTrackIndex())
 
     // Guard against re-entrant play calls during async IPC transitions
-    private var lastRequestedTrackId: Long? = null
+    var lastRequestedTrackId: Long? = null
+        private set
 
     // Search
 
@@ -438,6 +448,26 @@ class PlayerViewModel(
         } else {
             track
         }
+    }
+
+    private suspend fun reResolveTrackStream(track: TrackEntity): TrackEntity {
+        val videoId = if (track.filePath.startsWith("online:")) {
+            track.filePath.removePrefix("online:")
+        } else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
+            track.artworkUrl.substringAfter("/vi/").substringBefore("/")
+        } else {
+            val searchResults = onlineRepository.searchOnlineTracks("${track.title} ${track.artist}")
+            searchResults.firstOrNull()?.filePath?.removePrefix("online:") ?: ""
+        }
+
+        if (videoId.isNotBlank()) {
+            val freshStreamUrl = onlineRepository.getStreamUrl(videoId)
+            if (freshStreamUrl.isNotBlank() && freshStreamUrl.startsWith("http")) {
+                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                return track.copy(filePath = freshStreamUrl, artworkUrl = artwork)
+            }
+        }
+        return track
     }
     
 
@@ -857,7 +887,12 @@ class PlayerViewModel(
 
                         saveQueueToPreferences()
                         fetchLyricsForTrack(curTrack)
-                        prefetchAndKeepQueueAlive(currentTrackIdx)
+                        // Only prefetch on actual track transitions, not every position update
+                        if (oldTrackId != state.currentTrackId) {
+                            lastPrefetchedNextIndex = -1
+                            prefetchAndKeepQueueAlive(currentTrackIdx)
+                        }
+                        checkNearEndPrefetch(currentTrackIdx, state.currentPositionMs, state.durationMs)
                         checkAndApplySponsorBlock(curTrack, state.currentPositionMs, state.isPlaying)
                     }
                 }
@@ -869,6 +904,14 @@ class PlayerViewModel(
                 previousTrackId = state.currentTrackId
             }
         }
+    }
+
+    private fun isStreamUrlExpired(url: String): Boolean {
+        if (!url.startsWith("http")) return false
+        val expireParam = url.substringAfter("expire=", "").substringBefore("&")
+        val expireSec = expireParam.toLongOrNull() ?: return false
+        val currentSec = System.currentTimeMillis() / 1000
+        return currentSec >= (expireSec - 60)
     }
 
     private fun saveQueueToPreferences() {
@@ -886,7 +929,16 @@ class PlayerViewModel(
                 obj.put("id", t.id)
                 obj.put("title", t.title)
                 obj.put("artist", t.artist)
-                obj.put("filePath", t.filePath)
+
+                val isOnline = t.filePath.startsWith("online:") || t.filePath.startsWith("http")
+                val videoId = if (t.filePath.startsWith("online:")) {
+                    t.filePath.removePrefix("online:")
+                } else if (t.artworkUrl != null && t.artworkUrl.contains("/vi/")) {
+                    t.artworkUrl.substringAfter("/vi/").substringBefore("/")
+                } else ""
+                val persistentPath = if (isOnline && videoId.isNotBlank()) "online:$videoId" else t.filePath
+
+                obj.put("filePath", persistentPath)
                 obj.put("artworkUrl", t.artworkUrl ?: "")
                 obj.put("duration", t.duration)
                 jsonArr.put(obj)
@@ -952,51 +1004,91 @@ class PlayerViewModel(
     private val resolvingTrackIds = mutableSetOf<Long>()
     private var isFetchingMoreQueue = false
 
+    private var activeCurrentStreamJob: Job? = null
+    private var activeNextStreamJob: Job? = null
+    private var lastPrefetchTrackId: Long? = null
+
+    private var lastPrefetchedNextIndex: Int = -1
+
+    private fun checkNearEndPrefetch(currentIndex: Int, currentPositionMs: Long, durationMs: Long) {
+        val nextIndex = currentIndex + 1
+        if (nextIndex !in currentTracks.indices) return
+        if (lastPrefetchedNextIndex == nextIndex) return
+
+        // Only pre-fetch next track when current track is near its end (within 30s of finish or > 85% through)
+        val isNearEnd = (durationMs > 10_000L && currentPositionMs >= (durationMs - 30_000L)) ||
+                        (durationMs > 10_000L && currentPositionMs >= (durationMs * 0.85).toLong())
+
+        if (isNearEnd) {
+            val nextTrack = currentTracks[nextIndex]
+            val isUnresolved = nextTrack.filePath.startsWith("online:") || isStreamUrlExpired(nextTrack.filePath)
+            if (isUnresolved) {
+                lastPrefetchedNextIndex = nextIndex
+                activeNextStreamJob?.cancel()
+                activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                    Log.d("MUESO_QUEUE", "Near-end pre-fetching next track at index $nextIndex: ${nextTrack.title}")
+                    val resolvedNext = resolveTrack(nextTrack)
+                    withContext(Dispatchers.Main) {
+                        val nList = currentTracks.toMutableList()
+                        if (nextIndex in nList.indices && nList[nextIndex].id == nextTrack.id) {
+                            nList[nextIndex] = resolvedNext
+                            currentTracks = nList
+                            mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun prefetchAndKeepQueueAlive(currentIndex: Int) {
         if (currentIndex !in currentTracks.indices) return
         val currentTrack = currentTracks[currentIndex]
+        lastPrefetchTrackId = currentTrack.id
 
         // 1. Ensure current playing track is resolved
-        if (currentTrack.filePath.startsWith("online:") && !resolvingTrackIds.contains(currentTrack.id)) {
-            resolvingTrackIds.add(currentTrack.id)
-            viewModelScope.launch(Dispatchers.IO) {
-                Log.d("MUESO_QUEUE", "Resolving playing track at index $currentIndex: ${currentTrack.title}")
+        if (currentTrack.filePath.startsWith("online:") || isStreamUrlExpired(currentTrack.filePath)) {
+            _resolvingTrackTitle.value = currentTrack.title
+            _isResolvingTrack.value = true
+
+            activeCurrentStreamJob?.cancel()
+            activeNextStreamJob?.cancel()
+            activeCurrentStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                // Debounce: wait for user to settle before starting expensive yt-dlp extraction
+                delay(400)
+
+                // Staleness check: user may have swiped again during the delay
+                if (lastPrefetchTrackId != currentTrack.id) {
+                    Log.d("MUESO_QUEUE", "Skipping stale resolve for '${currentTrack.title}' (user moved on)")
+                    return@launch
+                }
+
+                Log.d("MUESO_QUEUE", "Resolving active playing track at index $currentIndex: ${currentTrack.title}")
                 val resolved = resolveTrack(currentTrack)
+
+                // Staleness check after resolve: user may have swiped during the ~8s extraction
+                if (lastPrefetchTrackId != currentTrack.id) {
+                    Log.d("MUESO_QUEUE", "Discarding stale resolved URL for '${currentTrack.title}' (user moved on)")
+                    return@launch
+                }
+
                 withContext(Dispatchers.Main) {
+                    _isResolvingTrack.value = false
+                    _resolvingTrackTitle.value = null
                     val list = currentTracks.toMutableList()
-                    if (currentIndex in list.indices) {
+                    if (currentIndex in list.indices && list[currentIndex].id == currentTrack.id) {
                         list[currentIndex] = resolved
                         currentTracks = list
                         mediaPlayerController.updateTrackInQueue(currentIndex, resolved)
                     }
-                    resolvingTrackIds.remove(currentTrack.id)
                 }
             }
+        } else {
+            _isResolvingTrack.value = false
+            _resolvingTrackTitle.value = null
         }
 
-        // 2. Pre-fetch next track in background so next song is ready
-        val nextIndex = currentIndex + 1
-        if (nextIndex in currentTracks.indices) {
-            val nextTrack = currentTracks[nextIndex]
-            if (nextTrack.filePath.startsWith("online:") && !resolvingTrackIds.contains(nextTrack.id)) {
-                resolvingTrackIds.add(nextTrack.id)
-                viewModelScope.launch(Dispatchers.IO) {
-                    Log.d("MUESO_QUEUE", "Pre-fetching next track at index $nextIndex: ${nextTrack.title}")
-                    val resolvedNext = resolveTrack(nextTrack)
-                    withContext(Dispatchers.Main) {
-                        val list = currentTracks.toMutableList()
-                        if (nextIndex in list.indices) {
-                            list[nextIndex] = resolvedNext
-                            currentTracks = list
-                            mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
-                        }
-                        resolvingTrackIds.remove(nextTrack.id)
-                    }
-                }
-            }
-        }
-
-        // 3. Keep queue alive: Auto-fetch related suggestions when nearing the end of online queue
+        // 2. Keep queue alive: Auto-fetch related suggestions when nearing the end of online queue
         if (currentIndex >= currentTracks.size - 2 && !isFetchingMoreQueue && (currentTrack.filePath.contains("http") || currentTrack.filePath.contains("online:"))) {
             isFetchingMoreQueue = true
             viewModelScope.launch(Dispatchers.IO) {
@@ -1042,11 +1134,16 @@ class PlayerViewModel(
         _lyricsOffsetMs.value = 0L
     }
 
-    private val fetchedLyricsTrackIds = mutableSetOf<Long>()
+    private var activeLyricsFetchJob: Job? = null
 
     private fun fetchLyricsForTrack(track: TrackEntity) {
-        if (track.lyrics != null || fetchedLyricsTrackIds.contains(track.id)) return
-        fetchedLyricsTrackIds.add(track.id)
+        if (track.lyrics != null) {
+            _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+            return
+        }
+
+        val currentStatus = _lyricsFetchStatus.value[track.id]
+        if (currentStatus == LyricsFetchStatus.FETCHING) return
 
         // 1. Check local saved custom lyrics first
         val savedLyrics = getSavedCustomLyrics(track.id)
@@ -1060,8 +1157,14 @@ class PlayerViewModel(
 
         _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FETCHING)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        activeLyricsFetchJob?.cancel()
+        activeLyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(400) // Debounce rapid swiping
+            if (_playbackState.value.currentTrackId != track.id) return@launch
+
             val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value)
+            if (_playbackState.value.currentTrackId != track.id) return@launch
+
             withContext(Dispatchers.Main) {
                 if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
                     val updatedTracks = currentTracks.map {
@@ -1098,12 +1201,22 @@ class PlayerViewModel(
     }
 
     fun applyLrclibCandidate(trackId: Long, candidate: com.akshay.musicplayer.domain.models.LrclibSearchResultItem) {
-        val rawContent = candidate.syncedLyrics ?: candidate.plainLyrics ?: return
-        val parsedLines = com.akshay.musicplayer.domain.models.LrcParser.parse(rawContent)
-        val lyricsData = com.akshay.musicplayer.domain.models.LyricsData(
-            lines = parsedLines,
-            rawText = candidate.plainLyrics
-        )
+        val rawSynced = candidate.syncedLyrics?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        val rawPlain = candidate.plainLyrics?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+        val lyricsData = if (rawSynced != null) {
+            val parsedLines = com.akshay.musicplayer.domain.models.LrcParser.parse(rawSynced)
+            com.akshay.musicplayer.domain.models.LyricsData(
+                lines = parsedLines,
+                rawText = rawPlain ?: rawSynced
+            )
+        } else if (rawPlain != null) {
+            com.akshay.musicplayer.domain.models.LyricsData(
+                lines = emptyList(),
+                rawText = rawPlain
+            )
+        } else return
+
         currentTracks = currentTracks.map {
             if (it.id == trackId) it.copy(lyrics = lyricsData) else it
         }
@@ -1199,9 +1312,36 @@ class PlayerViewModel(
                         playNextTrack()
                     }
                     is PlayerEvent.PlaybackError -> {
-                        val isRecentUserAction = (System.currentTimeMillis() - lastUserSkipTime) < 2500
-                        val isCancelError = event.message.contains("cancel", ignoreCase = true) || event.message.contains("interrupted", ignoreCase = true)
-                        if (isRecentUserAction || isCancelError) {
+                        val is403Error = event.message.contains("403", ignoreCase = true) ||
+                                         event.message.contains("InvalidResponseCode", ignoreCase = true) ||
+                                         event.message.contains("ERROR_CODE_IO_BAD_HTTP_STATUS", ignoreCase = true) ||
+                                         event.message.contains("2004", ignoreCase = true)
+                        val isRecentUserAction = (System.currentTimeMillis() - lastUserSkipTime) < 8000
+                        val isTransientError = event.message.contains("cancel", ignoreCase = true) ||
+                                               event.message.contains("interrupted", ignoreCase = true) ||
+                                               event.message.contains("Malformed", ignoreCase = true)
+
+                        if (is403Error) {
+                            Log.w("MUESO_STREAM", "HTTP 403 detected in error chain. Refreshing stream URL...")
+                            val currentIdx = currentTracks.indexOfFirst { it.id == _playbackState.value.currentTrackId }
+                            if (currentIdx in currentTracks.indices) {
+                                val track = currentTracks[currentIdx]
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    val refreshedTrack = reResolveTrackStream(track)
+                                    if (refreshedTrack.filePath.startsWith("http") && refreshedTrack.filePath != track.filePath) {
+                                        withContext(Dispatchers.Main) {
+                                            val list = currentTracks.toMutableList()
+                                            list[currentIdx] = refreshedTrack
+                                            currentTracks = list
+                                            mediaPlayerController.updateTrackInQueue(currentIdx, refreshedTrack)
+                                            if (!_playbackState.value.isPlaying) {
+                                                mediaPlayerController.togglePlayPause()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (isRecentUserAction || isTransientError) {
                             Log.d("MUESO_STREAM", "Ignoring transient error during rapid track switch: ${event.message}")
                         } else {
                             Log.w("MUESO_STREAM", "Playback error encountered: ${event.message}. Auto-advancing to next track.")
@@ -1245,8 +1385,10 @@ class PlayerViewModel(
         lastUserSkipTime = System.currentTimeMillis()
         cancelRestoration()
         val target = if (startIndex in tracks.indices) tracks[startIndex] else null
-        val isOnline = target != null && target.filePath.startsWith("online:")
+        lastRequestedTrackId = target?.id
+        val isOnline = target != null && (target.filePath.startsWith("online:") || isStreamUrlExpired(target.filePath))
         if (isOnline) {
+            mediaPlayerController.pause()
             _resolvingTrackTitle.value = target?.title
             _isResolvingTrack.value = true
         }
@@ -1272,8 +1414,9 @@ class PlayerViewModel(
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
         lastRequestedTrackId = track.id
-        val isOnline = track.filePath.startsWith("online:")
+        val isOnline = track.filePath.startsWith("online:") || isStreamUrlExpired(track.filePath)
         if (isOnline) {
+            mediaPlayerController.pause()
             _resolvingTrackTitle.value = track.title
             _isResolvingTrack.value = true
         }
@@ -1306,6 +1449,7 @@ class PlayerViewModel(
 
 
     fun playTrackIfChanged(track: TrackEntity) {
+        lastUserSkipTime = System.currentTimeMillis()
         Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, lastRequested=$lastRequestedTrackId")
         // Skip if this is already what we asked ExoPlayer to play (async guard)
         // or if ExoPlayer already confirmed it's playing this track
@@ -1322,6 +1466,7 @@ class PlayerViewModel(
     }
 
     fun playTrackAtIndex(index: Int) {
+        lastUserSkipTime = System.currentTimeMillis()
         if (index >= 0 && index < currentTracks.size) {
             val track = currentTracks[index]
             lastRequestedTrackId = track.id
@@ -1330,7 +1475,38 @@ class PlayerViewModel(
                 _isPlaylistContext.value = false
                 _playlistTrackCount.value = 0
             }
-            mediaPlayerController.seekToIndex(index)
+
+            val isUnresolvedOrExpired = track.filePath.startsWith("online:") || isStreamUrlExpired(track.filePath)
+            if (isUnresolvedOrExpired) {
+                // Immediately cut off playback of previous track while resolving new track
+                mediaPlayerController.pause()
+                Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: track at index $index is unresolved/expired, resolving first...")
+                _resolvingTrackTitle.value = track.title
+                _isResolvingTrack.value = true
+                activeCurrentStreamJob?.cancel()
+                activeNextStreamJob?.cancel()
+                lastPrefetchTrackId = track.id
+                activeCurrentStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                    val resolved = resolveTrack(track)
+                    if (lastPrefetchTrackId != track.id) {
+                        Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: stale resolve for '${track.title}', discarding")
+                        return@launch
+                    }
+                    withContext(Dispatchers.Main) {
+                        _isResolvingTrack.value = false
+                        _resolvingTrackTitle.value = null
+                        val list = currentTracks.toMutableList()
+                        if (index in list.indices && list[index].id == track.id) {
+                            list[index] = resolved
+                            currentTracks = list
+                            mediaPlayerController.updateTrackInQueue(index, resolved)
+                            mediaPlayerController.seekToIndex(index)
+                        }
+                    }
+                }
+            } else {
+                mediaPlayerController.seekToIndex(index)
+            }
         }
     }
 
