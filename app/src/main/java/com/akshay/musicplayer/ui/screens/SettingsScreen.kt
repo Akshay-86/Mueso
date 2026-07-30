@@ -121,6 +121,15 @@ fun SettingsScreen(
 
     val listState = rememberLazyListState()
 
+    val appVersionName = remember(context) {
+        try {
+            val name = com.akshay.musicplayer.BuildConfig.VERSION_NAME
+            if (name.startsWith("v", ignoreCase = true)) name else "v$name"
+        } catch (_: Exception) {
+            "v1.1.0"
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             viewModel.resetUpdateState()
@@ -669,7 +678,7 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Check for Updates", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                text = updateStatusMessage ?: "Current version: v1.0.0",
+                                text = updateStatusMessage ?: "Current version: $appVersionName",
                                 color = textSub,
                                 fontSize = 12.sp
                             )
@@ -798,15 +807,6 @@ fun SettingsScreen(
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Force Refresh Playlists & Rescan Songs", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    val appVersionName = remember(context) {
-                        try {
-                            val name = com.akshay.musicplayer.BuildConfig.VERSION_NAME
-                            if (name.startsWith("v", ignoreCase = true)) name else "v$name"
-                        } catch (_: Exception) {
-                            "v1.1.0"
                         }
                     }
 

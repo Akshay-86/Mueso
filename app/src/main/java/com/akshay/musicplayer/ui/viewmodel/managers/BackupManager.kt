@@ -415,47 +415,64 @@ class BackupManager(
                 val driveRepo = GoogleDriveBackupRepository(context)
                 val result = driveRepo.downloadBackup(email)
 
-                withContext(Dispatchers.Main) {
-                    _isRestoreInProgress.value = false
-                    if (result.isSuccess) {
-                        val backupData = result.getOrNull()
-                        if (backupData != null) {
+                if (result.isSuccess) {
+                    val backupData = result.getOrNull()
+                    if (backupData != null) {
+                        val localOnlineEntities = onlinePlaylistDao.getAllOnlinePlaylists().first() ?: emptyList()
+                        val existingNames = localOnlineEntities.map { it.name }.toSet()
+                        var restoredCount = 0
+
+                        val onlineList = backupData.onlinePlaylists ?: emptyList()
+                        onlineList.forEach { op ->
+                            val opName = op.name ?: "Restored Playlist"
+                            if (existingNames.contains(opName)) return@forEach
+
+                            val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
+                                com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
+                                    name = opName,
+                                    description = op.description,
+                                    artworkUrl = op.artworkUrl,
+                                    dateCreated = op.dateCreated
+                                )
+                            )
+                            val trackList = op.tracks ?: emptyList()
+                            trackList.forEach { t ->
+                                val restoredTrackId = if (t.trackId > 0L) t.trackId else (System.currentTimeMillis() + (0..10000).random())
+                                onlinePlaylistDao.insertOnlineTrack(
+                                    com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
+                                        onlinePlaylistId = playlistId,
+                                        trackId = restoredTrackId,
+                                        title = t.title ?: "Unknown Title",
+                                        artist = t.artist ?: "Unknown Artist",
+                                        artworkUrl = t.artworkUrl,
+                                        filePath = t.filePath ?: "",
+                                        duration = t.duration,
+                                        orderIndex = t.orderIndex
+                                    )
+                                )
+                            }
+                            restoredCount++
+                        }
+
+                        withContext(Dispatchers.Main) {
                             restoreBackupSettings(backupData.settings)
                             restoreCustomLyrics(backupData.customLyrics)
-                            val onlineList = backupData.onlinePlaylists ?: emptyList()
-                            coroutineScope.launch(Dispatchers.IO) {
-                                onlineList.forEach { op ->
-                                    val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
-                                        com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
-                                            name = op.name ?: "Restored Playlist",
-                                            description = op.description,
-                                            artworkUrl = op.artworkUrl,
-                                            dateCreated = op.dateCreated
-                                        )
-                                    )
-                                    val trackList = op.tracks ?: emptyList()
-                                    trackList.forEach { t ->
-                                        val restoredTrackId = if (t.trackId > 0L) t.trackId else (System.currentTimeMillis() + (0..10000).random())
-                                        onlinePlaylistDao.insertOnlineTrack(
-                                            com.akshay.musicplayer.data.db.OnlinePlaylistTrackEntity(
-                                                onlinePlaylistId = playlistId,
-                                                trackId = restoredTrackId,
-                                                title = t.title ?: "Unknown Title",
-                                                artist = t.artist ?: "Unknown Artist",
-                                                artworkUrl = t.artworkUrl,
-                                                filePath = t.filePath ?: "",
-                                                duration = t.duration,
-                                                orderIndex = t.orderIndex
-                                            )
-                                        )
-                                    }
-                                }
+                            _isRestoreInProgress.value = false
+                            if (restoredCount > 0) {
+                                onResult(true, "Restored $restoredCount new online playlist(s) & app settings successfully!")
+                            } else {
+                                onResult(true, "Playlists, lyrics & settings are already up to date!")
                             }
-                            onResult(true, "Restored ${onlineList.size} online playlist(s), custom lyrics & app settings successfully!")
-                        } else {
-                            onResult(false, "No backup data found")
                         }
                     } else {
+                        withContext(Dispatchers.Main) {
+                            _isRestoreInProgress.value = false
+                            onResult(false, "No backup data found")
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        _isRestoreInProgress.value = false
                         onResult(false, result.exceptionOrNull()?.message ?: "Restore failed")
                     }
                 }

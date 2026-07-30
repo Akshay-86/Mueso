@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -140,22 +142,45 @@ fun PlaylistDetailScreen(
             }
         }
 
-        // Play All
+        // Play All & Add to Queue
         if (tracks.isNotEmpty()) {
-            Button(
-                onClick = {
-                    viewModel.playQueue(tracks)
-                    onNavigateToPlayer()
-                },
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                shape = RoundedCornerShape(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Play All", color = Color.White, fontWeight = FontWeight.SemiBold)
+                Button(
+                    onClick = {
+                        viewModel.playQueue(tracks)
+                        onNavigateToPlayer()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                Button(
+                    onClick = {
+                        viewModel.addTracksToQueue(tracks)
+                        android.widget.Toast.makeText(context, "Added ${tracks.size} track(s) to Queue", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                        contentColor = textPrimary
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Icon(Icons.Default.QueueMusic, null, tint = textPrimary, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add to Queue", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
             }
         }
 

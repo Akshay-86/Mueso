@@ -226,6 +226,7 @@ fun VerticalPagerScreen(
                     viewModel.dismissQueueSheet()
                 },
                 onMove = { from, to -> viewModel.moveInQueue(from, to) },
+                onClearQueue = { viewModel.clearUpcomingQueue() },
                 onDismiss = { viewModel.dismissQueueSheet() }
             )
         }
@@ -392,17 +393,22 @@ fun PlayerPageContent(
                 val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
                 val offlinePlaylists by viewModel.playlists.collectAsState()
 
+                val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
+                val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
+
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
+                    isShuffleEnabled = isShuffleEnabled,
                     isSleepTimerActive = activeSleepMode != null,
                     sleepTimerLabel = sleepTimerLabel,
                     sleepTimerStatus = sleepTimerStatus,
-                    queueSize = viewModel.getUpcomingTrackCount(),
+                    queueSize = upcomingQueueSize,
                     isOnlineSong = isOnlineSong,
                     isDownloading = trackDlState?.isDownloading == true,
                     downloadProgress = trackDlState?.progress ?: 0f,
                     isDownloaded = trackDlState?.isDownloaded == true,
                     onSleepTimerClick = { viewModel.showSleepTimerSheet() },
+                    onShuffleClick = { viewModel.toggleShuffleMode() },
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },
                     onDownloadClick = { viewModel.downloadOnlineTrack(context, track) },

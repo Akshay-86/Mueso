@@ -191,15 +191,12 @@ fun AddToOnlinePlaylistBottomSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Brush.linearGradient(listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)))),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.PlaylistPlay, contentDescription = null, tint = Color.White)
-                            }
+                            PlaylistCollageArt(
+                                tracks = userTracks,
+                                modifier = Modifier.size(44.dp),
+                                cornerRadius = 10.dp,
+                                fallbackGradient = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

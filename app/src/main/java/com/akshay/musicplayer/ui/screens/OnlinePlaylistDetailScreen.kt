@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,7 +57,8 @@ fun OnlinePlaylistDetailScreen(
     viewModel: PlayerViewModel? = null,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
-    onShuffleAllClick: () -> Unit,
+    onShuffleAllClick: () -> Unit = {},
+    onAddToQueueClick: (() -> Unit)? = null,
     onTrackClick: (Int) -> Unit,
     onRemoveTrack: ((TrackEntity) -> Unit)? = null,
     onMoveTrack: ((fromIndex: Int, toIndex: Int) -> Unit)? = null,
@@ -199,61 +201,63 @@ fun OnlinePlaylistDetailScreen(
                 }
             }
 
-            // Action Controls Bar (Play All, Shuffle All, Download Playlist)
+            // Action Controls Bar (Play All, Add to Queue, Download Playlist)
             item {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
-                    // Play All Button
-                    Button(
-                        onClick = onPlayAllClick,
-                        enabled = tracks.isNotEmpty() && !isLoading,
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                        shape = RoundedCornerShape(24.dp),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-                        modifier = Modifier.weight(1f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
+                        // Play All Button
+                        Button(
+                            onClick = onPlayAllClick,
+                            enabled = tracks.isNotEmpty() && !isLoading,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                            shape = RoundedCornerShape(24.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1.1f)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
 
-                    // Shuffle Button
-                    Button(
-                        onClick = onShuffleAllClick,
-                        enabled = tracks.isNotEmpty() && !isLoading,
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
-                            contentColor = textPrimary
-                        ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = textPrimary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Shuffle", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    }
+                        // Add to Queue Button
+                        Button(
+                            onClick = { onAddToQueueClick?.invoke() },
+                            enabled = tracks.isNotEmpty() && !isLoading,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                contentColor = textPrimary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1.2f)
+                        ) {
+                            Icon(Icons.Default.QueueMusic, contentDescription = "Add to Queue", tint = textPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add to Queue", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
 
-                    // Download Playlist Button
-                    Button(
-                        onClick = { showDownloadDialog = true },
-                        enabled = tracks.isNotEmpty() && !isLoading,
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
-                            contentColor = textPrimary
-                        ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = "Download Playlist", tint = textPrimary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Download", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        // Download Playlist Button
+                        Button(
+                            onClick = { showDownloadDialog = true },
+                            enabled = tracks.isNotEmpty() && !isLoading,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                contentColor = textPrimary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1.1f)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = "Download", tint = textPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                     }
                 }
             }

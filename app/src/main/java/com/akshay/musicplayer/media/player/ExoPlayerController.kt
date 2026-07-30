@@ -334,6 +334,64 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    override fun insertTracksToQueue(index: Int, tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                val safeIndex = index.coerceIn(0, controller.mediaItemCount)
+                Log.d("MUESO_SYNC", "ExoPlayer insertTracksToQueue: inserting ${tracks.size} tracks at index $safeIndex (total was ${controller.mediaItemCount})")
+                val newMediaItems = tracks.map { track ->
+                    val metadata = MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                        .setIsPlayable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
+
+                    MediaItem.Builder()
+                        .setMediaId(track.id.toString())
+                        .setUri(track.filePath)
+                        .setMediaMetadata(metadata)
+                        .build()
+                }
+                controller.addMediaItems(safeIndex, newMediaItems)
+            }
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            val prev = pendingRestore
+            pendingRestore = {
+                prev?.invoke()
+                action()
+            }
+        }
+    }
+
+    override fun clearUpcomingQueue(fromIndex: Int) {
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                val count = controller.mediaItemCount
+                if (fromIndex + 1 < count) {
+                    Log.d("MUESO_SYNC", "ExoPlayer clearUpcomingQueue: removing items from ${fromIndex + 1} to $count")
+                    controller.removeMediaItems(fromIndex + 1, count)
+                }
+            }
+        }
+        if (mediaController != null) {
+            action()
+        } else {
+            val prev = pendingRestore
+            pendingRestore = {
+                prev?.invoke()
+                action()
+            }
+        }
+    }
+
     override fun release() {
         positionUpdateJob?.cancel()
         try {

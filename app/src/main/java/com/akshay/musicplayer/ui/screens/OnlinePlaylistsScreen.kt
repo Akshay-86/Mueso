@@ -1,5 +1,6 @@
 package com.akshay.musicplayer.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -440,12 +441,10 @@ fun OnlinePlaylistsScreen(
                             onNavigateToPlayer()
                         }
                     },
-                    onShuffleAllClick = {
+                    onAddToQueueClick = {
                         if (curatedTracks.isNotEmpty()) {
-                            val shuffled = curatedTracks.shuffled()
-                            viewModel.playOnlinePlaylist(shuffled, 0)
-                            selectedCuratedPlaylist = null
-                            onNavigateToPlayer()
+                            viewModel.addTracksToQueue(curatedTracks)
+                            Toast.makeText(context, "Added ${curatedTracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onTrackClick = { index ->
@@ -490,12 +489,10 @@ fun OnlinePlaylistsScreen(
                             onNavigateToPlayer()
                         }
                     },
-                    onShuffleAllClick = {
+                    onAddToQueueClick = {
                         if (userTracks.isNotEmpty()) {
-                            val shuffled = userTracks.shuffled()
-                            viewModel.playOnlinePlaylist(shuffled, 0)
-                            selectedCustomPlaylist = null
-                            onNavigateToPlayer()
+                            viewModel.addTracksToQueue(userTracks)
+                            Toast.makeText(context, "Added ${userTracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onTrackClick = { index ->

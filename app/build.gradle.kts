@@ -24,10 +24,31 @@ android {
 
     chaquopy {
         defaultConfig {
-            buildPython("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
+            val localPython = file("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
+            if (localPython.exists()) {
+                buildPython(localPython.absolutePath)
+            } else {
+                buildPython("python3")
+            }
             pip {
                 install("yt-dlp")
                 install("mutagen")
+            }
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("KEYSTORE_PATH") ?: "release-key.jks"
+            val ksFile = file(ksPath)
+            val altFile = file("app/$ksPath")
+            val targetFile = if (ksFile.exists()) ksFile else altFile
+
+            if (targetFile.exists()) {
+                storeFile = targetFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
             }
         }
     }
@@ -36,6 +57,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

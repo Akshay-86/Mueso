@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 fun OfflineActionsOverlay(
     modifier: Modifier = Modifier,
     repeatMode: Int = 0,
+    isShuffleEnabled: Boolean = false,
     isSleepTimerActive: Boolean = false,
     sleepTimerLabel: String? = null,
     sleepTimerStatus: String? = null,
@@ -46,6 +48,7 @@ fun OfflineActionsOverlay(
     downloadProgress: Float = 0f,
     isDownloaded: Boolean = false,
     onSleepTimerClick: () -> Unit = {},
+    onShuffleClick: () -> Unit = {},
     onRepeatClick: () -> Unit = {},
     onQueueClick: () -> Unit = {},
     onDownloadClick: () -> Unit = {},
@@ -179,6 +182,32 @@ fun OfflineActionsOverlay(
                         imageVector = Icons.Default.AvTimer,
                         contentDescription = "Sleep Timer",
                         tint = sleepTint,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+
+            // Shuffle Mode Toggle
+            val shuffleTint by animateColorAsState(
+                if (isShuffleEnabled) accentColor else Color.White,
+                animationSpec = tween(300),
+                label = "shuffleTint"
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (isShuffleEnabled) {
+                    Text(
+                        text = "ON",
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 10.sp
+                    )
+                }
+                IconButton(onClick = onShuffleClick) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = shuffleTint,
                         modifier = Modifier.size(26.dp)
                     )
                 }

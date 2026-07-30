@@ -241,6 +241,10 @@ class PlayerViewModel(
     private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
     val repeatMode: StateFlow<Int> = _repeatMode.asStateFlow()
 
+    // Shuffle mode state
+    private val _isShuffleModeEnabled = MutableStateFlow(false)
+    val isShuffleModeEnabled: StateFlow<Boolean> = _isShuffleModeEnabled.asStateFlow()
+
     // Sleep timer state
     private val _activeSleepMode = MutableStateFlow<SleepTimerMode?>(null)
     val activeSleepMode: StateFlow<SleepTimerMode?> = _activeSleepMode.asStateFlow()
@@ -293,6 +297,16 @@ class PlayerViewModel(
         Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: fallback to restored index $restoredIndex")
         restoredIndex
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), getRestoredTrackIndex())
+
+    val upcomingTrackCountState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
+        val currentId = state.currentTrackId
+        if (currentId != null) {
+            val currentIndex = queue.indexOfFirst { it.id == currentId }
+            if (currentIndex >= 0) (queue.size - currentIndex - 1).coerceAtLeast(0) else 0
+        } else {
+            0
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     // Guard against re-entrant play calls during async IPC transitions
     var lastRequestedTrackId: Long? = null
@@ -889,6 +903,7 @@ class PlayerViewModel(
                         fetchLyricsForTrack(curTrack)
                         // Only prefetch on actual track transitions, not every position update
                         if (oldTrackId != state.currentTrackId) {
+                            _lyricsOffsetMs.value = 0L
                             lastPrefetchedNextIndex = -1
                             prefetchAndKeepQueueAlive(currentTrackIdx)
                         }
@@ -1381,7 +1396,11 @@ class PlayerViewModel(
     private val _resolvingTrackTitle = MutableStateFlow<String?>(null)
     val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
 
+    private var originalUnshuffledTracks: List<TrackEntity>? = null
+
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
+        originalUnshuffledTracks = null
+        _lyricsOffsetMs.value = 0L
         lastUserSkipTime = System.currentTimeMillis()
         cancelRestoration()
         val target = if (startIndex in tracks.indices) tracks[startIndex] else null
@@ -1410,6 +1429,8 @@ class PlayerViewModel(
     }
 
     fun playTrack(track: TrackEntity) {
+        originalUnshuffledTracks = null
+        _lyricsOffsetMs.value = 0L
         cancelRestoration()
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
@@ -1641,45 +1662,111 @@ class PlayerViewModel(
         _showQueueSheet.value = false
     }
 
-    // --- Settings & SponsorBlock Toggles ---
-
-
-
-    // --- Hero Playlist & Online Playlist Management ---
-
-
-
-    // --- Audio, Thumbnail, Download & App Settings ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     fun playNext(track: TrackEntity) {
-        val currentIndex = currentTracks.indexOfFirst { it.id == _playbackState.value.currentTrackId }
-        val insertIndex = if (currentIndex >= 0) currentIndex + 1 else currentTracks.size
+        val currentIdx = currentTrackIndexState.value.coerceAtLeast(0)
+        val insertIndex = (currentIdx + 1).coerceAtMost(currentTracks.size)
         val updated = currentTracks.toMutableList()
         updated.add(insertIndex, track)
         currentTracks = updated
-        mediaPlayerController.setPlaylistAndPlay(currentTracks, if (currentIndex >= 0) currentIndex else 0)
+
+        if (_isPlaylistContext.value) {
+            _playlistTrackCount.value += 1
+        } else {
+            _playlistTrackCount.value = 1 + 1
+            _isPlaylistContext.value = true
+        }
+
+        mediaPlayerController.insertTracksToQueue(insertIndex, listOf(track))
     }
 
     fun addToQueue(track: TrackEntity) {
+        addTracksToQueue(listOf(track))
+    }
+
+    fun addTracksToQueue(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+
+        val currentIdx = currentTrackIndexState.value.coerceAtLeast(0)
+        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
+
+        val insertIndex = if (isPlaylist && currentIdx < _playlistTrackCount.value) {
+            // Playing a playlist -> insert right after the playlist tracks (before radio recommendations)
+            _playlistTrackCount.value.coerceAtMost(currentTracks.size)
+        } else {
+            // Playing a single track (or past the playlist) -> insert right after currently playing track
+            (currentIdx + 1).coerceAtMost(currentTracks.size)
+        }
+
         val updated = currentTracks.toMutableList()
-        updated.add(track)
+        updated.addAll(insertIndex, tracks)
         currentTracks = updated
-        mediaPlayerController.appendTracksToQueue(listOf(track))
+
+        if (_isPlaylistContext.value) {
+            _playlistTrackCount.value += tracks.size
+        } else {
+            _playlistTrackCount.value = 1 + tracks.size
+            _isPlaylistContext.value = true
+        }
+
+        mediaPlayerController.insertTracksToQueue(insertIndex, tracks)
+    }
+
+    fun toggleShuffleMode() {
+        val newMode = !_isShuffleModeEnabled.value
+        setShuffleMode(newMode)
+    }
+
+    fun clearUpcomingQueue() {
+        val currentIdx = currentTrackIndexState.value.coerceAtLeast(0)
+        if (currentIdx < currentTracks.size - 1) {
+            currentTracks = currentTracks.subList(0, currentIdx + 1)
+            _playlistTrackCount.value = currentIdx + 1
+            mediaPlayerController.clearUpcomingQueue(currentIdx)
+        }
+    }
+
+    fun setShuffleMode(enabled: Boolean) {
+        _isShuffleModeEnabled.value = enabled
+        mediaPlayerController.setShuffleEnabled(enabled)
+
+        if (currentTracks.isEmpty()) return
+        val currentIdx = currentTrackIndexState.value.coerceAtLeast(0)
+        if (currentIdx >= currentTracks.size) return
+
+        val pastTracks = currentTracks.subList(0, currentIdx + 1)
+        val upcomingTracks = currentTracks.subList(currentIdx + 1, currentTracks.size)
+
+        if (enabled) {
+            if (upcomingTracks.size > 1) {
+                if (originalUnshuffledTracks == null) {
+                    originalUnshuffledTracks = currentTracks.toList()
+                }
+                val shuffledUpcoming = upcomingTracks.shuffled()
+                val newTracks = pastTracks + shuffledUpcoming
+                currentTracks = newTracks
+                mediaPlayerController.clearUpcomingQueue(currentIdx)
+                mediaPlayerController.insertTracksToQueue(currentIdx + 1, shuffledUpcoming)
+            }
+        } else {
+            originalUnshuffledTracks?.let { orig ->
+                val curTrackId = currentTracks.getOrNull(currentIdx)?.id
+                if (curTrackId != null) {
+                    val origCurrentIdx = orig.indexOfFirst { it.id == curTrackId }
+                    val restoredUpcoming = if (origCurrentIdx >= 0 && origCurrentIdx < orig.size - 1) {
+                        orig.subList(origCurrentIdx + 1, orig.size)
+                    } else {
+                        emptyList()
+                    }
+                    if (restoredUpcoming.isNotEmpty()) {
+                        val newTracks = pastTracks + restoredUpcoming
+                        currentTracks = newTracks
+                        mediaPlayerController.clearUpcomingQueue(currentIdx)
+                        mediaPlayerController.insertTracksToQueue(currentIdx + 1, restoredUpcoming)
+                    }
+                }
+                originalUnshuffledTracks = null
+            }
+        }
     }
 
     fun forceRefreshAll(context: android.content.Context) {

@@ -28,4 +28,6 @@ interface MediaPlayerController {
     fun seekToIndex(index: Int)
     fun updateTrackInQueue(index: Int, track: TrackEntity)
     fun appendTracksToQueue(tracks: List<TrackEntity>)
+    fun insertTracksToQueue(index: Int, tracks: List<TrackEntity>)
+    fun clearUpcomingQueue(fromIndex: Int)
 }

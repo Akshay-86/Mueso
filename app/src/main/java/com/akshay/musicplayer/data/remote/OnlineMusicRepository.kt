@@ -685,8 +685,8 @@ class OnlineMusicRepository {
 
             val seenKeys = mutableSetOf<String>()
             val noiseRegex = Regex("(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])", RegexOption.IGNORE_CASE)
-            val compilationRegex = Regex("(?i)(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)", RegexOption.IGNORE_CASE)
-            val shortEditRegex = Regex("(?i)(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)", RegexOption.IGNORE_CASE)
+            val compilationRegex = Regex("(?i)\\b(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)\\b", RegexOption.IGNORE_CASE)
+            val shortEditRegex = Regex("(?i)\\b(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)\\b", RegexOption.IGNORE_CASE)
 
             val tracks = pyList.mapNotNull { pyObj ->
                 val videoId = pyObj.callAttr("get", "videoId")?.toString() ?: return@mapNotNull null
@@ -817,8 +817,8 @@ class OnlineMusicRepository {
                                 val cleanCurrentTitle = noiseRegex.replace(track.title, "").lowercase().replace(Regex("[^a-z0-9]"), "")
                                 seenKeys.add(cleanCurrentTitle)
 
-                                val compilationRegex = Regex("(?i)(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)", RegexOption.IGNORE_CASE)
-                                val shortEditRegex = Regex("(?i)(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)", RegexOption.IGNORE_CASE)
+                                val compilationRegex = Regex("(?i)\\b(compilation|jukebox|full album|all songs|non stop|non-stop|1 hour|2 hours|3 hours|10 hours|audio jukebox|video jukebox|album mix|best of|mashup)\\b", RegexOption.IGNORE_CASE)
+                                val shortEditRegex = Regex("(?i)\\b(shorts|short|reel|reels|tiktok|whatsapp status|status edit|status video|30 sec status|30sec|45sec|edit version|speed up|sped up|nightcore)\\b", RegexOption.IGNORE_CASE)
 
                                 for (i in 0 until relatedArray.length()) {
                                     val item = relatedArray.optJSONObject(i) ?: continue
