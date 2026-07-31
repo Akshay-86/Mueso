@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -31,7 +33,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Schedule
@@ -615,7 +616,7 @@ fun TrackListItem(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
-                                Icons.Default.PlaylistAdd,
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
                                 null,
                                 tint = AccentOrange,
                                 modifier = Modifier.size(20.dp)
@@ -1180,7 +1181,7 @@ fun AddToPlaylistDialog(
                                     .background(Brush.linearGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.PlaylistPlay, contentDescription = null, tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = Color.White)
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(

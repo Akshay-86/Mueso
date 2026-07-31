@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.media.service
 
 import android.app.NotificationChannel

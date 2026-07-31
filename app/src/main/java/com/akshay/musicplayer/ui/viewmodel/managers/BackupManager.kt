@@ -23,8 +23,18 @@ class BackupManager(
     private val settingsManager: SettingsManager? = null
 ) {
     private fun buildBackupSettings(): com.akshay.musicplayer.data.backup.BackupSettings {
+        val currentHeroId = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global"
+        var heroName: String? = null
+        if (currentHeroId.startsWith("custom_")) {
+            val numericId = currentHeroId.removePrefix("custom_").toLongOrNull()
+            if (numericId != null) {
+                val p = onlinePlaylistDao.getOnlinePlaylistById(numericId)
+                heroName = p?.name
+            }
+        }
         return com.akshay.musicplayer.data.backup.BackupSettings(
-            heroPlaylistId = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global",
+            heroPlaylistId = currentHeroId,
+            heroPlaylistName = heroName,
             isDarkMode = sharedPreferences.getBoolean("is_dark_mode", true),
             showOnLockscreen = sharedPreferences.getBoolean("show_on_lockscreen", true),
             highRefreshRate = sharedPreferences.getBoolean("high_refresh_rate", false),
@@ -46,8 +56,8 @@ class BackupManager(
         val map = mutableMapOf<String, String>()
         val allEntries = sharedPreferences.all
         for ((key, value) in allEntries) {
-            if (key.startsWith("custom_lyrics_") && value is String) {
-                map[key] = value
+            if ((key.startsWith("custom_lyrics_") || key.startsWith("lyrics_offset_")) && value != null) {
+                map[key] = value.toString()
             }
         }
         return map
@@ -56,16 +66,37 @@ class BackupManager(
     private fun restoreCustomLyrics(customLyricsMap: Map<String, String>?) {
         if (customLyricsMap.isNullOrEmpty()) return
         val editor = sharedPreferences.edit()
-        for ((key, jsonStr) in customLyricsMap) {
-            editor.putString(key, jsonStr)
+        for ((key, strValue) in customLyricsMap) {
+            if (key.startsWith("lyrics_offset_")) {
+                val longVal = strValue.toLongOrNull()
+                if (longVal != null) {
+                    editor.putLong(key, longVal)
+                }
+            } else {
+                editor.putString(key, strValue)
+            }
         }
         editor.apply()
     }
 
     private fun restoreBackupSettings(settings: com.akshay.musicplayer.data.backup.BackupSettings?) {
         if (settings == null) return
+        var heroIdToRestore = settings.heroPlaylistId
+        if (heroIdToRestore.startsWith("custom_")) {
+            val allPlaylists = onlinePlaylistDao.getAllOnlinePlaylistsSync()
+            val heroName = settings.heroPlaylistName
+            val matched = if (!heroName.isNullOrBlank()) {
+                allPlaylists.firstOrNull { it.name == heroName }
+            } else {
+                val oldId = heroIdToRestore.removePrefix("custom_").toLongOrNull()
+                allPlaylists.firstOrNull { it.id == oldId }
+            }
+            if (matched != null) {
+                heroIdToRestore = "custom_${matched.id}"
+            }
+        }
         sharedPreferences.edit()
-            .putString("hero_playlist_id", settings.heroPlaylistId)
+            .putString("hero_playlist_id", heroIdToRestore)
             .putBoolean("is_dark_mode", settings.isDarkMode)
             .putBoolean("show_on_lockscreen", settings.showOnLockscreen)
             .putBoolean("high_refresh_rate", settings.highRefreshRate)
@@ -89,6 +120,9 @@ class BackupManager(
 
     private val _lastBackupTimestamp = MutableStateFlow(sharedPreferences.getLong("last_backup_timestamp", 0L))
     val lastBackupTimestamp: StateFlow<Long> = _lastBackupTimestamp.asStateFlow()
+
+    private val _lastBackupSizeBytes = MutableStateFlow(sharedPreferences.getLong("last_backup_size_bytes", 0L))
+    val lastBackupSizeBytes: StateFlow<Long> = _lastBackupSizeBytes.asStateFlow()
 
     private val _isBackupInProgress = MutableStateFlow(false)
     val isBackupInProgress: StateFlow<Boolean> = _isBackupInProgress.asStateFlow()
@@ -175,7 +209,13 @@ class BackupManager(
                             val onlineList = backupData.onlinePlaylists ?: emptyList()
                             for (op in onlineList) {
                                 val opName = op.name ?: "Restored Playlist"
-                                if (existingNames.contains(opName)) continue
+                                val existing = localOnlineEntities.firstOrNull { it.name == opName }
+                                if (existing != null) {
+                                    if (!op.description.isNullOrBlank() && existing.description != op.description) {
+                                        onlinePlaylistDao.updateOnlinePlaylistDetails(existing.id, existing.name, op.description)
+                                    }
+                                    continue
+                                }
 
                                 val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
                                     com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
@@ -205,8 +245,15 @@ class BackupManager(
                             }
 
                             withContext(Dispatchers.Main) {
-                                restoreBackupSettings(backupData.settings)
-                                restoreCustomLyrics(backupData.customLyrics)
+                                val backupLyricsEnabled = sharedPreferences.getBoolean("backup_lyrics", true)
+                                val backupSettingsEnabled = sharedPreferences.getBoolean("backup_settings", true)
+
+                                if (backupSettingsEnabled) {
+                                    restoreBackupSettings(backupData.settings)
+                                }
+                                if (backupLyricsEnabled) {
+                                    restoreCustomLyrics(backupData.customLyrics)
+                                }
                                 _isBackupInProgress.value = false
                                 setGoogleAccountEmail(email)
                                 _hasUnbackedUpChanges.value = false
@@ -220,9 +267,11 @@ class BackupManager(
                                     } else System.currentTimeMillis()
                                 } catch (e: Exception) { System.currentTimeMillis() }
                                 _lastBackupTimestamp.value = modTime
+                                _lastBackupSizeBytes.value = existingBackupInfo.sizeBytes
                                 sharedPreferences.edit()
                                     .putBoolean("has_unbacked_up_changes", false)
                                     .putLong("last_backup_timestamp", modTime)
+                                    .putLong("last_backup_size_bytes", existingBackupInfo.sizeBytes)
                                     .apply()
                                 onResult(true, if (restoredCount > 0) "Found existing backup! Restored $restoredCount playlist(s) & settings." else "Connected! Restored playlists & settings from Google Drive.")
                             }
@@ -269,11 +318,15 @@ class BackupManager(
                     )
                 }
 
+                val backupPlaylistsEnabled = sharedPreferences.getBoolean("backup_playlists", true)
+                val backupLyricsEnabled = sharedPreferences.getBoolean("backup_lyrics", true)
+                val backupSettingsEnabled = sharedPreferences.getBoolean("backup_settings", true)
+
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
-                    onlinePlaylists = backupOnlineList,
-                    localPlaylists = backupLocalList,
-                    settings = buildBackupSettings(),
-                    customLyrics = buildCustomLyricsMap()
+                    onlinePlaylists = if (backupPlaylistsEnabled) backupOnlineList else emptyList(),
+                    localPlaylists = if (backupPlaylistsEnabled) backupLocalList else emptyList(),
+                    settings = if (backupSettingsEnabled) buildBackupSettings() else null,
+                    customLyrics = if (backupLyricsEnabled) buildCustomLyricsMap() else null
                 )
 
                 android.util.Log.d("MUESO_BACKUP", "Uploading backup: ${backupOnlineList.size} online, ${backupLocalList.size} local playlists")
@@ -284,10 +337,20 @@ class BackupManager(
                         setGoogleAccountEmail(email)
                         _hasUnbackedUpChanges.value = false
                         val now = System.currentTimeMillis()
+                        val calculatedSize = try {
+                            com.squareup.moshi.Moshi.Builder()
+                                .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                                .build()
+                                .adapter(com.akshay.musicplayer.data.backup.MuesoBackupData::class.java)
+                                .toJson(backupData).toByteArray(Charsets.UTF_8).size.toLong()
+                        } catch (e: Exception) { 0L }
+
                         _lastBackupTimestamp.value = now
+                        _lastBackupSizeBytes.value = calculatedSize
                         sharedPreferences.edit()
                             .putBoolean("has_unbacked_up_changes", false)
                             .putLong("last_backup_timestamp", now)
+                            .putLong("last_backup_size_bytes", calculatedSize)
                             .apply()
                         onResult(true, "Connected! Playlists backed up to Google Drive.")
                     } else {
@@ -369,11 +432,15 @@ class BackupManager(
                     )
                 }
 
+                val backupPlaylistsEnabled = sharedPreferences.getBoolean("backup_playlists", true)
+                val backupLyricsEnabled = sharedPreferences.getBoolean("backup_lyrics", true)
+                val backupSettingsEnabled = sharedPreferences.getBoolean("backup_settings", true)
+
                 val backupData = com.akshay.musicplayer.data.backup.MuesoBackupData(
-                    onlinePlaylists = backupOnlineList,
-                    localPlaylists = backupLocalList,
-                    settings = buildBackupSettings(),
-                    customLyrics = buildCustomLyricsMap()
+                    onlinePlaylists = if (backupPlaylistsEnabled) backupOnlineList else emptyList(),
+                    localPlaylists = if (backupPlaylistsEnabled) backupLocalList else emptyList(),
+                    settings = if (backupSettingsEnabled) buildBackupSettings() else null,
+                    customLyrics = if (backupLyricsEnabled) buildCustomLyricsMap() else null
                 )
 
                 val result = driveRepo.uploadBackup(email, backupData)
@@ -382,10 +449,20 @@ class BackupManager(
                     if (result.isSuccess) {
                         _hasUnbackedUpChanges.value = false
                         val now = System.currentTimeMillis()
+                        val calculatedSize = try {
+                            com.squareup.moshi.Moshi.Builder()
+                                .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                                .build()
+                                .adapter(com.akshay.musicplayer.data.backup.MuesoBackupData::class.java)
+                                .toJson(backupData).toByteArray(Charsets.UTF_8).size.toLong()
+                        } catch (e: Exception) { 0L }
+
                         _lastBackupTimestamp.value = now
+                        _lastBackupSizeBytes.value = calculatedSize
                         sharedPreferences.edit()
                             .putBoolean("has_unbacked_up_changes", false)
                             .putLong("last_backup_timestamp", now)
+                            .putLong("last_backup_size_bytes", calculatedSize)
                             .apply()
                         com.akshay.musicplayer.media.notification.NotificationHelper.showBackupComplete(context, "Playlists, Lyrics & Settings backed up to Google Drive!")
                         onResult(true, "Playlists, Lyrics & Settings backed up to Google Drive!")
@@ -425,7 +502,13 @@ class BackupManager(
                         val onlineList = backupData.onlinePlaylists ?: emptyList()
                         onlineList.forEach { op ->
                             val opName = op.name ?: "Restored Playlist"
-                            if (existingNames.contains(opName)) return@forEach
+                            val existing = localOnlineEntities.firstOrNull { it.name == opName }
+                            if (existing != null) {
+                                if (!op.description.isNullOrBlank() && existing.description != op.description) {
+                                    onlinePlaylistDao.updateOnlinePlaylistDetails(existing.id, existing.name, op.description)
+                                }
+                                return@forEach
+                            }
 
                             val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
                                 com.akshay.musicplayer.data.db.OnlinePlaylistEntity(
@@ -454,9 +537,28 @@ class BackupManager(
                             restoredCount++
                         }
 
+                        val calculatedSize = try {
+                            com.squareup.moshi.Moshi.Builder()
+                                .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                                .build()
+                                .adapter(com.akshay.musicplayer.data.backup.MuesoBackupData::class.java)
+                                .toJson(backupData).toByteArray(Charsets.UTF_8).size.toLong()
+                        } catch (e: Exception) { 0L }
+
                         withContext(Dispatchers.Main) {
-                            restoreBackupSettings(backupData.settings)
-                            restoreCustomLyrics(backupData.customLyrics)
+                            if (calculatedSize > 0L) {
+                                _lastBackupSizeBytes.value = calculatedSize
+                                sharedPreferences.edit().putLong("last_backup_size_bytes", calculatedSize).apply()
+                            }
+                            val backupLyricsEnabled = sharedPreferences.getBoolean("backup_lyrics", true)
+                            val backupSettingsEnabled = sharedPreferences.getBoolean("backup_settings", true)
+
+                            if (backupSettingsEnabled) {
+                                restoreBackupSettings(backupData.settings)
+                            }
+                            if (backupLyricsEnabled) {
+                                restoreCustomLyrics(backupData.customLyrics)
+                            }
                             _isRestoreInProgress.value = false
                             if (restoredCount > 0) {
                                 onResult(true, "Restored $restoredCount new online playlist(s) & app settings successfully!")

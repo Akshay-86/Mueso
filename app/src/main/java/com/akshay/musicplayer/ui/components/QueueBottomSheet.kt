@@ -158,6 +158,8 @@ fun QueueBottomSheet(
                 )
             }
         } else {
+            var localUpcomingTracks by remember(upcomingTracks) { mutableStateOf(upcomingTracks) }
+            var initialDragLocalIndex by remember { mutableStateOf<Int?>(null) }
             var draggedIndex by remember { mutableStateOf<Int?>(null) }
             var dragOffset by remember { mutableFloatStateOf(0f) }
             val itemHeightPx = with(LocalDensity.current) { 64.dp.toPx() }
@@ -168,7 +170,7 @@ fun QueueBottomSheet(
                     .padding(horizontal = 8.dp)
                     .padding(bottom = 32.dp)
             ) {
-                itemsIndexed(upcomingTracks, key = { localIndex, track -> "${track.id}_$localIndex" }) { localIndex, track ->
+                itemsIndexed(localUpcomingTracks, key = { _, track -> track.id }) { localIndex, track ->
                     val isDragging = draggedIndex == localIndex
                     // Map local index back to full tracks list index
                     val globalIndex = upcomingStartIndex + localIndex
@@ -184,35 +186,64 @@ fun QueueBottomSheet(
                             dragModifier = Modifier.pointerInput(track.id) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
+                                        initialDragLocalIndex = localIndex
                                         draggedIndex = localIndex
                                         dragOffset = 0f
+                                        android.util.Log.d("MUESO_DRAG", "[Queue] Started dragging '${track.title}' from local index $localIndex (global $globalIndex)")
                                     },
                                     onDrag = { change, dragAmount ->
                                         change.consume()
                                         dragOffset += dragAmount.y
 
-                                        val currentDragIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
-                                        val globalFrom = upcomingStartIndex + currentDragIdx
+                                        var current = draggedIndex ?: return@detectDragGesturesAfterLongPress
 
-                                        // Swap down
-                                        if (dragOffset > itemHeightPx * 0.6f && currentDragIdx < upcomingTracks.size - 1) {
-                                            onMove(globalFrom, globalFrom + 1)
-                                            draggedIndex = currentDragIdx + 1
+                                        while (dragOffset > itemHeightPx * 0.5f && current < localUpcomingTracks.size - 1) {
+                                            val next = current + 1
+                                            val list = localUpcomingTracks.toMutableList()
+                                            val item = list.removeAt(current)
+                                            list.add(next, item)
+                                            localUpcomingTracks = list
+                                            current = next
+                                            draggedIndex = next
                                             dragOffset -= itemHeightPx
+                                            android.util.Log.d("MUESO_DRAG", "[Queue] Locally moved '${track.title}' DOWN to index $next")
                                         }
-                                        // Swap up
-                                        if (dragOffset < -itemHeightPx * 0.6f && currentDragIdx > 0) {
-                                            onMove(globalFrom, globalFrom - 1)
-                                            draggedIndex = currentDragIdx - 1
+                                        while (dragOffset < -itemHeightPx * 0.5f && current > 0) {
+                                            val prev = current - 1
+                                            val list = localUpcomingTracks.toMutableList()
+                                            val item = list.removeAt(current)
+                                            list.add(prev, item)
+                                            localUpcomingTracks = list
+                                            current = prev
+                                            draggedIndex = prev
                                             dragOffset += itemHeightPx
+                                            android.util.Log.d("MUESO_DRAG", "[Queue] Locally moved '${track.title}' UP to index $prev")
                                         }
                                     },
                                     onDragEnd = {
+                                        val startLocal = initialDragLocalIndex
+                                        val endLocal = draggedIndex
+                                        if (startLocal != null && endLocal != null && startLocal != endLocal) {
+                                            val globalFrom = upcomingStartIndex + startLocal
+                                            val globalTo = upcomingStartIndex + endLocal
+                                            onMove(globalFrom, globalTo)
+                                            android.util.Log.d("MUESO_DRAG", "[Queue] Drag finished! Committed queue move from global index $globalFrom -> $globalTo")
+                                        }
                                         draggedIndex = null
+                                        initialDragLocalIndex = null
                                         dragOffset = 0f
                                     },
                                     onDragCancel = {
+                                        val startLocal = initialDragLocalIndex
+                                        val endLocal = draggedIndex
+                                        if (startLocal != null && endLocal != null && startLocal != endLocal) {
+                                            val globalFrom = upcomingStartIndex + startLocal
+                                            val globalTo = upcomingStartIndex + endLocal
+                                            onMove(globalFrom, globalTo)
+                                            android.util.Log.d("MUESO_DRAG", "[Queue] Drag end/cancel! Committed queue move from global index $globalFrom -> $globalTo")
+                                        }
                                         draggedIndex = null
+                                        initialDragLocalIndex = null
                                         dragOffset = 0f
                                     }
                                 )
@@ -290,8 +321,9 @@ private fun QueueTrackItem(
             }
             .clip(RoundedCornerShape(12.dp))
             .background(bgColor)
+            .then(dragModifier)
             .clickable(onClick = onClick)
-            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -338,19 +370,5 @@ private fun QueueTrackItem(
             fontSize = 12.sp
         )
 
-        // Drag handle — long press + drag to reorder
-        Box(
-            modifier = dragModifier
-                .size(40.dp)
-                .padding(8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.DragHandle,
-                contentDescription = "Hold to reorder",
-                tint = if (isDragging) AccentOrange else (if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f)),
-                modifier = Modifier.size(24.dp)
-            )
-        }
     }
 }

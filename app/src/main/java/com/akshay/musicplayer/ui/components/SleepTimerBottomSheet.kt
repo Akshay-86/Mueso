@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
@@ -152,7 +151,7 @@ fun SleepTimerBottomSheet(
                 val tabs = listOf(
                     Triple("Timer", Icons.Default.AccessTime, 0),
                     Triple("After Song", Icons.Default.MusicNote, 1),
-                    Triple("End of List", Icons.Default.PlaylistPlay, 2)
+                    Triple("End of List", Icons.AutoMirrored.Filled.PlaylistPlay, 2)
                 )
                 tabs.forEach { (label, icon, index) ->
                     FilterChip(

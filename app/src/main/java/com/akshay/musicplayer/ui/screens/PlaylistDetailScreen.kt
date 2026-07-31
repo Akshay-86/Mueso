@@ -9,13 +9,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,6 +70,8 @@ fun PlaylistDetailScreen(
     }
 
     // Drag state
+    var displayTracks by remember(tracks) { mutableStateOf(tracks) }
+    var initialDragIndex by remember { mutableStateOf<Int?>(null) }
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val itemHeightPx = with(LocalDensity.current) { 68.dp.toPx() }
@@ -89,7 +91,7 @@ fun PlaylistDetailScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textPrimary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -153,6 +155,7 @@ fun PlaylistDetailScreen(
             ) {
                 Button(
                     onClick = {
+                        viewModel.touchPlaylist(playlist.id)
                         viewModel.playQueue(tracks)
                         onNavigateToPlayer()
                     },
@@ -177,7 +180,7 @@ fun PlaylistDetailScreen(
                     ),
                     shape = RoundedCornerShape(24.dp)
                 ) {
-                    Icon(Icons.Default.QueueMusic, null, tint = textPrimary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = textPrimary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Add to Queue", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                 }
@@ -216,7 +219,7 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                itemsIndexed(tracks, key = { index, track -> "${track.id}_$index" }) { index, track ->
+                itemsIndexed(displayTracks, key = { _, track -> track.id }) { index, track ->
                     val isDragging = draggedIndex == index
 
                     PlaylistTrackItem(
@@ -225,35 +228,70 @@ fun PlaylistDetailScreen(
                         isDragging = isDragging,
                         dragOffsetY = if (isDragging) dragOffset else 0f,
                         onClick = {
-                            viewModel.playQueue(tracks, index)
+                            viewModel.touchPlaylist(playlist.id)
+                            viewModel.playQueue(displayTracks, index)
                             onNavigateToPlayer()
                         },
                         onRemove = { viewModel.removeTrackFromPlaylist(playlist.id, track.id) },
                         dragModifier = Modifier.pointerInput(track.id) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
+                                    initialDragIndex = index
                                     draggedIndex = index
                                     dragOffset = 0f
+                                    android.util.Log.d("MUESO_DRAG", "[LocalPlaylist] Started dragging '${track.title}' from index $index")
                                 },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
                                     dragOffset += dragAmount.y
 
-                                    val currentIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
+                                    var current = draggedIndex ?: return@detectDragGesturesAfterLongPress
 
-                                    if (dragOffset > itemHeightPx * 0.6f && currentIdx < tracks.size - 1) {
-                                        viewModel.moveTrackInPlaylist(playlist.id, currentIdx, currentIdx + 1)
-                                        draggedIndex = currentIdx + 1
+                                    while (dragOffset > itemHeightPx * 0.5f && current < displayTracks.size - 1) {
+                                        val next = current + 1
+                                        val list = displayTracks.toMutableList()
+                                        val item = list.removeAt(current)
+                                        list.add(next, item)
+                                        displayTracks = list
+                                        current = next
+                                        draggedIndex = next
                                         dragOffset -= itemHeightPx
+                                        android.util.Log.d("MUESO_DRAG", "[LocalPlaylist] Locally moved '${track.title}' DOWN to index $next")
                                     }
-                                    if (dragOffset < -itemHeightPx * 0.6f && currentIdx > 0) {
-                                        viewModel.moveTrackInPlaylist(playlist.id, currentIdx, currentIdx - 1)
-                                        draggedIndex = currentIdx - 1
+                                    while (dragOffset < -itemHeightPx * 0.5f && current > 0) {
+                                        val prev = current - 1
+                                        val list = displayTracks.toMutableList()
+                                        val item = list.removeAt(current)
+                                        list.add(prev, item)
+                                        displayTracks = list
+                                        current = prev
+                                        draggedIndex = prev
                                         dragOffset += itemHeightPx
+                                        android.util.Log.d("MUESO_DRAG", "[LocalPlaylist] Locally moved '${track.title}' UP to index $prev")
                                     }
                                 },
-                                onDragEnd = { draggedIndex = null; dragOffset = 0f },
-                                onDragCancel = { draggedIndex = null; dragOffset = 0f }
+                                onDragEnd = {
+                                    val start = initialDragIndex
+                                    val finalIdx = draggedIndex
+                                    if (start != null && finalIdx != null && start != finalIdx) {
+                                        viewModel.moveTrackInPlaylist(playlist.id, start, finalIdx)
+                                        android.util.Log.d("MUESO_DRAG", "[LocalPlaylist] Drag finished! Committed move from $start -> $finalIdx")
+                                    }
+                                    draggedIndex = null
+                                    initialDragIndex = null
+                                    dragOffset = 0f
+                                },
+                                onDragCancel = {
+                                    val start = initialDragIndex
+                                    val finalIdx = draggedIndex
+                                    if (start != null && finalIdx != null && start != finalIdx) {
+                                        viewModel.moveTrackInPlaylist(playlist.id, start, finalIdx)
+                                        android.util.Log.d("MUESO_DRAG", "[LocalPlaylist] Drag end/cancel! Committed move from $start -> $finalIdx")
+                                    }
+                                    draggedIndex = null
+                                    initialDragIndex = null
+                                    dragOffset = 0f
+                                }
                             )
                         }
                     )
@@ -349,8 +387,9 @@ private fun PlaylistTrackItem(
                 scaleY = if (isDragging) 1.02f else 1f
                 shadowElevation = if (isDragging) 8f else 0f
             }
+            .then(dragModifier)
             .clickable(onClick = onClick)
-            .padding(start = 20.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -406,21 +445,13 @@ private fun PlaylistTrackItem(
             }
         }
 
-        // Drag handle: tap → menu, long press → drag
+        // Options menu
         Box {
-            Box(
-                modifier = dragModifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { showMenu = true }
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
-            ) {
+            IconButton(onClick = { showMenu = true }) {
                 Icon(
-                    Icons.Default.DragHandle,
-                    contentDescription = "Options / Hold to reorder",
-                    tint = if (isDragging) AccentOrange else iconTint,
-                    modifier = Modifier.size(24.dp)
+                    Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = iconTint
                 )
             }
 

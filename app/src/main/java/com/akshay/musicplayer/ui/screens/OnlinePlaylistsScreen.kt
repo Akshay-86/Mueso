@@ -484,6 +484,7 @@ fun OnlinePlaylistsScreen(
                     onBackClick = { selectedCustomPlaylist = null },
                     onPlayAllClick = {
                         if (userTracks.isNotEmpty()) {
+                            viewModel.touchOnlinePlaylist(playlist.id)
                             viewModel.playOnlinePlaylist(userTracks, 0)
                             selectedCustomPlaylist = null
                             onNavigateToPlayer()
@@ -497,6 +498,7 @@ fun OnlinePlaylistsScreen(
                     },
                     onTrackClick = { index ->
                         if (index in userTracks.indices) {
+                            viewModel.touchOnlinePlaylist(playlist.id)
                             viewModel.playOnlinePlaylist(userTracks, index)
                             selectedCustomPlaylist = null
                             onNavigateToPlayer()

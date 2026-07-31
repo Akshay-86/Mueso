@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.ui.viewmodel.managers
 
 import android.content.Context

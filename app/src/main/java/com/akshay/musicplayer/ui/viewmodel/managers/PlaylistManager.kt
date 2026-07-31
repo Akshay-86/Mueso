@@ -58,6 +58,18 @@ class PlaylistManager(
         }
     }
 
+    fun touchPlaylist(playlistId: Long) {
+        coroutineScope.launch(Dispatchers.IO) {
+            playlistDao.updatePlaylistTimestamp(playlistId)
+        }
+    }
+
+    fun touchOnlinePlaylist(playlistId: Long) {
+        coroutineScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.updateOnlinePlaylistTimestamp(playlistId)
+        }
+    }
+
     fun createPlaylist(name: String) {
         coroutineScope.launch(Dispatchers.IO) {
             playlistDao.insertPlaylist(PlaylistEntity(name = name))
@@ -332,11 +344,10 @@ class PlaylistManager(
                 rootArray.put(pObj)
             }
             val jsonString = rootArray.toString(2)
-            
-            val file = java.io.File(
-                context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir,
-                "mueso_playlists_backup.json"
-            )
+
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val targetDir = if (downloadsDir != null && (downloadsDir.exists() || downloadsDir.mkdirs())) downloadsDir else (context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir)
+            val file = java.io.File(targetDir, "mueso_playlists_backup.json")
             file.writeText(jsonString)
             file.absolutePath
         } catch (e: Exception) {
@@ -348,39 +359,54 @@ class PlaylistManager(
     suspend fun importPlaylistsFromJson(context: android.content.Context, jsonString: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val rootArray = JSONArray(jsonString)
+            val existingPlaylists = onlinePlaylistDao.getAllOnlinePlaylistsSync()
             for (i in 0 until rootArray.length()) {
                 val pObj = rootArray.getJSONObject(i)
                 val name = pObj.getString("name")
-                val desc = pObj.optString("description", "")
+                val desc = pObj.optString("description", "").takeIf { it.isNotBlank() }
                 val artwork = pObj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
 
-                val newId = onlinePlaylistDao.insertOnlinePlaylist(
-                    OnlinePlaylistEntity(
-                        name = name,
-                        description = desc,
-                        artworkUrl = artwork
+                val existing = existingPlaylists.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                val playlistId = if (existing != null) {
+                    if (desc != null && existing.description != desc) {
+                        onlinePlaylistDao.updateOnlinePlaylistDetails(existing.id, existing.name, desc)
+                    }
+                    existing.id
+                } else {
+                    onlinePlaylistDao.insertOnlinePlaylist(
+                        OnlinePlaylistEntity(
+                            name = name,
+                            description = desc,
+                            artworkUrl = artwork
+                        )
                     )
-                )
+                }
 
                 val tracksArr = pObj.optJSONArray("tracks")
                 if (tracksArr != null) {
+                    val existingTracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
+                    val existingTrackIds = existingTracks.map { it.trackId }.toSet()
+
                     for (j in 0 until tracksArr.length()) {
                         val tObj = tracksArr.getJSONObject(j)
-                        onlinePlaylistDao.insertOnlineTrack(
-                            OnlinePlaylistTrackEntity(
-                                onlinePlaylistId = newId,
-                                trackId = tObj.optLong("trackId", System.currentTimeMillis() + j),
-                                title = tObj.getString("title"),
-                                artist = tObj.optString("artist", "Unknown Artist"),
-                                artworkUrl = tObj.optString("artworkUrl", "").takeIf { it.isNotBlank() },
-                                filePath = tObj.getString("filePath"),
-                                duration = tObj.optLong("duration", 0L),
-                                orderIndex = tObj.optInt("orderIndex", j)
+                        val tId = tObj.optLong("trackId", System.currentTimeMillis() + j)
+                        if (!existingTrackIds.contains(tId)) {
+                            onlinePlaylistDao.insertOnlineTrack(
+                                OnlinePlaylistTrackEntity(
+                                    onlinePlaylistId = playlistId,
+                                    trackId = tId,
+                                    title = tObj.getString("title"),
+                                    artist = tObj.optString("artist", "Unknown Artist"),
+                                    artworkUrl = tObj.optString("artworkUrl", "").takeIf { it.isNotBlank() },
+                                    filePath = tObj.getString("filePath"),
+                                    duration = tObj.optLong("duration", 0L),
+                                    orderIndex = tObj.optInt("orderIndex", j)
+                                )
                             )
-                        )
+                        }
                     }
                 }
-                updateCachedPlaylistArtwork(newId)
+                updateCachedPlaylistArtwork(playlistId)
             }
             markDirty()
             true

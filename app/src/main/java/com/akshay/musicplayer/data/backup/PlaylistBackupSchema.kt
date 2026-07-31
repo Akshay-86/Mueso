@@ -16,6 +16,7 @@ data class MuesoBackupData(
 @JsonClass(generateAdapter = true)
 data class BackupSettings(
     val heroPlaylistId: String = "curated_top_global",
+    val heroPlaylistName: String? = null,
     val isDarkMode: Boolean = true,
     val showOnLockscreen: Boolean = true,
     val highRefreshRate: Boolean = false,

@@ -27,6 +27,9 @@ interface OnlinePlaylistDao {
     @Query("UPDATE online_playlists SET name = :newName, description = :newDescription WHERE id = :playlistId")
     fun updateOnlinePlaylistDetails(playlistId: Long, newName: String, newDescription: String): Int
 
+    @Query("UPDATE online_playlists SET dateCreated = :timestamp WHERE id = :playlistId")
+    fun updateOnlinePlaylistTimestamp(playlistId: Long, timestamp: Long = System.currentTimeMillis()): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertOnlineTrack(track: OnlinePlaylistTrackEntity): Long
 

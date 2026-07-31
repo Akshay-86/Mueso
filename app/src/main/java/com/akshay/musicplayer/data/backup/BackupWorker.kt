@@ -63,17 +63,23 @@ class BackupWorker(
                 )
             }
 
+            val backupPlaylistsEnabled = sharedPrefs.getBoolean("backup_playlists", true)
+            val backupLyricsEnabled = sharedPrefs.getBoolean("backup_lyrics", true)
+            val backupSettingsEnabled = sharedPrefs.getBoolean("backup_settings", true)
+
             val customLyricsMap = mutableMapOf<String, String>()
-            for ((key, value) in sharedPrefs.all) {
-                if (key.startsWith("custom_lyrics_") && value is String) {
-                    customLyricsMap[key] = value
+            if (backupLyricsEnabled) {
+                for ((key, value) in sharedPrefs.all) {
+                    if ((key.startsWith("custom_lyrics_") || key.startsWith("lyrics_offset_")) && value != null) {
+                        customLyricsMap[key] = value.toString()
+                    }
                 }
             }
 
             val backupData = MuesoBackupData(
-                onlinePlaylists = backupOnlineList,
-                localPlaylists = backupLocalList,
-                customLyrics = customLyricsMap
+                onlinePlaylists = if (backupPlaylistsEnabled) backupOnlineList else emptyList(),
+                localPlaylists = if (backupPlaylistsEnabled) backupLocalList else emptyList(),
+                customLyrics = if (backupLyricsEnabled) customLyricsMap else null
             )
 
             val uploadResult = driveRepo.uploadBackup(account, backupData)

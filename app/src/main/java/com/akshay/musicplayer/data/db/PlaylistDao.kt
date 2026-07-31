@@ -14,6 +14,9 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertPlaylist(playlist: PlaylistEntity): Long
 
+    @Query("UPDATE playlists SET dateCreated = :timestamp WHERE id = :playlistId")
+    fun updatePlaylistTimestamp(playlistId: Long, timestamp: Long = System.currentTimeMillis()): Int
+
     @Query("SELECT COALESCE(MAX(orderIndex), 0) FROM playlist_tracks WHERE playlistId = :playlistId")
     fun getMaxOrderIndex(playlistId: Long): Int
 

@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility

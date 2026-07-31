@@ -126,6 +126,7 @@ class PlayerViewModel(
 
     val hasUnbackedUpChanges = backupManager.hasUnbackedUpChanges
     val lastBackupTimestamp = backupManager.lastBackupTimestamp
+    val lastBackupSizeBytes = backupManager.lastBackupSizeBytes
     val isBackupInProgress = backupManager.isBackupInProgress
     val isRestoreInProgress = backupManager.isRestoreInProgress
     val googleAccountEmail = backupManager.googleAccountEmail
@@ -151,6 +152,8 @@ class PlayerViewModel(
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long) = playlistManager.removeTrackFromPlaylist(playlistId, trackId)
     fun moveTrackInPlaylist(playlistId: Long, fromIndex: Int, toIndex: Int) = playlistManager.moveTrackInPlaylist(playlistId, fromIndex, toIndex)
     fun getPlaylistTracks(playlistId: Long) = playlistManager.getPlaylistTracks(playlistId)
+    fun touchPlaylist(playlistId: Long) = playlistManager.touchPlaylist(playlistId)
+    fun touchOnlinePlaylist(playlistId: Long) = playlistManager.touchOnlinePlaylist(playlistId)
     fun createOnlinePlaylist(name: String, description: String? = null) = playlistManager.createOnlinePlaylist(name, description)
     fun deleteOnlinePlaylist(playlistId: Long) = playlistManager.deleteOnlinePlaylist(playlistId)
     fun renameOnlinePlaylist(playlistId: Long, newName: String) = playlistManager.renameOnlinePlaylist(playlistId, newName)
@@ -903,7 +906,8 @@ class PlayerViewModel(
                         fetchLyricsForTrack(curTrack)
                         // Only prefetch on actual track transitions, not every position update
                         if (oldTrackId != state.currentTrackId) {
-                            _lyricsOffsetMs.value = 0L
+                            val newTrackId = state.currentTrackId
+                            _lyricsOffsetMs.value = if (newTrackId != null) sharedPreferences.getLong("lyrics_offset_$newTrackId", 0L) else 0L
                             lastPrefetchedNextIndex = -1
                             prefetchAndKeepQueueAlive(currentTrackIdx)
                         }
@@ -1142,11 +1146,28 @@ class PlayerViewModel(
     val lyricsOffsetMs: StateFlow<Long> = _lyricsOffsetMs.asStateFlow()
 
     fun adjustLyricsOffset(deltaMs: Long) {
-        _lyricsOffsetMs.value += deltaMs
+        val newOffset = _lyricsOffsetMs.value + deltaMs
+        _lyricsOffsetMs.value = newOffset
+        val curId = playbackState.value.currentTrackId
+        if (curId != null && isTrackInUserPlaylists(curId)) {
+            if (newOffset == 0L) {
+                sharedPreferences.edit().remove("lyrics_offset_$curId").apply()
+            } else {
+                sharedPreferences.edit().putLong("lyrics_offset_$curId", newOffset).apply()
+            }
+            backupManager.markDirty()
+        }
     }
 
     fun resetLyricsOffset() {
         _lyricsOffsetMs.value = 0L
+        val curId = playbackState.value.currentTrackId
+        if (curId != null) {
+            sharedPreferences.edit().remove("lyrics_offset_$curId").apply()
+            if (isTrackInUserPlaylists(curId)) {
+                backupManager.markDirty()
+            }
+        }
     }
 
     private var activeLyricsFetchJob: Job? = null
@@ -1263,6 +1284,7 @@ class PlayerViewModel(
     }
 
     fun saveCustomLyrics(trackId: Long, lyricsData: com.akshay.musicplayer.domain.models.LyricsData) {
+        if (!isTrackInUserPlaylists(trackId)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val jsonObj = org.json.JSONObject()
@@ -1276,6 +1298,7 @@ class PlayerViewModel(
                 }
                 jsonObj.put("lines", linesArr)
                 sharedPreferences.edit().putString("custom_lyrics_$trackId", jsonObj.toString()).apply()
+                backupManager.markDirty()
             } catch (e: Exception) {
                 android.util.Log.e("MUESO_LYRICS", "Failed to save custom lyrics", e)
             }
@@ -1284,10 +1307,17 @@ class PlayerViewModel(
 
     fun isTrackInUserPlaylists(trackId: Long): Boolean {
         return try {
-            val playlists = playlistManager.onlinePlaylists.value
-            playlists.any { p ->
+            val onlineList = playlistManager.onlinePlaylists.value
+            val inOnline = onlineList.any { p ->
                 val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(p.id)
                 tracks.any { it.trackId == trackId }
+            }
+            if (inOnline) return true
+
+            val localList = playlistManager.playlists.value
+            localList.any { p ->
+                val refs = playlistDao.getPlaylistTracksSync(p.id)
+                refs.any { it.trackId == trackId }
             }
         } catch (e: Exception) {
             false
@@ -1400,10 +1430,10 @@ class PlayerViewModel(
 
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
         originalUnshuffledTracks = null
-        _lyricsOffsetMs.value = 0L
+        val target = if (startIndex in tracks.indices) tracks[startIndex] else null
+        _lyricsOffsetMs.value = target?.let { sharedPreferences.getLong("lyrics_offset_${it.id}", 0L) } ?: 0L
         lastUserSkipTime = System.currentTimeMillis()
         cancelRestoration()
-        val target = if (startIndex in tracks.indices) tracks[startIndex] else null
         lastRequestedTrackId = target?.id
         val isOnline = target != null && (target.filePath.startsWith("online:") || isStreamUrlExpired(target.filePath))
         if (isOnline) {
@@ -1430,7 +1460,7 @@ class PlayerViewModel(
 
     fun playTrack(track: TrackEntity) {
         originalUnshuffledTracks = null
-        _lyricsOffsetMs.value = 0L
+        _lyricsOffsetMs.value = sharedPreferences.getLong("lyrics_offset_${track.id}", 0L)
         cancelRestoration()
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
@@ -1771,15 +1801,18 @@ class PlayerViewModel(
 
     fun forceRefreshAll(context: android.content.Context) {
         val editor = sharedPreferences.edit()
-        val keys = sharedPreferences.all.keys.filter { it.startsWith("curated_cache_") }
+        val keys = sharedPreferences.all.keys.filter {
+            it.startsWith("curated_cache_") || it.startsWith("custom_lyrics_") || it.startsWith("lyrics_offset_")
+        }
         for (k in keys) {
             editor.remove(k)
         }
         editor.apply()
+        _lyricsOffsetMs.value = 0L
 
         playlistManager.refreshAllPlaylistArtworks()
         loadLocalTracks(forceReload = true)
-        android.widget.Toast.makeText(context, "App refreshed! Caches cleared & playlist covers updated.", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, "App refreshed! Lyrics, offsets & caches reset.", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     fun getQueueTracks(): List<TrackEntity> = currentTracks

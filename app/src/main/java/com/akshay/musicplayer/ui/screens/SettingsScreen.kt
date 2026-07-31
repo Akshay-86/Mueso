@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.ui.screens
 
 import android.app.Activity
@@ -59,6 +60,7 @@ fun SettingsScreen(
     val googleAccountEmail by viewModel.googleAccountEmail.collectAsState()
     val hasUnbackedUpChanges by viewModel.hasUnbackedUpChanges.collectAsState()
     val lastBackupTimestamp by viewModel.lastBackupTimestamp.collectAsState()
+    val lastBackupSizeBytes by viewModel.lastBackupSizeBytes.collectAsState()
     val isBackupInProgress by viewModel.isBackupInProgress.collectAsState()
     val isRestoreInProgress by viewModel.isRestoreInProgress.collectAsState()
 
@@ -256,8 +258,12 @@ fun SettingsScreen(
                                 val lastTimeStr = if (lastBackupTimestamp > 0) {
                                     SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(Date(lastBackupTimestamp))
                                 } else "Never"
+                                val sizeStr = if (lastBackupSizeBytes > 0) {
+                                    val kb = lastBackupSizeBytes / 1024.0
+                                    if (kb < 1024) String.format(Locale.getDefault(), "%.1f KB", kb) else String.format(Locale.getDefault(), "%.2f MB", kb / 1024.0)
+                                } else "0 KB"
                                 Text(
-                                    text = "Last sync: $lastTimeStr • Backup Size: ~48 KB",
+                                    text = "Last sync: $lastTimeStr • Backup Size: ~$sizeStr",
                                     color = textSub,
                                     fontSize = 11.sp
                                 )
@@ -268,9 +274,9 @@ fun SettingsScreen(
                         Column(modifier = Modifier.fillMaxWidth()) {
                             val sharedPrefs = context.getSharedPreferences("music_player_prefs", android.content.Context.MODE_PRIVATE)
                             var showBackupCustomization by remember { mutableStateOf(sharedPrefs.getBoolean("auto_cloud_backup", true)) }
-                            var backupPlaylists by remember { mutableStateOf(true) }
-                            var backupLyrics by remember { mutableStateOf(true) }
-                            var backupSettings by remember { mutableStateOf(true) }
+                            var backupPlaylists by remember { mutableStateOf(sharedPrefs.getBoolean("backup_playlists", true)) }
+                            var backupLyrics by remember { mutableStateOf(sharedPrefs.getBoolean("backup_lyrics", true)) }
+                            var backupSettings by remember { mutableStateOf(sharedPrefs.getBoolean("backup_settings", true)) }
 
                             SettingsToggleItem(
                                 title = "Auto-Sync & Cloud Backup Scope",
@@ -287,11 +293,41 @@ fun SettingsScreen(
                             androidx.compose.animation.AnimatedVisibility(visible = showBackupCustomization) {
                                 Column(modifier = Modifier.padding(start = 20.dp)) {
                                     HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(title = "Custom Playlists", subtitle = "User created online & local playlists", icon = Icons.Default.QueueMusic, checked = backupPlaylists, isDarkMode = isDarkMode, onCheckedChange = { backupPlaylists = it })
+                                    SettingsToggleItem(
+                                        title = "Custom Playlists",
+                                        subtitle = "User created online & local playlists",
+                                        icon = Icons.AutoMirrored.Filled.QueueMusic,
+                                        checked = backupPlaylists,
+                                        isDarkMode = isDarkMode,
+                                        onCheckedChange = {
+                                            backupPlaylists = it
+                                            sharedPrefs.edit().putBoolean("backup_playlists", it).apply()
+                                        }
+                                    )
                                     HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(title = "Custom Lyrics & Offsets", subtitle = "Saved lyrics & timestamp offsets", icon = Icons.Default.Lyrics, checked = backupLyrics, isDarkMode = isDarkMode, onCheckedChange = { backupLyrics = it })
+                                    SettingsToggleItem(
+                                        title = "Custom Lyrics & Offsets",
+                                        subtitle = "Saved lyrics & timestamp offsets",
+                                        icon = Icons.Default.Lyrics,
+                                        checked = backupLyrics,
+                                        isDarkMode = isDarkMode,
+                                        onCheckedChange = {
+                                            backupLyrics = it
+                                            sharedPrefs.edit().putBoolean("backup_lyrics", it).apply()
+                                        }
+                                    )
                                     HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(title = "App Preferences", subtitle = "Player settings & audio quality", icon = Icons.Default.Tune, checked = backupSettings, isDarkMode = isDarkMode, onCheckedChange = { backupSettings = it })
+                                    SettingsToggleItem(
+                                        title = "App Preferences",
+                                        subtitle = "Player settings & audio quality",
+                                        icon = Icons.Default.Tune,
+                                        checked = backupSettings,
+                                        isDarkMode = isDarkMode,
+                                        onCheckedChange = {
+                                            backupSettings = it
+                                            sharedPrefs.edit().putBoolean("backup_settings", it).apply()
+                                        }
+                                    )
                                 }
                             }
                         }

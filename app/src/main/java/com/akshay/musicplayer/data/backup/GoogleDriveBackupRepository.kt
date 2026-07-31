@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.data.backup
 
 import android.content.Context

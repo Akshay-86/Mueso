@@ -10,18 +10,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
@@ -30,8 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,7 +62,6 @@ fun OnlinePlaylistDetailScreen(
     viewModel: PlayerViewModel? = null,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
-    onShuffleAllClick: () -> Unit = {},
     onAddToQueueClick: (() -> Unit)? = null,
     onTrackClick: (Int) -> Unit,
     onRemoveTrack: ((TrackEntity) -> Unit)? = null,
@@ -70,17 +74,22 @@ fun OnlinePlaylistDetailScreen(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
     val context = LocalContext.current
+    var displayTracks by remember(tracks) { mutableStateOf(tracks) }
+    var initialDragIndex by remember { mutableStateOf<Int?>(null) }
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val itemHeightPx = with(LocalDensity.current) { 68.dp.toPx() }
 
     val downloadStates by viewModel?.downloadStates?.collectAsState() ?: remember { mutableStateOf(emptyMap()) }
-    val activeDownloads = remember(downloadStates, tracks) {
-        tracks.mapNotNull { track -> downloadStates[track.id] }.filter { it.isDownloading }
+    val activeDownloads = remember(downloadStates, displayTracks) {
+        displayTracks.mapNotNull { track -> downloadStates[track.id] }.filter { it.isDownloading }
     }
 
-    val filteredTracks = remember(searchQuery, tracks) {
-        if (searchQuery.isBlank()) tracks
+    val filteredTracks = remember(searchQuery, displayTracks) {
+        if (searchQuery.isBlank()) displayTracks
         else {
             val q = searchQuery.trim().lowercase()
-            tracks.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
+            displayTracks.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
         }
     }
 
@@ -238,7 +247,7 @@ fun OnlinePlaylistDetailScreen(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                             modifier = Modifier.weight(1.2f)
                         ) {
-                            Icon(Icons.Default.QueueMusic, contentDescription = "Add to Queue", tint = textPrimary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "Add to Queue", tint = textPrimary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Add to Queue", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
@@ -252,11 +261,12 @@ fun OnlinePlaylistDetailScreen(
                                 containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
                                 contentColor = textPrimary
                             ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                             modifier = Modifier.weight(1.1f)
                         ) {
                             Icon(Icons.Default.Download, contentDescription = "Download", tint = textPrimary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
+                            Text("Download", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
                         }
                     }
                 }
@@ -340,20 +350,87 @@ fun OnlinePlaylistDetailScreen(
                     }
                 }
             } else {
-                itemsIndexed(filteredTracks) { index, track ->
+                itemsIndexed(filteredTracks, key = { _, trk -> trk.id }) { index, track ->
+                    val isDragging = draggedIndex == index
+
                     OnlineTrackListItem(
                         index = index + 1,
                         totalCount = filteredTracks.size,
                         track = track,
                         isCustomUserPlaylist = isCustomUserPlaylist,
                         isDarkMode = isDarkMode,
+                        isDragging = isDragging,
+                        dragOffsetY = if (isDragging) dragOffset else 0f,
                         downloadState = downloadStates[track.id],
                         onClick = { onTrackClick(index) },
                         onRemove = { onRemoveTrack?.invoke(track) },
                         onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
                         onMoveDown = { onMoveTrack?.invoke(index, index + 1) },
                         onDownload = { onDownloadTrack?.invoke(track) },
-                        onCancelDownload = { viewModel?.cancelDownload(track.id) }
+                        onCancelDownload = { viewModel?.cancelDownload(track.id) },
+                        dragModifier = if (isCustomUserPlaylist && onMoveTrack != null) {
+                            Modifier.pointerInput(track.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        initialDragIndex = index
+                                        draggedIndex = index
+                                        dragOffset = 0f
+                                        android.util.Log.d("MUESO_DRAG", "[OnlinePlaylist] Started dragging '${track.title}' from index $index")
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount.y
+
+                                        var current = draggedIndex ?: return@detectDragGesturesAfterLongPress
+
+                                        while (dragOffset > itemHeightPx * 0.5f && current < displayTracks.size - 1) {
+                                            val next = current + 1
+                                            val list = displayTracks.toMutableList()
+                                            val item = list.removeAt(current)
+                                            list.add(next, item)
+                                            displayTracks = list
+                                            current = next
+                                            draggedIndex = next
+                                            dragOffset -= itemHeightPx
+                                            android.util.Log.d("MUESO_DRAG", "[OnlinePlaylist] Locally moved '${track.title}' DOWN to index $next")
+                                        }
+                                        while (dragOffset < -itemHeightPx * 0.5f && current > 0) {
+                                            val prev = current - 1
+                                            val list = displayTracks.toMutableList()
+                                            val item = list.removeAt(current)
+                                            list.add(prev, item)
+                                            displayTracks = list
+                                            current = prev
+                                            draggedIndex = prev
+                                            dragOffset += itemHeightPx
+                                            android.util.Log.d("MUESO_DRAG", "[OnlinePlaylist] Locally moved '${track.title}' UP to index $prev")
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        val start = initialDragIndex
+                                        val finalIdx = draggedIndex
+                                        if (start != null && finalIdx != null && start != finalIdx) {
+                                            onMoveTrack.invoke(start, finalIdx)
+                                            android.util.Log.d("MUESO_DRAG", "[OnlinePlaylist] Drag finished! Committed move from $start -> $finalIdx")
+                                        }
+                                        draggedIndex = null
+                                        initialDragIndex = null
+                                        dragOffset = 0f
+                                    },
+                                    onDragCancel = {
+                                        val start = initialDragIndex
+                                        val finalIdx = draggedIndex
+                                        if (start != null && finalIdx != null && start != finalIdx) {
+                                            onMoveTrack.invoke(start, finalIdx)
+                                            android.util.Log.d("MUESO_DRAG", "[OnlinePlaylist] Drag end/cancel! Committed move from $start -> $finalIdx")
+                                        }
+                                        draggedIndex = null
+                                        initialDragIndex = null
+                                        dragOffset = 0f
+                                    }
+                                )
+                            }
+                        } else Modifier
                     )
                 }
             }
@@ -516,14 +593,17 @@ private fun OnlineTrackListItem(
     totalCount: Int,
     track: TrackEntity,
     isCustomUserPlaylist: Boolean,
-    isDarkMode: Boolean = true,
+    isDarkMode: Boolean,
+    isDragging: Boolean = false,
+    dragOffsetY: Float = 0f,
     downloadState: DownloadProgress? = null,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDownload: (() -> Unit)? = null,
-    onCancelDownload: (() -> Unit)? = null
+    onCancelDownload: (() -> Unit)? = null,
+    dragModifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
@@ -532,6 +612,12 @@ private fun OnlineTrackListItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .zIndex(if (isDragging) 1f else 0f)
+            .graphicsLayer {
+                translationY = dragOffsetY
+                shadowElevation = if (isDragging) 8f else 0f
+            }
+            .then(dragModifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
