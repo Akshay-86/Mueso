@@ -5,6 +5,21 @@ plugins {
     id("com.chaquo.python")
 }
 
+fun getGitCommitSha(): String {
+    val envSha = System.getenv("GITHUB_SHA")
+    if (!envSha.isNullOrBlank()) {
+        return envSha.take(7)
+    }
+    return try {
+        val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+        val sha = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor()
+        if (sha.isNotBlank()) sha else "dev"
+    } catch (e: Exception) {
+        "dev"
+    }
+}
+
 android {
     namespace = "com.akshay.musicplayer"
     compileSdk = 36
@@ -15,6 +30,11 @@ android {
         targetSdk = 36
         versionCode = 6
         versionName = "v1.1.0"
+
+        val gitSha = getGitCommitSha()
+        val buildTime = System.currentTimeMillis()
+        buildConfigField("String", "GIT_COMMIT_SHA", "\"$gitSha\"")
+        buildConfigField("Long", "BUILD_TIME_MILLIS", "${buildTime}L")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

@@ -282,7 +282,64 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         return false
     }
 
-    fun installPreBuildRelease(context: Context) {
+    private fun parseIso8601ToMillis(isoString: String): Long {
+        if (isoString.isBlank()) return 0L
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                java.time.Instant.parse(isoString).toEpochMilli()
+            } else {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }
+                sdf.parse(isoString)?.time ?: 0L
+            }
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    private fun extractCommitSha(body: String, title: String): String? {
+        val bodyRegex = Regex("commit\\s+([a-fA-F0-9]{7,40})")
+        bodyRegex.find(body)?.let { return it.groupValues[1].take(7) }
+
+        val titleRegex = Regex("\\(([a-fA-F0-9]{7,40})\\)")
+        titleRegex.find(title)?.let { return it.groupValues[1].take(7) }
+
+        return null
+    }
+
+    private fun isPreBuildNewer(
+        releaseSha: String?,
+        publishedAtMillis: Long,
+        installedSha: String,
+        installedBuildTime: Long,
+        installedLastUpdateTime: Long
+    ): Boolean {
+        // 1. If we have commit hashes and installed app is not "dev", compare them
+        if (!releaseSha.isNullOrBlank() && installedSha.isNotBlank() && installedSha != "dev") {
+            if (releaseSha.equals(installedSha, ignoreCase = true) ||
+                releaseSha.startsWith(installedSha, ignoreCase = true) ||
+                installedSha.startsWith(releaseSha, ignoreCase = true)
+            ) {
+                Log.d(TAG, "Pre-Build matching installed commit SHA: $installedSha. Not newer.")
+                return false
+            }
+        }
+
+        // 2. If published time is available, compare with build and install times
+        if (publishedAtMillis > 0) {
+            val effectiveInstalledTime = maxOf(installedBuildTime, installedLastUpdateTime)
+            // Leeway of 120s for CI checkout vs release tag creation
+            if (publishedAtMillis <= effectiveInstalledTime + 120_000L) {
+                Log.d(TAG, "Pre-Build published at $publishedAtMillis <= installed time $effectiveInstalledTime. Not newer.")
+                return false
+            }
+        }
+
+        return true
+    }
+
+    fun installPreBuildRelease(context: Context, forceDownload: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
             _isChecking.value = true
             _statusMessage.value = "Fetching Pre_Builds release from GitHub..."
@@ -312,6 +369,12 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 }
 
                 val json = JSONObject(body)
+                val releaseName = json.optString("name", "Pre_Builds")
+                val releaseBody = json.optString("body", "")
+                val publishedAt = json.optString("published_at", json.optString("created_at", ""))
+                val publishedAtMillis = parseIso8601ToMillis(publishedAt)
+                val releaseSha = extractCommitSha(releaseBody, releaseName)
+
                 val assets = json.optJSONArray("assets")
                 var apkUrl: String? = null
                 if (assets != null) {
@@ -335,16 +398,51 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     return@launch
                 }
 
-                _updateInfo.value = UpdateInfo(
-                    tagName = "Pre_Builds",
-                    releaseName = "Pre-Build Release",
-                    releaseNotes = json.optString("body", ""),
-                    apkUrl = apkUrl,
-                    isNewVersionAvailable = true
+                // Retrieve current app version & build info
+                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val installedSha = com.akshay.musicplayer.BuildConfig.GIT_COMMIT_SHA
+                val installedBuildTime = com.akshay.musicplayer.BuildConfig.BUILD_TIME_MILLIS
+                val installedLastUpdateTime = packageInfo.lastUpdateTime
+
+                val isNew = if (forceDownload) true else isPreBuildNewer(
+                    releaseSha = releaseSha,
+                    publishedAtMillis = publishedAtMillis,
+                    installedSha = installedSha,
+                    installedBuildTime = installedBuildTime,
+                    installedLastUpdateTime = installedLastUpdateTime
                 )
 
-                _statusMessage.value = "Downloading Pre_Builds release..."
-                downloadAndInstallApk(context)
+                val displayTag = if (!releaseSha.isNullOrBlank()) "Pre_Builds ($releaseSha)" else "Pre_Builds"
+
+                Log.d(TAG, "Pre_Build check: releaseSha=$releaseSha, installedSha=$installedSha, isNew=$isNew")
+
+                if (isNew) {
+                    _updateInfo.value = UpdateInfo(
+                        tagName = displayTag,
+                        releaseName = releaseName,
+                        releaseNotes = releaseBody.takeIf { it.isNotBlank() },
+                        apkUrl = apkUrl,
+                        isNewVersionAvailable = true
+                    )
+                    _statusMessage.value = "Downloading $displayTag..."
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "New Pre-Build found ($displayTag). Downloading...", Toast.LENGTH_SHORT).show()
+                    }
+                    downloadAndInstallApk(context)
+                } else {
+                    _updateInfo.value = UpdateInfo(
+                        tagName = displayTag,
+                        releaseName = releaseName,
+                        releaseNotes = releaseBody.takeIf { it.isNotBlank() },
+                        apkUrl = apkUrl,
+                        isNewVersionAvailable = false
+                    )
+                    val statusTxt = "You are already on the latest Pre-Build ($installedSha)"
+                    _statusMessage.value = statusTxt
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, statusTxt, Toast.LENGTH_LONG).show()
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching Pre_Builds release", e)
                 withContext(Dispatchers.Main) {

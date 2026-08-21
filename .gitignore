@@ -31,8 +31,14 @@ captures/
 ehthumbs.db
 Thumbs.db
 
-# Kotlin
-.kotlin/
+# Python
+__pycache__/
+*.pyc
+
+# Keystores & Credentials
+*.jks
+*.keystore
+credentials.txt
 
 # Optional: Ignore backup files
 *.bak
