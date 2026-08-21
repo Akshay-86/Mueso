@@ -76,7 +76,7 @@ def search_and_extract(query):
         'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android_vr', 'web_embedded', 'android', 'web']
+                'player_client': ['android', 'ios']
             }
         }
     }
@@ -105,11 +105,19 @@ def search_and_extract(query):
                 return {"error": "No entry found"}
 
             stream_url = None
-            formats = entry.get('formats', [])
-            print(f"[EXTRACTOR] search_and_extract: total formats found = {len(formats)}", flush=True)
+            raw_formats = entry.get('formats', [])
+            print(f"[EXTRACTOR] search_and_extract: total formats found = {len(raw_formats)}", flush=True)
             
+            # Filter out storyboards, formats without direct url, or forbidden android_vr formats
+            formats = [
+                f for f in raw_formats 
+                if f.get('url') 
+                and not str(f.get('format_id', '')).startswith('sb')
+                and 'c=ANDROID_VR' not in str(f.get('url', ''))
+            ]
+
             # 1. First priority: Audio-only streams with direct URLs (vcodec == 'none' and acodec != 'none')
-            audio_formats = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url')]
+            audio_formats = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
             print(f"[EXTRACTOR] search_and_extract: audio_formats count = {len(audio_formats)}", flush=True)
             if audio_formats:
                 best_audio = max(audio_formats, key=lambda f: f.get('tbr', 0) or f.get('abr', 0) or 0)
@@ -119,7 +127,7 @@ def search_and_extract(query):
             # 2. Second priority: Any video+audio format with a direct URL (acodec != 'none')
             if not stream_url:
                 print("[EXTRACTOR] search_and_extract: no audio_formats url, trying any_url_formats...", flush=True)
-                any_url_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('url')]
+                any_url_formats = [f for f in formats if f.get('acodec') != 'none']
                 print(f"[EXTRACTOR] search_and_extract: any_url_formats count = {len(any_url_formats)}", flush=True)
                 if any_url_formats:
                     stream_url = any_url_formats[0].get('url')
@@ -127,7 +135,9 @@ def search_and_extract(query):
             # 3. Fallback to entry.get("url")
             if not stream_url:
                 print("[EXTRACTOR] search_and_extract: trying entry.get('url')...", flush=True)
-                stream_url = entry.get('url')
+                entry_url = entry.get('url')
+                if entry_url and 'c=ANDROID_VR' not in entry_url:
+                    stream_url = entry_url
 
             print(f"[EXTRACTOR] search_and_extract: final stream_url found? {bool(stream_url)}", flush=True)
             if stream_url:
