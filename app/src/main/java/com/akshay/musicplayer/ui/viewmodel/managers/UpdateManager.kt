@@ -93,18 +93,7 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val releaseNotes = json.optString("body", "").takeIf { it.isNotBlank() }
 
                 val assets = json.optJSONArray("assets")
-                var apkUrl: String? = null
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(i) ?: continue
-                        val downloadUrl = asset.optString("browser_download_url", "")
-                        val assetName = asset.optString("name", "")
-                        if (assetName.endsWith(".apk", ignoreCase = true) || downloadUrl.endsWith(".apk", ignoreCase = true)) {
-                            apkUrl = downloadUrl
-                            break
-                        }
-                    }
-                }
+                val apkUrl = findBestMatchingApkUrl(assets)
 
                 Log.d(TAG, "Latest release tag: \"$tagName\", current: \"$currentVersionName\", apkUrl: $apkUrl")
 
@@ -376,18 +365,7 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val releaseSha = extractCommitSha(releaseBody, releaseName)
 
                 val assets = json.optJSONArray("assets")
-                var apkUrl: String? = null
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(i) ?: continue
-                        val downloadUrl = asset.optString("browser_download_url", "")
-                        val assetName = asset.optString("name", "")
-                        if (assetName.endsWith(".apk", ignoreCase = true) || downloadUrl.endsWith(".apk", ignoreCase = true)) {
-                            apkUrl = downloadUrl
-                            break
-                        }
-                    }
-                }
+                val apkUrl = findBestMatchingApkUrl(assets)
 
                 if (apkUrl.isNullOrBlank()) {
                     withContext(Dispatchers.Main) {
@@ -452,5 +430,52 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 _isChecking.value = false
             }
         }
+    }
+
+    private fun findBestMatchingApkUrl(assetsJson: org.json.JSONArray?): String? {
+        if (assetsJson == null || assetsJson.length() == 0) return null
+
+        data class ApkAsset(val name: String, val url: String)
+        val apkList = mutableListOf<ApkAsset>()
+        for (i in 0 until assetsJson.length()) {
+            val obj = assetsJson.optJSONObject(i) ?: continue
+            val url = obj.optString("browser_download_url", "")
+            val name = obj.optString("name", "").ifBlank { url.substringAfterLast('/') }
+            if (name.endsWith(".apk", ignoreCase = true)) {
+                apkList.add(ApkAsset(name.lowercase(), url))
+            }
+        }
+
+        if (apkList.isEmpty()) return null
+
+        // Detect supported ABIs in order of preference (e.g. ["arm64-v8a", "armeabi-v7a", "x86_64"])
+        val supportedAbis = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            Build.SUPPORTED_ABIS.map { it.lowercase() }
+        } else {
+            listOf(Build.CPU_ABI.lowercase())
+        }
+
+        Log.d(TAG, "Device supported ABIs: $supportedAbis. Available release APKs: ${apkList.map { it.name }}")
+
+        // 1. Try to find an exact ABI match (e.g. app-arm64-v8a-release.apk)
+        for (abi in supportedAbis) {
+            val match = apkList.firstOrNull { it.name.contains(abi) }
+            if (match != null) {
+                Log.d(TAG, "Selected architecture-matched APK for '$abi': ${match.name}")
+                return match.url
+            }
+        }
+
+        // 2. Fallback to universal APK (e.g. app-universal-release.apk)
+        val universalMatch = apkList.firstOrNull { it.name.contains("universal") }
+        if (universalMatch != null) {
+            Log.d(TAG, "Selected universal APK: ${universalMatch.name}")
+            return universalMatch.url
+        }
+
+        // 3. Fallback to generic release APK or first available APK
+        val genericMatch = apkList.firstOrNull { it.name.contains("release") } ?: apkList.first()
+        Log.d(TAG, "Selected fallback APK: ${genericMatch.name}")
+        return genericMatch.url
     }
 }
