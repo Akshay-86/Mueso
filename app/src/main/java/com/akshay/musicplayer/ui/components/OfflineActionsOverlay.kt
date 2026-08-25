@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -33,6 +35,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OfflineActionsOverlay(
@@ -52,6 +58,8 @@ fun OfflineActionsOverlay(
     onRepeatClick: () -> Unit = {},
     onQueueClick: () -> Unit = {},
     onDownloadClick: () -> Unit = {},
+    onDownloadLongClick: () -> Unit = {},
+    onCancelDownloadClick: () -> Unit = {},
     onAddToPlaylistClick: () -> Unit = {}
 ) {
     val accentColor = Color(0xFFFF512F)
@@ -105,24 +113,52 @@ fun OfflineActionsOverlay(
                             lineHeight = 10.sp
                         )
                     }
-                    IconButton(
-                        onClick = onDownloadClick,
-                        enabled = !isDownloading && !isDownloaded
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                enabled = !isDownloaded,
+                                onClick = {
+                                    if (isDownloading) {
+                                        onCancelDownloadClick()
+                                    } else if (!isDownloaded) {
+                                        onDownloadClick()
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!isDownloading && !isDownloaded) {
+                                        onDownloadLongClick()
+                                    }
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
                         when {
                             isDownloading -> {
-                                if (downloadProgress > 0f) {
-                                    CircularProgressIndicator(
-                                        progress = { downloadProgress },
-                                        modifier = Modifier.size(24.dp),
-                                        color = accentColor,
-                                        strokeWidth = 2.5.dp
-                                    )
-                                } else {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = accentColor,
-                                        strokeWidth = 2.5.dp
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    if (downloadProgress > 0f) {
+                                        CircularProgressIndicator(
+                                            progress = { downloadProgress },
+                                            modifier = Modifier.size(24.dp),
+                                            color = accentColor,
+                                            strokeWidth = 2.5.dp
+                                        )
+                                    } else {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = accentColor,
+                                            strokeWidth = 2.5.dp
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel Download",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(12.dp)
                                     )
                                 }
                             }

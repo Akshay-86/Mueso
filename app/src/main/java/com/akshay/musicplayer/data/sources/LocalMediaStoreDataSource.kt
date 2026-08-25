@@ -22,11 +22,12 @@ class LocalMediaStoreDataSource(
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DATA,
-                MediaStore.Audio.Media.DATE_MODIFIED
+                MediaStore.Audio.Media.DATE_MODIFIED,
+                MediaStore.Audio.Media.DATE_ADDED
             )
 
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} = 1"
-            val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
+            val sortOrder = "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
 
             contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -44,6 +45,16 @@ class LocalMediaStoreDataSource(
                     val albumId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID))
                     val data = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)) ?: ""
                     val dateModified = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED))
+                    val dateAdded = try { cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)) } catch (_: Exception) { 0L }
+                    var effectiveDate = maxOf(dateModified, dateAdded)
+                    if (effectiveDate == 0L && data.isNotEmpty()) {
+                        try {
+                            val f = java.io.File(data)
+                            if (f.exists()) {
+                                effectiveDate = f.lastModified() / 1000L
+                            }
+                        } catch (_: Exception) {}
+                    }
 
                     if (data.isNotEmpty()) {
                         tracks.add(
@@ -55,7 +66,7 @@ class LocalMediaStoreDataSource(
                                 duration = duration,
                                 albumId = albumId,
                                 data = data,
-                                dateModified = dateModified
+                                dateModified = effectiveDate
                             )
                         )
                     }
@@ -77,7 +88,8 @@ class LocalMediaStoreDataSource(
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DATA,
-                MediaStore.Audio.Media.DATE_MODIFIED
+                MediaStore.Audio.Media.DATE_MODIFIED,
+                MediaStore.Audio.Media.DATE_ADDED
             )
 
             val selection = "${MediaStore.Audio.Media._ID} = ?"
@@ -98,6 +110,16 @@ class LocalMediaStoreDataSource(
                     val albumId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID))
                     val data = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)) ?: ""
                     val dateModified = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED))
+                    val dateAdded = try { cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)) } catch (_: Exception) { 0L }
+                    var effectiveDate = maxOf(dateModified, dateAdded)
+                    if (effectiveDate == 0L && data.isNotEmpty()) {
+                        try {
+                            val f = java.io.File(data)
+                            if (f.exists()) {
+                                effectiveDate = f.lastModified() / 1000L
+                            }
+                        } catch (_: Exception) {}
+                    }
 
                     return@withContext Result.success(
                         Track(
@@ -108,7 +130,7 @@ class LocalMediaStoreDataSource(
                             duration = duration,
                             albumId = albumId,
                             data = data,
-                            dateModified = dateModified
+                            dateModified = effectiveDate
                         )
                     )
                 }

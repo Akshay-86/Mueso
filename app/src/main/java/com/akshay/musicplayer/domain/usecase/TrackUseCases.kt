@@ -16,7 +16,8 @@ class GetLocalTracksUseCase(
                     album = track.album,
                     duration = track.duration,
                     albumId = track.albumId,
-                    filePath = track.data
+                    filePath = track.data,
+                    dateModified = track.dateModified
                 )
             }
         }
@@ -36,7 +37,8 @@ class GetTrackByIdUseCase(
                     album = it.album,
                     duration = it.duration,
                     albumId = it.albumId,
-                    filePath = it.data
+                    filePath = it.data,
+                    dateModified = it.dateModified
                 )
             }
         }

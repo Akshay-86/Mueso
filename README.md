@@ -73,6 +73,9 @@
 ## ✨ Features
 
 - **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view.
+- **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position YouTube video thumbnails or album art. Customized positions are persisted and synced per playlist track across cloud backups!
+- **🎬 High-Speed Video Downloader (Up to 8K)**: Download videos directly to your device at resolutions up to **8K, 4K, 2K, 1080p, 720p, 480p, and 360p**. Powered by a concurrent multi-threaded chunk download engine with automatic retries and resume support.
+- **⚡ Native FFmpegKit Stream Muxing**: Direct lossless merging of separated high-res video (AV1, VP9, H.264) and high-bitrate audio (Opus, AAC) streams into standardized `.mp4` video files without slow re-encoding.
 - **🔍 Synced Lyrics & Manual Search**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, strict **Synced** / **Plain** tag classification, and an interactive manual lyrics search screen to look up and select alternate lyrics for any song.
 - **🟢 Spotify Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and manual alternative selection.
 - **🌐 Online Streaming & Curated Playlists**: Stream online tracks, browse curated top charts (YouTube & Spotify), create custom online playlists, and set custom Hero Banner playlists.
@@ -80,7 +83,20 @@
 - **📥 Batch Playlist Downloads**: Download full online playlists directly to your local device with embedded high-resolution album artwork and ID3 tags powered by Chaquopy Python & Mutagen.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers.
-- **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, hero banners, and app preferences securely to Google Drive AppData.
+- **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, track background adjustments, hero banners, and app preferences securely to Google Drive AppData.
+
+---
+
+## 📦 Download & Release Builds
+
+We publish automated signed builds via GitHub Actions with architecture-specific APK splits for optimal download sizes:
+
+| Package | Target Architecture | Recommended For | Approximate Size |
+| :--- | :--- | :--- | :--- |
+| **`app-arm64-v8a-release.apk`** | 64-bit ARM | **Recommended for 95%+ of modern Android phones** | **~28 MB** |
+| **`app-armeabi-v7a-release.apk`** | 32-bit ARM | Older 32-bit Android phones | **~25 MB** |
+| **`app-x86_64-release.apk`** | 64-bit x86 | Android Emulators, ChromeOS, PC | **~29 MB** |
+| **`app-universal-release.apk`** | All ABIs | Universal fallback (contains all architectures) | **~93 MB** |
 
 ---
 
@@ -92,11 +108,13 @@ Mueso follows modern **MVVM Clean Architecture** guidelines:
 | :--- | :--- |
 | **UI Framework** | Jetpack Compose (1.6+), Material 3 Design System |
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
+| **Media Muxing** | FFmpegKit (`ffmpeg-kit-min`) |
 | **State Management** | Kotlin Coroutines, StateFlow, ViewModel |
 | **Database** | Room Persistence Library |
-| **Networking** | OkHttp 3, Gson, Spotify Web API & Embed Scraper |
+| **Networking & HTTP** | OkHttp 3, Moshi JSON |
 | **Python Runtime** | Chaquopy SDK (for Mutagen ID3 Tagging & yt-dlp metadata) |
 | **Lyrics API** | LRCLIB Synced Lyrics API |
+| **Cloud Backup** | Google Drive REST API & WorkManager Auto-Sync |
 | **Sponsor Filtering** | SponsorBlock Community API |
 | **App Updates** | GitHub Releases API & Android FileProvider Installer |
 | **Image Loading** | Coil Compose |
@@ -106,10 +124,10 @@ Mueso follows modern **MVVM Clean Architecture** guidelines:
 ## 🚀 Building & Setup
 
 ### Prerequisites
-- **Android Studio**: Koala / Jellyfish (2024.1+)
+- **Android Studio**: Ladybug / Koala / Jellyfish (2024.1+)
 - **JDK**: Version 17+
 - **Min SDK**: 24 (Android 7.0)
-- **Target SDK**: 34 (Android 14)
+- **Target SDK**: 36 (Android 15)
 
 ### Clone & Compile
 

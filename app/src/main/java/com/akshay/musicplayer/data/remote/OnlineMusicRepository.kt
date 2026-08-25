@@ -12,6 +12,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
+data class VideoStreamInfo(
+    val title: String,
+    val artist: String,
+    val streamUrl: String,
+    val audioUrl: String = "",
+    val resolution: String,
+    val availableResolutions: List<String> = emptyList(),
+    val duration: Int = 0
+)
+
 data class SponsorSegment(
     val startMs: Long,
     val endMs: Long,
@@ -599,6 +609,112 @@ class OnlineMusicRepository {
         } catch (e: Exception) {
             Log.e("MUESO_STREAM", "[4/4] CRITICAL ERROR extracting stream via yt-dlp for videoId: '$videoId'", e)
             return@withContext ""
+        }
+    }
+
+    suspend fun getVideoStreamInfo(videoId: String, targetResolution: String = "1080p"): VideoStreamInfo? = withContext(Dispatchers.IO) {
+        try {
+            val isStarted = com.chaquo.python.Python.isStarted()
+            if (!isStarted) {
+                Log.e("MUESO_STREAM", "[ERROR] Python is NOT started! Returning null for getVideoStreamInfo.")
+                return@withContext null
+            }
+
+            val py = com.chaquo.python.Python.getInstance()
+            var pyModule = getExtractorModule(py)
+
+            val result = try {
+                Log.d("MUESO_STREAM", "[VIDEO] Executing pyModule.callAttr('extract_video_stream', '$videoId', '$targetResolution')...")
+                pyModule.callAttr("extract_video_stream", videoId, targetResolution)
+            } catch (pyErr: com.chaquo.python.PyException) {
+                Log.w("MUESO_STREAM", "PyException on extract_video_stream, reloading python module and retrying...", pyErr)
+                val importlib = py.getModule("importlib")
+                pyModule = importlib.callAttr("reload", py.getModule("extractor"))
+                pyModule.callAttr("extract_video_stream", videoId, targetResolution)
+            }
+
+            if (result != null) {
+                val streamUrl = result.callAttr("get", "stream_url")?.toString()?.takeIf { it.startsWith("http") }
+                if (!streamUrl.isNullOrBlank()) {
+                    val title = result.callAttr("get", "title")?.toString() ?: "Unknown Title"
+                    val artist = result.callAttr("get", "artist")?.toString() ?: "Unknown Artist"
+                    val audioUrl = result.callAttr("get", "audio_url")?.toString()?.takeIf { it.startsWith("http") } ?: ""
+                    val resolution = result.callAttr("get", "resolution")?.toString() ?: "Video"
+                    val duration = try { result.callAttr("get", "duration")?.toInt() ?: 0 } catch (_: Exception) { 0 }
+                    val rawAvail = try { result.callAttr("get", "available_resolutions")?.asList() } catch (_: Exception) { null }
+                    val availList = rawAvail?.map { it.toString() } ?: emptyList()
+
+                    Log.d("MUESO_STREAM", "[VIDEO] SUCCESS! Extracted video stream: res=$resolution, audioUrl=${if (audioUrl.isNotBlank()) "yes" else "no"}, url=${streamUrl.take(60)}")
+                    return@withContext VideoStreamInfo(
+                        title = title,
+                        artist = artist,
+                        streamUrl = streamUrl,
+                        audioUrl = audioUrl,
+                        resolution = resolution,
+                        availableResolutions = availList,
+                        duration = duration
+                    )
+                }
+            }
+            Log.e("MUESO_STREAM", "[VIDEO] extract_video_stream returned no stream URL for $videoId")
+            null
+        } catch (e: Exception) {
+            Log.e("MUESO_STREAM", "[VIDEO] CRITICAL ERROR in getVideoStreamInfo for videoId: '$videoId'", e)
+            null
+        }
+    }
+
+    fun extractVideoId(track: TrackEntity): String {
+        if (track.filePath.startsWith("online:")) {
+            val candidate = track.filePath.removePrefix("online:").trim()
+            if (candidate.length == 11 && !candidate.contains(" ") && !candidate.contains("/")) {
+                return candidate
+            }
+        }
+        if (!track.artworkUrl.isNullOrBlank() && track.artworkUrl.contains("/vi/")) {
+            val candidate = track.artworkUrl.substringAfter("/vi/").substringBefore("/").trim()
+            if (candidate.length == 11 && !candidate.contains(" ") && !candidate.contains("/")) {
+                return candidate
+            }
+        }
+        if (track.filePath.contains("v=")) {
+            val candidate = track.filePath.substringAfter("v=").substringBefore("&").trim()
+            if (candidate.length == 11 && !candidate.contains(" ") && !candidate.contains("/")) {
+                return candidate
+            }
+        }
+        if (track.filePath.startsWith("online:")) {
+            return track.filePath.removePrefix("online:").trim()
+        }
+        return if (track.title.isNotBlank()) "${track.title} ${track.artist}".trim() else track.id.toString()
+    }
+
+    suspend fun getAvailableVideoResolutionsForTrack(track: TrackEntity): List<String> = withContext(Dispatchers.IO) {
+        val videoId = extractVideoId(track)
+        Log.d("MUESO_STREAM", "[VIDEO] getAvailableVideoResolutionsForTrack for '${track.title}': videoId='$videoId'")
+        getAvailableVideoResolutions(videoId)
+    }
+
+    suspend fun getAvailableVideoResolutions(videoId: String): List<String> = withContext(Dispatchers.IO) {
+        if (videoId.isBlank()) return@withContext emptyList()
+        try {
+            if (!com.chaquo.python.Python.isStarted()) return@withContext emptyList()
+            val py = com.chaquo.python.Python.getInstance()
+            var pyModule = getExtractorModule(py)
+            val result = try {
+                pyModule.callAttr("extract_available_resolutions", videoId)
+            } catch (pyErr: com.chaquo.python.PyException) {
+                val importlib = py.getModule("importlib")
+                pyModule = importlib.callAttr("reload", py.getModule("extractor"))
+                pyModule.callAttr("extract_available_resolutions", videoId)
+            }
+            val rawList = result?.asList()
+            val resList = rawList?.map { it.toString() } ?: emptyList()
+            Log.d("MUESO_STREAM", "[VIDEO] getAvailableVideoResolutions for '$videoId': $resList")
+            resList
+        } catch (e: Exception) {
+            Log.e("MUESO_STREAM", "[VIDEO] Error fetching available resolutions for videoId: '$videoId'", e)
+            emptyList()
         }
     }
 

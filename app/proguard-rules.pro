@@ -52,6 +52,10 @@
 -keep class com.chaquo.python.** { *; }
 -dontwarn com.chaquo.python.**
 
+# FFmpegKit Rules
+-keep class com.arthenica.ffmpegkit.** { *; }
+-dontwarn com.arthenica.smartexception.java.Exceptions
+
 # ExoPlayer / Media3 Rules
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**

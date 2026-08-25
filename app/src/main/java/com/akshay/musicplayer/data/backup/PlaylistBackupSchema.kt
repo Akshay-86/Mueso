@@ -53,7 +53,8 @@ data class BackupLocalPlaylist(
 data class BackupLocalTrackInfo(
     val title: String,
     val artist: String,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    val backgroundBias: Float? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -64,5 +65,6 @@ data class BackupTrack(
     val artworkUrl: String? = null,
     val filePath: String,
     val duration: Long = 0L,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    val backgroundBias: Float? = null
 )

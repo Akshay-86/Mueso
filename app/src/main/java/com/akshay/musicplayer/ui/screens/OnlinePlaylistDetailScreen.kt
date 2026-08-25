@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
@@ -70,6 +71,9 @@ fun OnlinePlaylistDetailScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showDownloadDialog by remember { mutableStateOf(false) }
+    var selectedTrackForDownloadOptions by remember { mutableStateOf<TrackEntity?>(null) }
+    val downloadFolder by viewModel?.downloadFolder?.collectAsState() ?: remember { mutableStateOf("Music/Mueso") }
+    val videoDownloadFolder by viewModel?.videoDownloadFolder?.collectAsState() ?: remember { mutableStateOf("Movies/Mueso") }
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
@@ -311,6 +315,23 @@ fun OnlinePlaylistDetailScreen(
                                     trackColor = AccentOrange.copy(alpha = 0.2f)
                                 )
                             }
+                            IconButton(
+                                onClick = {
+                                    displayTracks.forEach { trk ->
+                                        if (downloadStates[trk.id]?.isDownloading == true) {
+                                            viewModel?.cancelDownload(trk.id)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel All Downloads",
+                                    tint = AccentOrange,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -367,6 +388,7 @@ fun OnlinePlaylistDetailScreen(
                         onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
                         onMoveDown = { onMoveTrack?.invoke(index, index + 1) },
                         onDownload = { onDownloadTrack?.invoke(track) },
+                        onDownloadOptions = { selectedTrackForDownloadOptions = track },
                         onCancelDownload = { viewModel?.cancelDownload(track.id) },
                         dragModifier = if (isCustomUserPlaylist && onMoveTrack != null) {
                             Modifier.pointerInput(track.id) {
@@ -449,6 +471,25 @@ fun OnlinePlaylistDetailScreen(
                     android.widget.Toast.makeText(context, "Downloading ${selectedTracks.size} tracks...", android.widget.Toast.LENGTH_SHORT).show()
                 },
                 onDismiss = { showDownloadDialog = false }
+            )
+        }
+
+        if (selectedTrackForDownloadOptions != null) {
+            com.akshay.musicplayer.ui.components.DownloadOptionsBottomSheet(
+                track = selectedTrackForDownloadOptions!!,
+                audioFolder = downloadFolder,
+                videoFolder = videoDownloadFolder,
+                isDarkMode = isDarkMode,
+                onFetchResolutions = { trk ->
+                    viewModel?.getAvailableVideoResolutions(trk) ?: emptyList()
+                },
+                onDownloadAudio = {
+                    viewModel?.downloadOnlineTrack(context, selectedTrackForDownloadOptions!!)
+                },
+                onDownloadVideo = { res ->
+                    viewModel?.downloadOnlineVideo(context, selectedTrackForDownloadOptions!!, res)
+                },
+                onDismiss = { selectedTrackForDownloadOptions = null }
             )
         }
     }
@@ -602,6 +643,7 @@ private fun OnlineTrackListItem(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDownload: (() -> Unit)? = null,
+    onDownloadOptions: (() -> Unit)? = null,
     onCancelDownload: (() -> Unit)? = null,
     dragModifier: Modifier = Modifier
 ) {
@@ -725,6 +767,38 @@ private fun OnlineTrackListItem(
                         onClick()
                     }
                 )
+                if (downloadState?.isDownloading != true && downloadState?.isDownloaded != true) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                                Text("Download Song", color = textColor)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDownload?.invoke()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Videocam, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                                Text("Download Video / Options", color = textColor)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDownloadOptions?.invoke()
+                        }
+                    )
+                }
                 if (downloadState?.isDownloading == true) {
                     DropdownMenuItem(
                         text = {

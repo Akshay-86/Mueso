@@ -36,6 +36,7 @@ import com.akshay.musicplayer.ui.viewmodel.managers.DownloadManager
 import com.akshay.musicplayer.ui.viewmodel.managers.PlaylistManager
 import com.akshay.musicplayer.ui.viewmodel.managers.SpotifyImportManager
 import com.akshay.musicplayer.data.remote.SpotifyImportRepository
+import com.akshay.musicplayer.media.notification.NotificationHelper
 
 enum class LyricsFetchStatus {
     IDLE,
@@ -64,7 +65,13 @@ class PlayerViewModel(
     val settingsManager = SettingsManager(sharedPreferences)
     val backupManager = BackupManager(sharedPreferences, playlistDao, onlinePlaylistDao, viewModelScope, settingsManager)
     val searchManager = SearchManager(onlineRepository, viewModelScope) { currentTracks }
-    val downloadManager = DownloadManager(onlineRepository, { settingsManager.downloadFolder.value }, viewModelScope)
+    val downloadManager = DownloadManager(
+        onlineRepository = onlineRepository,
+        getDownloadFolder = { settingsManager.downloadFolder.value },
+        getVideoDownloadFolder = { settingsManager.videoDownloadFolder.value },
+        getDefaultVideoResolution = { settingsManager.videoDownloadResolution.value },
+        coroutineScope = viewModelScope
+    )
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
     val spotifyImportManager = SpotifyImportManager(SpotifyImportRepository(), onlineRepository, onlinePlaylistDao, viewModelScope, { backupManager.markDirty() })
     val updateManager = com.akshay.musicplayer.ui.viewmodel.managers.UpdateManager(viewModelScope)
@@ -87,6 +94,9 @@ class PlayerViewModel(
     val thumbnailQuality = settingsManager.thumbnailQuality
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
+    val downloadType = settingsManager.downloadType
+    val videoDownloadResolution = settingsManager.videoDownloadResolution
+    val videoDownloadFolder = settingsManager.videoDownloadFolder
     val enableLyrics = settingsManager.enableLyrics
     val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
@@ -105,6 +115,9 @@ class PlayerViewModel(
     fun setThumbnailQuality(quality: String) = settingsManager.setThumbnailQuality(quality)
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
+    fun setDownloadType(type: String) = settingsManager.setDownloadType(type)
+    fun setVideoDownloadResolution(resolution: String) = settingsManager.setVideoDownloadResolution(resolution)
+    fun setVideoDownloadFolder(folder: String) = settingsManager.setVideoDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)
@@ -139,8 +152,42 @@ class PlayerViewModel(
     fun performDriveRestore(context: android.content.Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) = backupManager.performDriveRestore(context, onResult)
     fun signOutGoogle(context: android.content.Context) = backupManager.signOutGoogle(context)
 
+    fun getTrackBackgroundBias(track: com.akshay.musicplayer.domain.models.TrackEntity?): Float {
+        if (track == null) return 0f
+        val idKey = "bg_bias_${track.id}"
+        if (sharedPreferences.contains(idKey)) {
+            return sharedPreferences.getFloat(idKey, 0f)
+        }
+        val videoId = onlineRepository.extractVideoId(track)
+        val videoKey = "bg_bias_$videoId"
+        if (sharedPreferences.contains(videoKey)) {
+            return sharedPreferences.getFloat(videoKey, 0f)
+        }
+        val titleArtistKey = "bg_bias_${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}"
+        return sharedPreferences.getFloat(titleArtistKey, 0f)
+    }
+
+    fun saveTrackBackgroundBias(track: com.akshay.musicplayer.domain.models.TrackEntity?, bias: Float) {
+        if (track == null) return
+        val idKey = "bg_bias_${track.id}"
+        val videoId = onlineRepository.extractVideoId(track)
+        val videoKey = "bg_bias_$videoId"
+        val titleArtistKey = "bg_bias_${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}"
+        
+        sharedPreferences.edit()
+            .putFloat(idKey, bias)
+            .putFloat(videoKey, bias)
+            .putFloat(titleArtistKey, bias)
+            .apply()
+        
+        backupManager.markDirty()
+    }
+
     val downloadStates = downloadManager.downloadStates
     fun downloadOnlineTrack(context: android.content.Context, track: com.akshay.musicplayer.domain.models.TrackEntity) = downloadManager.downloadOnlineTrack(context, track)
+    fun downloadOnlineVideo(context: android.content.Context, track: com.akshay.musicplayer.domain.models.TrackEntity, resolution: String? = null, customFolder: String? = null) = downloadManager.downloadOnlineVideo(context, track, resolution, customFolder)
+    suspend fun getAvailableVideoResolutions(track: com.akshay.musicplayer.domain.models.TrackEntity): List<String> = onlineRepository.getAvailableVideoResolutionsForTrack(track)
+    suspend fun getAvailableVideoResolutions(videoId: String): List<String> = onlineRepository.getAvailableVideoResolutions(videoId)
     fun cancelDownload(trackId: Long) = downloadManager.cancelDownload(trackId)
 
     val playlists = playlistManager.playlists
@@ -420,6 +467,22 @@ class PlayerViewModel(
         initRestoredTrackPreview()
         observePlaybackState()
         observeMediaEvents()
+        NotificationHelper.onPlayDownloadedTrackRequested = { filePath ->
+            playLocalTrackByPath(filePath)
+        }
+    }
+
+    fun playLocalTrackByPath(filePath: String) {
+        viewModelScope.launch {
+            loadLocalTracks(forceReload = true)
+            val currentState = _uiState.value
+            if (currentState is PlayerUiState.Success) {
+                val match = currentState.tracks.find { it.filePath == filePath }
+                if (match != null) {
+                    playTrack(match)
+                }
+            }
+        }
     }
 
 
@@ -907,7 +970,7 @@ class PlayerViewModel(
                         // Only prefetch on actual track transitions, not every position update
                         if (oldTrackId != state.currentTrackId) {
                             val newTrackId = state.currentTrackId
-                            _lyricsOffsetMs.value = if (newTrackId != null) sharedPreferences.getLong("lyrics_offset_$newTrackId", 0L) else 0L
+                            _lyricsOffsetMs.value = sharedPreferences.getLong("lyrics_offset_$newTrackId", 0L)
                             lastPrefetchedNextIndex = -1
                             prefetchAndKeepQueueAlive(currentTrackIdx)
                         }

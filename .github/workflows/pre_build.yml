@@ -53,13 +53,27 @@ jobs:
           gh release delete Pre_Builds --yes || true
           git push --delete origin Pre_Builds || true
 
-      - name: Create New Pre_Builds Release & Upload Signed APK
+      - name: Create New Pre_Builds Release & Upload Signed APKs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          gh release create Pre_Builds app/build/outputs/apk/release/app-release.apk \
+          BUILD_DATE=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          cat << 'EOF' > release_notes.md
+          ### 📦 Release Assets Guide
+
+          | APK File | Architecture | Target Devices | Typical Size |
+          |---|---|---|---|
+          | **app-arm64-v8a-release.apk** | **64-bit ARM** | **Recommended: 95%+ of modern Android phones** | **~28 MB** |
+          | **app-armeabi-v7a-release.apk** | **32-bit ARM** | Older 32-bit Android devices | **~25 MB** |
+          | **app-x86_64-release.apk** | **64-bit x86** | Android Emulators, ChromeOS, PCs | **~29 MB** |
+          | **app-universal-release.apk** | **Universal** | All devices (fallback all-in-one) | **~93 MB** |
+
+          ---
+          EOF
+          echo "*Automated signed build generated on $BUILD_DATE from commit \`${{ github.sha }}\`.*" >> release_notes.md
+          gh release create Pre_Builds app/build/outputs/apk/release/*.apk \
             --title "Pre_Builds ($SHORT_SHA)" \
-            --notes "Automated signed release generated on $(date -u +'%Y-%m-%d %H:%M:%S UTC') from commit ${{ github.sha }}." \
+            --notes-file release_notes.md \
             --prerelease
 

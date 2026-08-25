@@ -42,6 +42,15 @@ android {
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     chaquopy {
         defaultConfig {
             val localPython = file("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
@@ -176,4 +185,7 @@ dependencies {
     // Google Auth & WorkManager
     implementation("com.google.android.gms:play-services-auth:21.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // FFmpeg (for muxing video+audio streams)
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.7")
 }

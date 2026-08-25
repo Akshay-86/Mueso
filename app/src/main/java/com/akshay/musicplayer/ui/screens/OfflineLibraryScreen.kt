@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,9 +69,17 @@ fun OfflineLibraryScreen(
     onNavigateToPlayer: () -> Unit,
     onPlaylistClick: (PlaylistEntity) -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    var sortOption by remember { mutableStateOf(SortOption.DATE_ADDED) }
+    val context = LocalContext.current
+    val sharedPreferences = remember(context) { context.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE) }
+    val savedSortName = remember { sharedPreferences.getString("offline_sort_option", SortOption.DATE_ADDED.name) }
+    var sortOption by remember {
+        mutableStateOf(
+            try { SortOption.valueOf(savedSortName ?: SortOption.DATE_ADDED.name) }
+            catch (_: Exception) { SortOption.DATE_ADDED }
+        )
+    }
 
+    val uiState by viewModel.uiState.collectAsState()
     val selectedTab by viewModel.offlineLibraryTab.collectAsState()
     var trackToAdd by remember { mutableStateOf<TrackEntity?>(null) }
     val playlists by viewModel.playlists.collectAsState()
@@ -121,9 +130,12 @@ fun OfflineLibraryScreen(
                     sortOption = sortOption,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
-                    onSortChange = { sortOption = it },
-                    onTrackClick = { track ->
-                        viewModel.playTrack(track)
+                    onSortChange = {
+                        sortOption = it
+                        sharedPreferences.edit().putString("offline_sort_option", it.name).apply()
+                    },
+                    onTrackClick = { list, index ->
+                        viewModel.playQueue(list, index)
                         onNavigateToPlayer()
                     },
                     onAddToPlaylist = { trackToAdd = it },
@@ -206,7 +218,7 @@ private fun AllSongsTab(
     isDarkMode: Boolean,
     viewModel: PlayerViewModel,
     onSortChange: (SortOption) -> Unit,
-    onTrackClick: (TrackEntity) -> Unit,
+    onTrackClick: (List<TrackEntity>, Int) -> Unit,
     onAddToPlaylist: (TrackEntity) -> Unit,
     onRefresh: () -> Unit = {}
 ) {
@@ -241,9 +253,25 @@ private fun AllSongsTab(
     when (val state = uiState) {
         is PlayerUiState.Success -> {
             val tracks = state.tracks
-            val sortedTracks = when (sortOption) {
-                SortOption.A_Z -> tracks.sortedBy { it.title }
-                SortOption.DATE_ADDED -> tracks
+            val sortedTracks = remember(tracks, sortOption) {
+                when (sortOption) {
+                    SortOption.DATE_ADDED -> tracks.sortedWith(
+                        compareByDescending<TrackEntity> { it.dateModified }
+                            .thenByDescending { it.id }
+                    )
+                    SortOption.A_Z -> tracks.sortedWith(
+                        compareBy<TrackEntity> { it.title.trim().trim('"', '\'', '[', '(', '{').lowercase() }
+                            .thenBy { it.artist.trim().lowercase() }
+                    )
+                    SortOption.Z_A -> tracks.sortedWith(
+                        compareByDescending<TrackEntity> { it.title.trim().trim('"', '\'', '[', '(', '{').lowercase() }
+                            .thenByDescending { it.artist.trim().lowercase() }
+                    )
+                    SortOption.ARTIST -> tracks.sortedWith(
+                        compareBy<TrackEntity> { it.artist.trim().trim('"', '\'', '[', '(', '{').lowercase() }
+                            .thenBy { it.title.trim().lowercase() }
+                    )
+                }
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -343,7 +371,7 @@ private fun AllSongsTab(
                             TrackListItem(
                                 track = track,
                                 isDarkMode = isDarkMode,
-                                onClick = { onTrackClick(track) },
+                                onClick = { onTrackClick(sortedTracks, index) },
                                 onAddToPlaylist = { onAddToPlaylist(track) },
                                 onRename = { trackToRename = track },
                                 onDelete = { trackToDelete = track }
@@ -436,15 +464,21 @@ private fun SortChip(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.SortByAlpha,
+                imageVector = when (currentSort) {
+                    SortOption.DATE_ADDED -> Icons.Default.Schedule
+                    SortOption.A_Z, SortOption.Z_A -> Icons.Default.SortByAlpha
+                    SortOption.ARTIST -> Icons.Default.Person
+                },
                 contentDescription = null,
                 tint = textTint,
                 modifier = Modifier.size(16.dp)
             )
             Text(
                 text = when (currentSort) {
-                    SortOption.A_Z -> "A–Z"
                     SortOption.DATE_ADDED -> "Recent"
+                    SortOption.A_Z -> "A–Z"
+                    SortOption.Z_A -> "Z–A"
+                    SortOption.ARTIST -> "Artist"
                 },
                 color = textTint,
                 fontSize = 13.sp
@@ -466,7 +500,7 @@ private fun SortChip(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(Icons.Default.Schedule, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
-                        Text("Date Added", color = itemTextColor)
+                        Text("Recently Added", color = itemTextColor)
                     }
                 },
                 onClick = { onSortChange(SortOption.DATE_ADDED); expanded = false },
@@ -486,13 +520,53 @@ private fun SortChip(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(Icons.Default.SortByAlpha, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
-                        Text("Alphabetical", color = itemTextColor)
+                        Text("Title (A–Z)", color = itemTextColor)
                     }
                 },
                 onClick = { onSortChange(SortOption.A_Z); expanded = false },
                 modifier = Modifier.padding(horizontal = 4.dp),
                 trailingIcon = {
                     if (currentSort == SortOption.A_Z) {
+                        Box(
+                            Modifier.size(8.dp).clip(CircleShape).background(AccentOrange)
+                        )
+                    }
+                }
+            )
+            DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.SortByAlpha, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Text("Title (Z–A)", color = itemTextColor)
+                    }
+                },
+                onClick = { onSortChange(SortOption.Z_A); expanded = false },
+                modifier = Modifier.padding(horizontal = 4.dp),
+                trailingIcon = {
+                    if (currentSort == SortOption.Z_A) {
+                        Box(
+                            Modifier.size(8.dp).clip(CircleShape).background(AccentOrange)
+                        )
+                    }
+                }
+            )
+            DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Person, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Text("Artist", color = itemTextColor)
+                    }
+                },
+                onClick = { onSortChange(SortOption.ARTIST); expanded = false },
+                modifier = Modifier.padding(horizontal = 4.dp),
+                trailingIcon = {
+                    if (currentSort == SortOption.ARTIST) {
                         Box(
                             Modifier.size(8.dp).clip(CircleShape).background(AccentOrange)
                         )
@@ -1231,7 +1305,10 @@ fun AddToPlaylistDialog(
 }
 
 enum class SortOption {
-    A_Z, DATE_ADDED
+    DATE_ADDED,
+    A_Z,
+    Z_A,
+    ARTIST
 }
 
 @Composable

@@ -65,6 +65,11 @@
         <receiver
             android:name=".media.notification.BackupCancelReceiver"
             android:exported="false" />
+
+        <!-- Receiver for download notification actions (Cancel, Play Now, etc.) -->
+        <receiver
+            android:name=".media.notification.DownloadActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

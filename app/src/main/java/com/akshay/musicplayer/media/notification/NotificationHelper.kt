@@ -46,55 +46,152 @@ object NotificationHelper {
         )
     }
 
+    const val ACTION_CANCEL_DOWNLOAD = "com.akshay.musicplayer.ACTION_CANCEL_DOWNLOAD"
+    const val ACTION_PLAY_DOWNLOADED = "com.akshay.musicplayer.ACTION_PLAY_DOWNLOADED"
+    const val ACTION_OPEN_OFFLINE_LIBRARY = "com.akshay.musicplayer.ACTION_OPEN_OFFLINE_LIBRARY"
+    const val EXTRA_TRACK_ID = "extra_track_id"
+    const val EXTRA_FILE_PATH = "extra_file_path"
+    const val EXTRA_TITLE = "extra_title"
+    const val EXTRA_ARTIST = "extra_artist"
+
+    var onCancelDownloadRequested: ((Long) -> Unit)? = null
+    var onPlayDownloadedTrackRequested: ((String) -> Unit)? = null
+
     fun showDownloadProgress(
         context: Context,
+        trackId: Long,
         trackTitle: String,
-        completedCount: Int,
-        totalCount: Int,
-        progress: Float
+        artist: String = "",
+        completedCount: Int = 1,
+        totalCount: Int = 1,
+        progress: Float = 0f
     ) {
         ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val contentText = if (totalCount > 1) {
-            "Downloading track $completedCount of $totalCount: \"$trackTitle\""
+        val percent = (progress * 100).toInt().coerceIn(0, 100)
+
+        // Cancel Quick Action Intent
+        val cancelIntent = Intent(context, DownloadActionReceiver::class.java).apply {
+            action = ACTION_CANCEL_DOWNLOAD
+            putExtra(EXTRA_TRACK_ID, trackId)
+        }
+        val pendingCancel = PendingIntent.getBroadcast(
+            context,
+            trackId.toInt(),
+            cancelIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Open App Intent
+        val pendingOpen = getLaunchIntent(context)
+
+        val title = if (totalCount > 1) {
+            "Downloading ($completedCount/$totalCount): $trackTitle"
         } else {
-            "Downloading \"$trackTitle\"..."
+            "Downloading \"$trackTitle\""
+        }
+
+        val artistSuffix = if (artist.isNotBlank() && !artist.equals("Unknown", ignoreCase = true)) " • $artist" else ""
+        val contentText = "$percent% • $trackTitle$artistSuffix"
+
+        val bigText = buildString {
+            append("Track: ").append(trackTitle)
+            if (artist.isNotBlank() && !artist.equals("Unknown", ignoreCase = true)) {
+                append("\nArtist: ").append(artist)
+            }
+            if (totalCount > 1) {
+                append("\nBatch: ").append(completedCount).append(" of ").append(totalCount).append(" tracks")
+            }
+            append("\nProgress: ").append(percent).append("%")
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Downloading Music")
+            .setContentTitle(title)
             .setContentText(contentText)
+            .setSubText("$percent%")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(100, (progress * 100).toInt(), false)
-            .setContentIntent(getLaunchIntent(context))
+            .setProgress(100, percent, false)
+            .setContentIntent(pendingOpen)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel Download", pendingCancel)
             .build()
 
         manager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
     }
 
-    fun showDownloadComplete(context: Context, totalDownloaded: Int, lastTitle: String) {
+    fun showDownloadComplete(
+        context: Context,
+        totalDownloaded: Int,
+        lastTitle: String,
+        lastArtist: String = "",
+        lastFilePath: String? = null
+    ) {
         ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val contentText = if (totalDownloaded > 1) {
-            "Successfully downloaded $totalDownloaded tracks"
+        // Open Library Intent
+        val libraryIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_OPEN_OFFLINE_LIBRARY
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        }
+        val pendingLibrary = PendingIntent.getActivity(
+            context,
+            1001,
+            libraryIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = if (totalDownloaded > 1) {
+            "Downloads Complete ($totalDownloaded songs)"
         } else {
-            "Saved \"$lastTitle\" to device"
+            "Download Complete"
         }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val artistSuffix = if (lastArtist.isNotBlank() && !lastArtist.equals("Unknown", ignoreCase = true)) " • $lastArtist" else ""
+        val contentText = if (totalDownloaded > 1) {
+            "Successfully downloaded $totalDownloaded tracks to device"
+        } else {
+            "Saved \"$lastTitle\"$artistSuffix to device"
+        }
+
+        val bigText = if (totalDownloaded > 1) {
+            "Saved $totalDownloaded track(s) to your offline library.\nTap below to open your Offline Library."
+        } else {
+            "\"$lastTitle\"$artistSuffix has been downloaded and added to your offline library."
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("Download Complete")
+            .setContentTitle(title)
             .setContentText(contentText)
+            .setSubText("Offline Library")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(false)
             .setAutoCancel(true)
-            .setContentIntent(getLaunchIntent(context))
-            .build()
+            .setContentIntent(pendingLibrary)
+            .addAction(android.R.drawable.ic_menu_agenda, "Open Library", pendingLibrary)
 
-        manager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+        // Quick action: Play Now
+        if (!lastFilePath.isNullOrBlank()) {
+            val playIntent = Intent(context, DownloadActionReceiver::class.java).apply {
+                action = ACTION_PLAY_DOWNLOADED
+                putExtra(EXTRA_FILE_PATH, lastFilePath)
+                putExtra(EXTRA_TITLE, lastTitle)
+                putExtra(EXTRA_ARTIST, lastArtist)
+            }
+            val pendingPlay = PendingIntent.getBroadcast(
+                context,
+                2002,
+                playIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(android.R.drawable.ic_media_play, "Play Now", pendingPlay)
+        }
+
+        manager.notify(DOWNLOAD_NOTIFICATION_ID, builder.build())
     }
 
     fun dismissDownloadNotification(context: Context) {
@@ -208,5 +305,30 @@ class BackupCancelReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         NotificationHelper.onCancelBackupRequested?.invoke()
         NotificationHelper.dismissBackupNotification(context)
+    }
+}
+
+class DownloadActionReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        when (intent?.action) {
+            NotificationHelper.ACTION_CANCEL_DOWNLOAD -> {
+                val trackId = intent.getLongExtra(NotificationHelper.EXTRA_TRACK_ID, -1L)
+                if (trackId != -1L) {
+                    NotificationHelper.onCancelDownloadRequested?.invoke(trackId)
+                }
+            }
+            NotificationHelper.ACTION_PLAY_DOWNLOADED -> {
+                val filePath = intent.getStringExtra(NotificationHelper.EXTRA_FILE_PATH)
+                if (!filePath.isNullOrBlank()) {
+                    NotificationHelper.onPlayDownloadedTrackRequested?.invoke(filePath)
+
+                    val launchIntent = Intent(context, MainActivity::class.java).apply {
+                        action = Intent.ACTION_MAIN
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    }
+                    context.startActivity(launchIntent)
+                }
+            }
+        }
     }
 }

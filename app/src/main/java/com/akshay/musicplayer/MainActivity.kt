@@ -46,6 +46,8 @@ class MainActivity : ComponentActivity() {
         // Setup ViewModel
         setupViewModel()
 
+        handleNotificationIntent(intent)
+
         setContent {
             val isDarkMode by playerViewModel.isDarkMode.collectAsState()
             val showOnLockscreen by playerViewModel.showOnLockscreen.collectAsState()
@@ -280,6 +282,27 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = { permissionState.launchPermissionRequest() }) {
                         Text("Grant permission")
                     }
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: android.content.Intent?) {
+        if (intent == null) return
+        when (intent.action) {
+            com.akshay.musicplayer.media.notification.NotificationHelper.ACTION_OPEN_OFFLINE_LIBRARY -> {
+                playerViewModel.setOfflineLibraryTab(1)
+            }
+            com.akshay.musicplayer.media.notification.NotificationHelper.ACTION_PLAY_DOWNLOADED -> {
+                val filePath = intent.getStringExtra(com.akshay.musicplayer.media.notification.NotificationHelper.EXTRA_FILE_PATH)
+                if (!filePath.isNullOrBlank()) {
+                    playerViewModel.playLocalTrackByPath(filePath)
                 }
             }
         }

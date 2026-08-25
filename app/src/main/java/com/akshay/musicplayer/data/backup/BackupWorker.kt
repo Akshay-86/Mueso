@@ -33,6 +33,20 @@ class BackupWorker(
                     artworkUrl = p.artworkUrl,
                     dateCreated = p.dateCreated,
                     tracks = tracks.map { t ->
+                        val idKey = "bg_bias_${t.trackId}"
+                        var bias = if (sharedPrefs.contains(idKey)) sharedPrefs.getFloat(idKey, 0f) else 0f
+                        if (bias == 0f && t.filePath.isNotBlank()) {
+                            val videoId = if (t.filePath.startsWith("online_") || t.filePath.startsWith("youtube_")) {
+                                t.filePath.substringAfter("online_").substringAfter("youtube_")
+                            } else null
+                            if (!videoId.isNullOrBlank()) {
+                                bias = sharedPrefs.getFloat("bg_bias_$videoId", 0f)
+                            }
+                        }
+                        if (bias == 0f && t.title.isNotBlank() && t.artist.isNotBlank()) {
+                            bias = sharedPrefs.getFloat("bg_bias_${t.title.trim().lowercase()}_${t.artist.trim().lowercase()}", 0f)
+                        }
+
                         BackupTrack(
                             trackId = t.trackId,
                             title = t.title,
@@ -40,7 +54,8 @@ class BackupWorker(
                             artworkUrl = t.artworkUrl,
                             filePath = t.filePath,
                             duration = t.duration,
-                            orderIndex = t.orderIndex
+                            orderIndex = t.orderIndex,
+                            backgroundBias = if (bias != 0f) bias else null
                         )
                     }
                 )

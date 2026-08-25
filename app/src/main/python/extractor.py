@@ -176,6 +176,219 @@ def extract_stream(video_id):
     print("[EXTRACTOR] extract_stream: res was not a dict", flush=True)
     return ""
 
+def extract_available_resolutions(video_id):
+    if not video_id:
+        return []
+    clean_id = str(video_id).strip()
+    if clean_id.startswith("online:"):
+        clean_id = clean_id[7:].strip()
+    url = clean_id if clean_id.startswith("http") else f"https://www.youtube.com/watch?v={clean_id}"
+    print(f"[EXTRACTOR] extract_available_resolutions for url='{url}'", flush=True)
+
+    ydl_opts = {
+        'skip_download': True,
+        'quiet': False,
+        'no_warnings': False,
+        'extract_flat': False,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['visionos', 'android', 'web', 'ios']
+            }
+        }
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return []
+            entry = info['entries'][0] if ('entries' in info and info['entries']) else info
+            raw_formats = entry.get('formats', [])
+            valid_video_formats = [
+                f for f in raw_formats 
+                if f.get('url') 
+                and not str(f.get('format_id', '')).startswith('sb')
+                and 'c=ANDROID_VR' not in str(f.get('url', ''))
+                and 'manifest.googlevideo.com' not in str(f.get('url', ''))
+                and not str(f.get('protocol', '')).startswith('m3u8')
+                and f.get('vcodec') != 'none'
+                and (f.get('height') or 0) > 0
+            ]
+            heights = sorted(list(set([int(f.get('height')) for f in valid_video_formats if f.get('height')])), reverse=True)
+            res_labels = []
+            for h in heights:
+                if h >= 4320:
+                    res_labels.append(f"{h}p (8K Ultra HD)")
+                elif h >= 2160:
+                    res_labels.append(f"{h}p (4K UHD)")
+                elif h >= 1440:
+                    res_labels.append(f"{h}p (2K QHD)")
+                elif h >= 1080:
+                    res_labels.append(f"{h}p (Full HD)")
+                elif h >= 720:
+                    res_labels.append(f"{h}p (HD)")
+                elif h >= 480:
+                    res_labels.append(f"{h}p (SD)")
+                elif h >= 360:
+                    res_labels.append(f"{h}p (Medium)")
+                elif h >= 240:
+                    res_labels.append(f"{h}p (Low)")
+                else:
+                    res_labels.append(f"{h}p")
+            print(f"[EXTRACTOR] extract_available_resolutions found: {res_labels}", flush=True)
+            return res_labels
+    except Exception as e:
+        print(f"[EXTRACTOR] Error in extract_available_resolutions: {e}", flush=True)
+        traceback.print_exc()
+        return []
+
+def extract_video_stream(video_id, target_resolution="1080p"):
+    if not video_id:
+        return {"error": "Empty id", "stream_url": "", "audio_url": "", "resolution": "", "available_resolutions": []}
+    clean_id = str(video_id).strip()
+    if clean_id.startswith("online:"):
+        clean_id = clean_id[7:].strip()
+    url = clean_id if clean_id.startswith("http") else f"https://www.youtube.com/watch?v={clean_id}"
+    print(f"[EXTRACTOR] extract_video_stream for url='{url}', target_res='{target_resolution}'", flush=True)
+
+    ydl_opts = {
+        'skip_download': True,
+        'quiet': False,
+        'no_warnings': False,
+        'extract_flat': False,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'external_downloader': None,
+        'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['visionos', 'android', 'web', 'ios']
+            }
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return {"error": "No info returned", "stream_url": "", "audio_url": "", "resolution": "", "available_resolutions": []}
+            
+            entry = info['entries'][0] if ('entries' in info and info['entries']) else info
+            raw_formats = entry.get('formats', [])
+            
+            # Filter to direct HTTPS video formats (no HLS manifests)
+            valid_video_formats = [
+                f for f in raw_formats 
+                if f.get('url') 
+                and not str(f.get('format_id', '')).startswith('sb')
+                and 'c=ANDROID_VR' not in str(f.get('url', ''))
+                and 'manifest.googlevideo.com' not in str(f.get('url', ''))
+                and not str(f.get('protocol', '')).startswith('m3u8')
+                and f.get('vcodec') != 'none'
+                and (f.get('height') or 0) > 0
+            ]
+
+            # Find best audio-only stream (for muxing with video-only streams)
+            audio_only_formats = [
+                f for f in raw_formats
+                if f.get('url')
+                and f.get('acodec') != 'none'
+                and f.get('vcodec') == 'none'
+                and 'manifest.googlevideo.com' not in str(f.get('url', ''))
+                and not str(f.get('protocol', '')).startswith('m3u8')
+            ]
+            # Find best audio-only stream (for muxing with video-only streams)
+            best_audio = None
+            if audio_only_formats:
+                # Pick highest bitrate audio — FFmpeg handles any codec
+                best_audio = max(audio_only_formats, key=lambda f: (
+                    f.get('abr') or f.get('tbr') or 0
+                ))
+
+            audio_url = best_audio.get('url', '') if best_audio else ''
+
+            res_str = str(target_resolution).lower()
+            target_h = 1080
+            if "8k" in res_str or "4320" in res_str or "max" in res_str or "highest" in res_str or "best" in res_str:
+                target_h = 8000
+            elif "4k" in res_str or "2160" in res_str or "uhd" in res_str:
+                target_h = 2160
+            elif "1440" in res_str or "2k" in res_str or "qhd" in res_str:
+                target_h = 1440
+            elif "1080" in res_str or "default" in res_str or "fhd" in res_str:
+                target_h = 1080
+            elif "720" in res_str or "hd" in res_str:
+                target_h = 720
+            elif "480" in res_str or "sd" in res_str or "low" in res_str:
+                target_h = 480
+            elif "360" in res_str:
+                target_h = 360
+            elif "240" in res_str:
+                target_h = 240
+            elif "144" in res_str:
+                target_h = 144
+
+            # Select best video format at target resolution — FFmpeg handles any codec
+            matching = [f for f in valid_video_formats if (f.get('height') or 0) <= target_h]
+            if not matching:
+                matching = valid_video_formats
+            
+            selected_format = None
+            if matching:
+                selected_format = max(matching, key=lambda f: (
+                    f.get('height') or 0,
+                    f.get('tbr') or 0
+                ))
+
+            stream_url = selected_format.get('url') if selected_format else ""
+            actual_height = (selected_format.get('height') or 0) if selected_format else 0
+            actual_res = f"{actual_height}p" if actual_height > 0 else "Video"
+            has_audio = (selected_format.get('acodec') != 'none') if selected_format else False
+
+            avail_heights = sorted(list(set([int(f.get('height')) for f in valid_video_formats if f.get('height')])), reverse=True)
+            avail_res = []
+            for h in avail_heights:
+                if h >= 4320:
+                    avail_res.append(f"{h}p (8K Ultra HD)")
+                elif h >= 2160:
+                    avail_res.append(f"{h}p (4K UHD)")
+                elif h >= 1440:
+                    avail_res.append(f"{h}p (2K QHD)")
+                elif h >= 1080:
+                    avail_res.append(f"{h}p (Full HD)")
+                elif h >= 720:
+                    avail_res.append(f"{h}p (HD)")
+                elif h >= 480:
+                    avail_res.append(f"{h}p (SD)")
+                elif h >= 360:
+                    avail_res.append(f"{h}p (Medium)")
+                elif h >= 240:
+                    avail_res.append(f"{h}p (Low)")
+                else:
+                    avail_res.append(f"{h}p")
+
+            # If selected format already has audio, no need for separate audio stream
+            if has_audio:
+                audio_url = ""
+
+            print(f"[EXTRACTOR] extract_video_stream selected actual_res={actual_res}, has_audio={has_audio}, audio_url={'yes' if audio_url else 'no'}, stream_url prefix={stream_url[:60] if stream_url else 'None'}", flush=True)
+
+            return {
+                "title": entry.get("title", "Unknown Title"),
+                "artist": entry.get("uploader", "Unknown Artist"),
+                "stream_url": stream_url or "",
+                "audio_url": audio_url or "",
+                "resolution": actual_res,
+                "available_resolutions": avail_res,
+                "duration": int(entry.get("duration", 0) or 0)
+            }
+    except Exception as e:
+        print(f"[EXTRACTOR] ERROR in extract_video_stream: {e}", flush=True)
+        traceback.print_exc()
+        return {"error": str(e), "stream_url": "", "audio_url": "", "resolution": "", "available_resolutions": []}
+
 def embed_metadata(file_path, title, artist, album="Mueso Downloads", artwork_url=None):
     print(f"[EXTRACTOR] embed_metadata called for file='{file_path}', title='{title}', artist='{artist}'", flush=True)
     try:

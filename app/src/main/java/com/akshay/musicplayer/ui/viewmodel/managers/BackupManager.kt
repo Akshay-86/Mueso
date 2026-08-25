@@ -52,6 +52,31 @@ class BackupManager(
         )
     }
 
+    private fun getTrackBiasFromPrefs(trackId: Long, filePath: String?, title: String?, artist: String?): Float {
+        val idKey = "bg_bias_$trackId"
+        if (sharedPreferences.contains(idKey)) {
+            return sharedPreferences.getFloat(idKey, 0f)
+        }
+        if (!filePath.isNullOrBlank()) {
+            val videoId = if (filePath.startsWith("online_") || filePath.startsWith("youtube_")) {
+                filePath.substringAfter("online_").substringAfter("youtube_")
+            } else null
+            if (!videoId.isNullOrBlank()) {
+                val videoKey = "bg_bias_$videoId"
+                if (sharedPreferences.contains(videoKey)) {
+                    return sharedPreferences.getFloat(videoKey, 0f)
+                }
+            }
+        }
+        if (!title.isNullOrBlank() && !artist.isNullOrBlank()) {
+            val titleArtistKey = "bg_bias_${title.trim().lowercase()}_${artist.trim().lowercase()}"
+            if (sharedPreferences.contains(titleArtistKey)) {
+                return sharedPreferences.getFloat(titleArtistKey, 0f)
+            }
+        }
+        return 0f
+    }
+
     private fun buildCustomLyricsMap(): Map<String, String> {
         val map = mutableMapOf<String, String>()
         val allEntries = sharedPreferences.all
@@ -240,6 +265,20 @@ class BackupManager(
                                             orderIndex = t.orderIndex
                                         )
                                     )
+                                    if (t.backgroundBias != null && t.backgroundBias != 0f) {
+                                        val editor = sharedPreferences.edit()
+                                        editor.putFloat("bg_bias_$restoredTrackId", t.backgroundBias)
+                                        val videoId = if (t.filePath.startsWith("online_") || t.filePath.startsWith("youtube_")) {
+                                            t.filePath.substringAfter("online_").substringAfter("youtube_")
+                                        } else null
+                                        if (!videoId.isNullOrBlank()) {
+                                            editor.putFloat("bg_bias_$videoId", t.backgroundBias)
+                                        }
+                                        if (!t.title.isNullOrBlank() && !t.artist.isNullOrBlank()) {
+                                            editor.putFloat("bg_bias_${t.title.trim().lowercase()}_${t.artist.trim().lowercase()}", t.backgroundBias)
+                                        }
+                                        editor.apply()
+                                    }
                                 }
                                 restoredCount++
                             }
@@ -290,6 +329,7 @@ class BackupManager(
                         artworkUrl = p.artworkUrl,
                         dateCreated = p.dateCreated,
                         tracks = tracks.map { t ->
+                            val bias = getTrackBiasFromPrefs(t.trackId, t.filePath, t.title, t.artist)
                             com.akshay.musicplayer.data.backup.BackupTrack(
                                 trackId = t.trackId,
                                 title = t.title,
@@ -297,7 +337,8 @@ class BackupManager(
                                 artworkUrl = t.artworkUrl,
                                 filePath = t.filePath,
                                 duration = t.duration,
-                                orderIndex = t.orderIndex
+                                orderIndex = t.orderIndex,
+                                backgroundBias = if (bias != 0f) bias else null
                             )
                         }
                     )
@@ -402,6 +443,7 @@ class BackupManager(
                         artworkUrl = p.artworkUrl,
                         dateCreated = p.dateCreated,
                         tracks = tracks.map { t ->
+                            val bias = getTrackBiasFromPrefs(t.trackId, t.filePath, t.title, t.artist)
                             com.akshay.musicplayer.data.backup.BackupTrack(
                                 trackId = t.trackId,
                                 title = t.title,
@@ -409,7 +451,8 @@ class BackupManager(
                                 artworkUrl = t.artworkUrl,
                                 filePath = t.filePath,
                                 duration = t.duration,
-                                orderIndex = t.orderIndex
+                                orderIndex = t.orderIndex,
+                                backgroundBias = if (bias != 0f) bias else null
                             )
                         }
                     )
@@ -533,6 +576,20 @@ class BackupManager(
                                         orderIndex = t.orderIndex
                                     )
                                 )
+                                if (t.backgroundBias != null && t.backgroundBias != 0f) {
+                                    val editor = sharedPreferences.edit()
+                                    editor.putFloat("bg_bias_$restoredTrackId", t.backgroundBias)
+                                    val videoId = if (t.filePath.startsWith("online_") || t.filePath.startsWith("youtube_")) {
+                                        t.filePath.substringAfter("online_").substringAfter("youtube_")
+                                    } else null
+                                    if (!videoId.isNullOrBlank()) {
+                                        editor.putFloat("bg_bias_$videoId", t.backgroundBias)
+                                    }
+                                    if (!t.title.isNullOrBlank() && !t.artist.isNullOrBlank()) {
+                                        editor.putFloat("bg_bias_${t.title.trim().lowercase()}_${t.artist.trim().lowercase()}", t.backgroundBias)
+                                    }
+                                    editor.apply()
+                                }
                             }
                             restoredCount++
                         }
