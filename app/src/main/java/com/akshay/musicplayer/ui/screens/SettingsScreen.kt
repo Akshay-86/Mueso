@@ -781,6 +781,30 @@ fun SettingsScreen(
                                 Text("New Version ${updateInfo!!.tagName} Available!", color = Color(0xFF34C759), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
 
+                            val targetAbi = updateInfo!!.targetAbi
+                            val sizeStr = updateInfo!!.apkSizeString
+                            if (!targetAbi.isNullOrBlank() || !sizeStr.isNullOrBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(14.dp))
+                                    Text(
+                                        text = listOfNotNull(
+                                            targetAbi?.let { "Architecture: $it" },
+                                            sizeStr?.let { "Size: ~$it" }
+                                        ).joinToString(" • "),
+                                        color = textPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
                             if (!updateInfo!!.releaseNotes.isNullOrBlank()) {
                                 Text(
                                     updateInfo!!.releaseNotes!!,
@@ -816,7 +840,8 @@ fun SettingsScreen(
                                 ) {
                                     Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Download & Install ${updateInfo!!.tagName}", color = Color.White, fontWeight = FontWeight.Bold)
+                                    val abiSuffix = if (!targetAbi.isNullOrBlank()) " ($targetAbi)" else ""
+                                    Text("Download & Install ${updateInfo!!.tagName}$abiSuffix", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }

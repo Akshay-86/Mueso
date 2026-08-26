@@ -28,8 +28,8 @@ android {
         applicationId = "com.akshay.musicplayer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "v1.1.0"
+        versionCode = 7
+        versionName = "v1.2.0"
 
         val gitSha = getGitCommitSha()
         val buildTime = System.currentTimeMillis()

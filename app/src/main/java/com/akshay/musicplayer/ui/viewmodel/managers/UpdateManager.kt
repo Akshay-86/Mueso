@@ -27,7 +27,19 @@ data class UpdateInfo(
     val releaseName: String,
     val releaseNotes: String?,
     val apkUrl: String,
-    val isNewVersionAvailable: Boolean
+    val isNewVersionAvailable: Boolean,
+    val apkName: String? = null,
+    val targetAbi: String? = null,
+    val apkSizeBytes: Long = 0L,
+    val apkSizeString: String? = null
+)
+
+data class MatchedApk(
+    val name: String,
+    val url: String,
+    val abi: String?,
+    val sizeBytes: Long,
+    val sizeString: String?
 )
 
 class UpdateManager(private val coroutineScope: CoroutineScope) {
@@ -93,9 +105,10 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val releaseNotes = json.optString("body", "").takeIf { it.isNotBlank() }
 
                 val assets = json.optJSONArray("assets")
-                val apkUrl = findBestMatchingApkUrl(assets)
+                val matchedApk = findBestMatchingApk(assets)
+                val apkUrl = matchedApk?.url
 
-                Log.d(TAG, "Latest release tag: \"$tagName\", current: \"$currentVersionName\", apkUrl: $apkUrl")
+                Log.d(TAG, "Latest release tag: \"$tagName\", current: \"$currentVersionName\", matched: ${matchedApk?.name} (${matchedApk?.abi})")
 
                 val isNew = isVersionNewer(tagName, currentVersionName)
 
@@ -105,17 +118,27 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                         releaseName = releaseName,
                         releaseNotes = releaseNotes,
                         apkUrl = apkUrl,
-                        isNewVersionAvailable = true
+                        isNewVersionAvailable = true,
+                        apkName = matchedApk.name,
+                        targetAbi = matchedApk.abi,
+                        apkSizeBytes = matchedApk.sizeBytes,
+                        apkSizeString = matchedApk.sizeString
                     )
                     _updateInfo.value = info
-                    _statusMessage.value = "New version available: $tagName"
+                    val abiLabel = matchedApk.abi ?: "universal"
+                    val sizeLabel = matchedApk.sizeString?.let { " • $it" } ?: ""
+                    _statusMessage.value = "New version available: $tagName ($abiLabel$sizeLabel)"
                 } else {
                     _updateInfo.value = UpdateInfo(
                         tagName = tagName.ifBlank { currentVersionName },
                         releaseName = releaseName.ifBlank { currentVersionName },
                         releaseNotes = releaseNotes,
                         apkUrl = apkUrl ?: "",
-                        isNewVersionAvailable = false
+                        isNewVersionAvailable = false,
+                        apkName = matchedApk?.name,
+                        targetAbi = matchedApk?.abi,
+                        apkSizeBytes = matchedApk?.sizeBytes ?: 0L,
+                        apkSizeString = matchedApk?.sizeString
                     )
                     _statusMessage.value = "Mueso is up to date ($currentVersionName)"
                     if (showToastIfLatest) {
@@ -139,7 +162,8 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
 
         coroutineScope.launch(Dispatchers.IO) {
             _downloadProgress.value = 0.01f
-            _statusMessage.value = "Downloading update ${info.tagName}..."
+            val abiText = info.targetAbi?.let { " ($it)" } ?: ""
+            _statusMessage.value = "Downloading update ${info.tagName}$abiText..."
 
             try {
                 val request = Request.Builder()
@@ -157,7 +181,9 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 }
 
                 val contentLength = body.contentLength()
-                val apkFile = File(context.cacheDir, "mueso_update_${info.tagName}.apk")
+                val safeTag = info.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val safeAbi = info.targetAbi?.replace(Regex("[^a-zA-Z0-9._-]"), "_") ?: "pkg"
+                val apkFile = File(context.cacheDir, "mueso_update_${safeTag}_$safeAbi.apk")
                 if (apkFile.exists()) apkFile.delete()
 
                 val inputStream = body.byteStream()
@@ -365,13 +391,14 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val releaseSha = extractCommitSha(releaseBody, releaseName)
 
                 val assets = json.optJSONArray("assets")
-                val apkUrl = findBestMatchingApkUrl(assets)
+                val matchedApk = findBestMatchingApk(assets)
+                val apkUrl = matchedApk?.url
 
                 if (apkUrl.isNullOrBlank()) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "No APK file found in Pre_Builds release assets", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "No compatible APK file found in Pre_Builds release assets", Toast.LENGTH_LONG).show()
                     }
-                    _statusMessage.value = "No APK asset in Pre_Builds release"
+                    _statusMessage.value = "No compatible APK asset in Pre_Builds release"
                     _isChecking.value = false
                     return@launch
                 }
@@ -392,7 +419,7 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
 
                 val displayTag = if (!releaseSha.isNullOrBlank()) "Pre_Builds ($releaseSha)" else "Pre_Builds"
 
-                Log.d(TAG, "Pre_Build check: releaseSha=$releaseSha, installedSha=$installedSha, isNew=$isNew")
+                Log.d(TAG, "Pre_Build check: releaseSha=$releaseSha, installedSha=$installedSha, isNew=$isNew, matched=${matchedApk.name} (${matchedApk.abi})")
 
                 if (isNew) {
                     _updateInfo.value = UpdateInfo(
@@ -400,11 +427,15 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                         releaseName = releaseName,
                         releaseNotes = releaseBody.takeIf { it.isNotBlank() },
                         apkUrl = apkUrl,
-                        isNewVersionAvailable = true
+                        isNewVersionAvailable = true,
+                        apkName = matchedApk.name,
+                        targetAbi = matchedApk.abi,
+                        apkSizeBytes = matchedApk.sizeBytes,
+                        apkSizeString = matchedApk.sizeString
                     )
-                    _statusMessage.value = "Downloading $displayTag..."
+                    _statusMessage.value = "Downloading $displayTag (${matchedApk.abi ?: "universal"})..."
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "New Pre-Build found ($displayTag). Downloading...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "New Pre-Build found ($displayTag). Downloading ${matchedApk.abi ?: "APK"}...", Toast.LENGTH_SHORT).show()
                     }
                     downloadAndInstallApk(context)
                 } else {
@@ -413,7 +444,11 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                         releaseName = releaseName,
                         releaseNotes = releaseBody.takeIf { it.isNotBlank() },
                         apkUrl = apkUrl,
-                        isNewVersionAvailable = false
+                        isNewVersionAvailable = false,
+                        apkName = matchedApk.name,
+                        targetAbi = matchedApk.abi,
+                        apkSizeBytes = matchedApk.sizeBytes,
+                        apkSizeString = matchedApk.sizeString
                     )
                     val statusTxt = "You are already on the latest Pre-Build ($installedSha)"
                     _statusMessage.value = statusTxt
@@ -432,17 +467,18 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         }
     }
 
-    private fun findBestMatchingApkUrl(assetsJson: org.json.JSONArray?): String? {
+    private fun findBestMatchingApk(assetsJson: org.json.JSONArray?): MatchedApk? {
         if (assetsJson == null || assetsJson.length() == 0) return null
 
-        data class ApkAsset(val name: String, val url: String)
-        val apkList = mutableListOf<ApkAsset>()
+        data class ApkCandidate(val name: String, val url: String, val size: Long)
+        val apkList = mutableListOf<ApkCandidate>()
         for (i in 0 until assetsJson.length()) {
             val obj = assetsJson.optJSONObject(i) ?: continue
             val url = obj.optString("browser_download_url", "")
             val name = obj.optString("name", "").ifBlank { url.substringAfterLast('/') }
-            if (name.endsWith(".apk", ignoreCase = true)) {
-                apkList.add(ApkAsset(name.lowercase(), url))
+            val size = obj.optLong("size", 0L)
+            if (name.endsWith(".apk", ignoreCase = true) || url.endsWith(".apk", ignoreCase = true)) {
+                apkList.add(ApkCandidate(name, url, size))
             }
         }
 
@@ -455,27 +491,60 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
             listOf(Build.CPU_ABI.lowercase())
         }
 
-        Log.d(TAG, "Device supported ABIs: $supportedAbis. Available release APKs: ${apkList.map { it.name }}")
+        Log.d(TAG, "Device supported ABIs in order of preference: $supportedAbis. Available release APKs: ${apkList.map { it.name }}")
 
-        // 1. Try to find an exact ABI match (e.g. app-arm64-v8a-release.apk)
+        fun formatSize(bytes: Long): String? {
+            if (bytes <= 0) return null
+            val mb = bytes / (1024.0 * 1024.0)
+            return "%.1f MB".format(mb)
+        }
+
+        // 1. Try to find an exact ABI match based on device supported ABIs in priority order
         for (abi in supportedAbis) {
-            val match = apkList.firstOrNull { it.name.contains(abi) }
-            if (match != null) {
-                Log.d(TAG, "Selected architecture-matched APK for '$abi': ${match.name}")
-                return match.url
+            val candidate = apkList.firstOrNull { apk ->
+                val lower = apk.name.lowercase()
+                when (abi) {
+                    "arm64-v8a" -> lower.contains("arm64-v8a") || lower.contains("arm64") || lower.contains("aarch64") || lower.contains("arm-v8a")
+                    "armeabi-v7a" -> (lower.contains("armeabi-v7a") || lower.contains("armv7a") || lower.contains("armv7") || lower.contains("armeabi")) && !lower.contains("arm64")
+                    "x86_64" -> lower.contains("x86_64") || lower.contains("x86-64") || lower.contains("x64")
+                    "x86" -> lower.contains("x86") && !lower.contains("x86_64") && !lower.contains("x86-64")
+                    else -> lower.contains(abi)
+                }
+            }
+            if (candidate != null) {
+                Log.d(TAG, "Selected architecture-matched APK for '$abi': ${candidate.name} (${candidate.size} bytes)")
+                return MatchedApk(
+                    name = candidate.name,
+                    url = candidate.url,
+                    abi = abi,
+                    sizeBytes = candidate.size,
+                    sizeString = formatSize(candidate.size)
+                )
             }
         }
 
         // 2. Fallback to universal APK (e.g. app-universal-release.apk)
-        val universalMatch = apkList.firstOrNull { it.name.contains("universal") }
+        val universalMatch = apkList.firstOrNull { it.name.lowercase().contains("universal") || it.name.lowercase().contains("fat") }
         if (universalMatch != null) {
             Log.d(TAG, "Selected universal APK: ${universalMatch.name}")
-            return universalMatch.url
+            return MatchedApk(
+                name = universalMatch.name,
+                url = universalMatch.url,
+                abi = "universal",
+                sizeBytes = universalMatch.size,
+                sizeString = formatSize(universalMatch.size)
+            )
         }
 
         // 3. Fallback to generic release APK or first available APK
-        val genericMatch = apkList.firstOrNull { it.name.contains("release") } ?: apkList.first()
+        val genericMatch = apkList.firstOrNull { it.name.lowercase().contains("release") } ?: apkList.first()
         Log.d(TAG, "Selected fallback APK: ${genericMatch.name}")
-        return genericMatch.url
+        return MatchedApk(
+            name = genericMatch.name,
+            url = genericMatch.url,
+            abi = null,
+            sizeBytes = genericMatch.size,
+            sizeString = formatSize(genericMatch.size)
+        )
     }
 }
