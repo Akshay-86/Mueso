@@ -71,9 +71,6 @@ fun OnlinePlaylistDetailScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showDownloadDialog by remember { mutableStateOf(false) }
-    var selectedTrackForDownloadOptions by remember { mutableStateOf<TrackEntity?>(null) }
-    val downloadFolder by viewModel?.downloadFolder?.collectAsState() ?: remember { mutableStateOf("Music/Mueso") }
-    val videoDownloadFolder by viewModel?.videoDownloadFolder?.collectAsState() ?: remember { mutableStateOf("Movies/Mueso") }
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
@@ -387,8 +384,8 @@ fun OnlinePlaylistDetailScreen(
                         onRemove = { onRemoveTrack?.invoke(track) },
                         onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
                         onMoveDown = { onMoveTrack?.invoke(index, index + 1) },
-                        onDownload = { onDownloadTrack?.invoke(track) },
-                        onDownloadOptions = { selectedTrackForDownloadOptions = track },
+                        onDownload = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
+                        onDownloadOptions = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
                         onCancelDownload = { viewModel?.cancelDownload(track.id) },
                         dragModifier = if (isCustomUserPlaylist && onMoveTrack != null) {
                             Modifier.pointerInput(track.id) {
@@ -471,25 +468,6 @@ fun OnlinePlaylistDetailScreen(
                     android.widget.Toast.makeText(context, "Downloading ${selectedTracks.size} tracks...", android.widget.Toast.LENGTH_SHORT).show()
                 },
                 onDismiss = { showDownloadDialog = false }
-            )
-        }
-
-        if (selectedTrackForDownloadOptions != null) {
-            com.akshay.musicplayer.ui.components.DownloadOptionsBottomSheet(
-                track = selectedTrackForDownloadOptions!!,
-                audioFolder = downloadFolder,
-                videoFolder = videoDownloadFolder,
-                isDarkMode = isDarkMode,
-                onFetchResolutions = { trk ->
-                    viewModel?.getAvailableVideoResolutions(trk) ?: emptyList()
-                },
-                onDownloadAudio = {
-                    viewModel?.downloadOnlineTrack(context, selectedTrackForDownloadOptions!!)
-                },
-                onDownloadVideo = { res ->
-                    viewModel?.downloadOnlineVideo(context, selectedTrackForDownloadOptions!!, res)
-                },
-                onDismiss = { selectedTrackForDownloadOptions = null }
             )
         }
     }

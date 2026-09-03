@@ -145,7 +145,7 @@ class YouTubeAuthManager(
             _userHandle.value = activeAccount.handle
             _userAvatar.value = activeAccount.avatarUrl
 
-            onlineRepo.innerTube.setAuthCookie(activeAccount.cookieString)
+            onlineRepo.setAuthCookie(activeAccount.cookieString)
             val isValid = onlineRepo.innerTube.isLoggedIn()
             _isLoggedIn.value = isValid
 
@@ -182,7 +182,7 @@ class YouTubeAuthManager(
     fun saveCookies(cookieString: String, name: String? = null, avatar: String? = null) {
         if (cookieString.isBlank()) return
 
-        onlineRepo.innerTube.setAuthCookie(cookieString)
+        onlineRepo.setAuthCookie(cookieString)
         val isValid = onlineRepo.innerTube.isLoggedIn()
         _isLoggedIn.value = isValid
 
@@ -227,7 +227,7 @@ class YouTubeAuthManager(
         _userHandle.value = target.handle
         _userAvatar.value = target.avatarUrl
 
-        onlineRepo.innerTube.setAuthCookie(target.cookieString)
+        onlineRepo.setAuthCookie(target.cookieString)
         _isLoggedIn.value = onlineRepo.innerTube.isLoggedIn()
 
         saveAccountsToPrefs(_savedAccounts.value, target.id)
@@ -269,7 +269,7 @@ class YouTubeAuthManager(
             return
         }
 
-        onlineRepo.innerTube.setAuthCookie(null)
+        onlineRepo.setAuthCookie(null)
         _isLoggedIn.value = false
         _currentAccount.value = null
         _userName.value = null

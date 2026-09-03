@@ -394,13 +394,8 @@ fun PlayerPageContent(
 
                 var showAddToOnlinePlaylistSheet by remember { mutableStateOf(false) }
                 var showAddToOfflinePlaylistSheet by remember { mutableStateOf(false) }
-                var showDownloadOptionsSheet by remember { mutableStateOf(false) }
                 val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
                 val offlinePlaylists by viewModel.playlists.collectAsState()
-                val downloadType by viewModel.downloadType.collectAsState()
-                val videoDownloadResolution by viewModel.videoDownloadResolution.collectAsState()
-                val downloadFolder by viewModel.downloadFolder.collectAsState()
-                val videoDownloadFolder by viewModel.videoDownloadFolder.collectAsState()
 
                 val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
                 val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
@@ -421,18 +416,10 @@ fun PlayerPageContent(
                     onRepeatClick = { viewModel.cycleRepeatMode() },
                     onQueueClick = { viewModel.toggleQueueSheet() },
                     onDownloadClick = {
-                        if (downloadType == "Video") {
-                            if (videoDownloadResolution.contains("Always Ask") || videoDownloadResolution.contains("Pick")) {
-                                showDownloadOptionsSheet = true
-                            } else {
-                                viewModel.downloadOnlineVideo(context, track, videoDownloadResolution)
-                            }
-                        } else {
-                            viewModel.downloadOnlineTrack(context, track)
-                        }
+                        viewModel.downloadOnlineTrack(context, track)
                     },
                     onDownloadLongClick = {
-                        showDownloadOptionsSheet = true
+                        viewModel.downloadOnlineTrack(context, track)
                     },
                     onCancelDownloadClick = { viewModel.cancelDownload(track.id) },
                     onAddToPlaylistClick = {
@@ -444,25 +431,6 @@ fun PlayerPageContent(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                if (showDownloadOptionsSheet) {
-                    com.akshay.musicplayer.ui.components.DownloadOptionsBottomSheet(
-                        track = track,
-                        audioFolder = downloadFolder,
-                        videoFolder = videoDownloadFolder,
-                        isDarkMode = isDarkMode,
-                        onFetchResolutions = { trk ->
-                            viewModel.getAvailableVideoResolutions(trk)
-                        },
-                        onDownloadAudio = {
-                            viewModel.downloadOnlineTrack(context, track)
-                        },
-                        onDownloadVideo = { res ->
-                            viewModel.downloadOnlineVideo(context, track, res)
-                        },
-                        onDismiss = { showDownloadOptionsSheet = false }
-                    )
-                }
 
                 if (showAddToOnlinePlaylistSheet) {
                     com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(

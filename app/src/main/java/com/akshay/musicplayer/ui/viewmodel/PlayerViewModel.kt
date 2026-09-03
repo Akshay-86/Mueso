@@ -68,8 +68,6 @@ class PlayerViewModel(
     val downloadManager = DownloadManager(
         onlineRepository = onlineRepository,
         getDownloadFolder = { settingsManager.downloadFolder.value },
-        getVideoDownloadFolder = { settingsManager.videoDownloadFolder.value },
-        getDefaultVideoResolution = { settingsManager.videoDownloadResolution.value },
         coroutineScope = viewModelScope
     )
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
@@ -142,9 +140,6 @@ class PlayerViewModel(
     val thumbnailQuality = settingsManager.thumbnailQuality
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
-    val downloadType = settingsManager.downloadType
-    val videoDownloadResolution = settingsManager.videoDownloadResolution
-    val videoDownloadFolder = settingsManager.videoDownloadFolder
     val enableLyrics = settingsManager.enableLyrics
     val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
@@ -163,9 +158,6 @@ class PlayerViewModel(
     fun setThumbnailQuality(quality: String) = settingsManager.setThumbnailQuality(quality)
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
-    fun setDownloadType(type: String) = settingsManager.setDownloadType(type)
-    fun setVideoDownloadResolution(resolution: String) = settingsManager.setVideoDownloadResolution(resolution)
-    fun setVideoDownloadFolder(folder: String) = settingsManager.setVideoDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)
@@ -233,9 +225,6 @@ class PlayerViewModel(
 
     val downloadStates = downloadManager.downloadStates
     fun downloadOnlineTrack(context: android.content.Context, track: com.akshay.musicplayer.domain.models.TrackEntity) = downloadManager.downloadOnlineTrack(context, track)
-    fun downloadOnlineVideo(context: android.content.Context, track: com.akshay.musicplayer.domain.models.TrackEntity, resolution: String? = null, customFolder: String? = null) = downloadManager.downloadOnlineVideo(context, track, resolution, customFolder)
-    suspend fun getAvailableVideoResolutions(track: com.akshay.musicplayer.domain.models.TrackEntity): List<String> = onlineRepository.getAvailableVideoResolutionsForTrack(track)
-    suspend fun getAvailableVideoResolutions(videoId: String): List<String> = onlineRepository.getAvailableVideoResolutions(videoId)
     fun cancelDownload(trackId: Long) = downloadManager.cancelDownload(trackId)
 
     val playlists = playlistManager.playlists

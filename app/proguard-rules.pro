@@ -48,10 +48,6 @@
 # ─── UpdateManager data class ───
 -keep class com.akshay.musicplayer.ui.viewmodel.managers.UpdateInfo { *; }
 
-# FFmpegKit Rules
--keep class com.arthenica.ffmpegkit.** { *; }
--dontwarn com.arthenica.smartexception.java.Exceptions
-
 # ExoPlayer / Media3 Rules
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**

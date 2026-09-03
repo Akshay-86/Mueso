@@ -31,8 +31,6 @@ import com.akshay.musicplayer.media.notification.NotificationHelper
 class DownloadManager(
     private val onlineRepository: OnlineMusicRepository,
     private val getDownloadFolder: () -> String,
-    private val getVideoDownloadFolder: () -> String = { "Movies/Mueso" },
-    private val getDefaultVideoResolution: () -> String = { "1080p (FHD)" },
     private val coroutineScope: CoroutineScope
 ) {
     private val _downloadStates = MutableStateFlow<Map<Long, DownloadProgress>>(emptyMap())
@@ -105,7 +103,7 @@ class DownloadManager(
 
             try {
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
-                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId) else track.filePath
+                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId, context) else track.filePath
                 
                 if (!downloadUrl.startsWith("http")) {
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Stream URL unavailable"))
@@ -236,42 +234,53 @@ class DownloadManager(
         maxRetriesPerChunk: Int = 5,
         concurrency: Int = 4
     ): Boolean = withContext(Dispatchers.IO) {
-        var totalBytesExpected = -1L
-
-        // Step 1: Probe file size via Range: bytes=0-0
-        try {
-            val probeReq = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                .header("Range", "bytes=0-0")
-                .build()
-            val probeCall = client.newCall(probeReq)
-            activeCalls["${trackId}_probe"] = probeCall
-            val probeResp = probeCall.execute()
-            val contentRange = probeResp.header("Content-Range")
-            if (!contentRange.isNullOrBlank()) {
-                val totalStr = contentRange.substringAfterLast('/')
-                totalBytesExpected = totalStr.toLongOrNull() ?: -1L
+        val isGoogleVideo = url.contains("googlevideo.com")
+        var totalBytesExpected = if (isGoogleVideo) {
+            try {
+                android.net.Uri.parse(url).getQueryParameter("clen")?.toLongOrNull() ?: -1L
+            } catch (_: Exception) {
+                -1L
             }
-            if (totalBytesExpected <= 0 && probeResp.code == 200) {
-                totalBytesExpected = probeResp.body?.contentLength() ?: -1L
-            }
-            probeResp.close()
-        } catch (e: Exception) {
-            Log.w("MUESO_DOWNLOAD", "Probe failed for $trackId: ${e.message}")
-        } finally {
-            activeCalls.remove("${trackId}_probe")
+        } else {
+            -1L
         }
 
-        Log.d("MUESO_DOWNLOAD", "[PROBE] trackId=$trackId totalSize=${if (totalBytesExpected > 0) "${totalBytesExpected / (1024*1024)}MB ($totalBytesExpected bytes)" else "unknown"}")
+        // Only probe non-googlevideo URLs with Range header
+        if (!isGoogleVideo && totalBytesExpected <= 0) {
+            try {
+                val probeReq = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Range", "bytes=0-0")
+                    .build()
+                val probeCall = client.newCall(probeReq)
+                activeCalls["${trackId}_probe"] = probeCall
+                val probeResp = probeCall.execute()
+                val contentRange = probeResp.header("Content-Range")
+                if (!contentRange.isNullOrBlank()) {
+                    val totalStr = contentRange.substringAfterLast('/')
+                    totalBytesExpected = totalStr.toLongOrNull() ?: -1L
+                }
+                if (totalBytesExpected <= 0 && probeResp.code == 200) {
+                    totalBytesExpected = probeResp.body?.contentLength() ?: -1L
+                }
+                probeResp.close()
+            } catch (e: Exception) {
+                Log.w("MUESO_DOWNLOAD", "Probe failed for $trackId: ${e.message}")
+            } finally {
+                activeCalls.remove("${trackId}_probe")
+            }
+        }
 
-        // For small files (< 15MB) or unknown size, download sequentially
-        val chunkSize = 5 * 1024 * 1024L // 5MB chunk size per worker
-        if (totalBytesExpected <= 15 * 1024 * 1024L) {
+        Log.d("MUESO_DOWNLOAD", "[PROBE] trackId=$trackId isGoogleVideo=$isGoogleVideo totalSize=${if (totalBytesExpected > 0) "${totalBytesExpected / (1024*1024)}MB ($totalBytesExpected bytes)" else "unknown"}")
+
+        // For small files or unknown sizes, download sequentially
+        val chunkSize = 2 * 1024 * 1024L // 2MB chunk size
+        if (totalBytesExpected <= 6 * 1024 * 1024L || !isGoogleVideo) {
             return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk)
         }
 
-        // Pre-allocate destination file for concurrent random-access writes
+        // Parallel ranged chunk downloading (inspired by Zuno's ranged googlevideo engine)
         try {
             val raf = java.io.RandomAccessFile(destFile, "rw")
             raf.setLength(totalBytesExpected)
@@ -281,7 +290,6 @@ class DownloadManager(
             return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk)
         }
 
-        // Build list of chunks
         data class Chunk(val index: Int, val start: Long, val end: Long)
         val chunks = mutableListOf<Chunk>()
         var offset = 0L
@@ -293,7 +301,7 @@ class DownloadManager(
         }
 
         val totalChunks = chunks.size
-        Log.d("MUESO_DOWNLOAD", "[PARALLEL_START] trackId=$trackId totalSize=${totalBytesExpected / (1024*1024)}MB split into $totalChunks chunks with $concurrency concurrent workers")
+        Log.d("MUESO_DOWNLOAD", "[PARALLEL_START] trackId=$trackId totalSize=${totalBytesExpected / (1024*1024)}MB split into $totalChunks chunks")
 
         val chunkQueue = kotlinx.coroutines.channels.Channel<Chunk>(totalChunks)
         chunks.forEach { chunkQueue.trySend(it) }
@@ -302,9 +310,12 @@ class DownloadManager(
         val totalBytesDownloaded = java.util.concurrent.atomic.AtomicLong(0L)
         val startTime = System.currentTimeMillis()
         val hasFailed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val cleanBaseUrl = url.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
+            .replace(Regex("[?&]rn=[0-9]+"), "")
+            .replace(Regex("[?&]rbuf=[0-9]+"), "")
 
         coroutineScope {
-            val workers = (0 until concurrency).map { workerId ->
+            val workers = (0 until concurrency.coerceAtMost(totalChunks)).map { workerId ->
                 async(Dispatchers.IO) {
                     val buffer = ByteArray(64 * 1024)
                     for (chunk in chunkQueue) {
@@ -315,15 +326,17 @@ class DownloadManager(
                         while (attempt < maxRetriesPerChunk && !chunkSuccess && !hasFailed.get()) {
                             attempt++
                             val callKey = "${trackId}_w${workerId}_c${chunk.index}"
-                            val chunkStartTime = System.currentTimeMillis()
+                            val sep = if (cleanBaseUrl.contains("?")) "&" else "?"
+                            val chunkUrl = "$cleanBaseUrl${sep}range=${chunk.start}-${chunk.end}"
+
                             val req = Request.Builder()
-                                .url(url)
-                                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                                .header("Range", "bytes=${chunk.start}-${chunk.end}")
-                                .build()
+                                .url(chunkUrl)
+
+                            dressGoogleVideoRequest(req, chunkUrl)
+                            val builtReq = req.build()
 
                             try {
-                                val call = client.newCall(req)
+                                val call = client.newCall(builtReq)
                                 activeCalls[callKey] = call
                                 val resp = call.execute()
                                 val body = resp.body
@@ -342,20 +355,15 @@ class DownloadManager(
                                 chunkRaf.seek(chunk.start)
                                 val inStream = body.byteStream()
                                 var read: Int
-                                var chunkBytes = 0L
 
                                 try {
                                     while (inStream.read(buffer).also { read = it } != -1) {
                                         if (hasFailed.get()) break
                                         chunkRaf.write(buffer, 0, read)
-                                        chunkBytes += read
                                         val totalReadSoFar = totalBytesDownloaded.addAndGet(read.toLong())
                                         onProgress(totalReadSoFar, totalBytesExpected)
                                     }
                                     chunkSuccess = true
-                                    val durationMs = (System.currentTimeMillis() - chunkStartTime).coerceAtLeast(1)
-                                    val speedMBs = (chunkBytes.toDouble() / (1024.0 * 1024.0)) / (durationMs.toDouble() / 1000.0)
-                                    Log.d("MUESO_DOWNLOAD", "[WORKER_$workerId] Chunk #${chunk.index}/${totalChunks} (${chunkBytes/(1024*1024)}MB) done in ${durationMs}ms @ ${String.format("%.2f", speedMBs)} MB/s -> Total: ${totalBytesDownloaded.get()/(1024*1024)}MB / ${totalBytesExpected/(1024*1024)}MB")
                                 } finally {
                                     try { chunkRaf.close() } catch (_: Exception) {}
                                     try { inStream.close() } catch (_: Exception) {}
@@ -390,7 +398,7 @@ class DownloadManager(
         val totalDurationMs = (System.currentTimeMillis() - startTime).coerceAtLeast(1)
         val finalSize = if (destFile.exists()) destFile.length() else 0L
         val avgSpeedMBs = (finalSize.toDouble() / (1024.0 * 1024.0)) / (totalDurationMs.toDouble() / 1000.0)
-        Log.d("MUESO_DOWNLOAD", "[PARALLEL_DONE] trackId=$trackId finalSize=${finalSize / (1024*1024)}MB in ${totalDurationMs/1000}s -> OVERALL AGGREGATE SPEED: ${String.format("%.2f", avgSpeedMBs)} MB/s")
+        Log.d("MUESO_DOWNLOAD", "[PARALLEL_DONE] trackId=$trackId finalSize=${finalSize / (1024*1024)}MB in ${totalDurationMs/1000}s -> SPEED: ${String.format("%.2f", avgSpeedMBs)} MB/s")
 
         !hasFailed.get() && finalSize >= totalBytesExpected
     }
@@ -404,9 +412,21 @@ class DownloadManager(
         onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit,
         maxRetries: Int = 5
     ): Boolean = withContext(Dispatchers.IO) {
-        var totalBytesExpected = totalBytesExpectedInit
+        val isGoogleVideo = url.contains("googlevideo.com")
+        var totalBytesExpected = if (isGoogleVideo) {
+            try {
+                android.net.Uri.parse(url).getQueryParameter("clen")?.toLongOrNull() ?: totalBytesExpectedInit
+            } catch (_: Exception) {
+                totalBytesExpectedInit
+            }
+        } else {
+            totalBytesExpectedInit
+        }
         var attempt = 0
         val buffer = ByteArray(64 * 1024)
+        val cleanBaseUrl = url.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
+            .replace(Regex("[?&]rn=[0-9]+"), "")
+            .replace(Regex("[?&]rbuf=[0-9]+"), "")
 
         while (attempt < maxRetries) {
             attempt++
@@ -415,11 +435,22 @@ class DownloadManager(
                 return@withContext true
             }
 
-            val requestBuilder = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+            val sliceSize = 512 * 1024L // 512 KB per slice to prevent googlevideo range size rejection
+            val end = if (totalBytesExpected > 0) minOf(currentBytes + sliceSize - 1, totalBytesExpected - 1) else currentBytes + sliceSize - 1
 
-            if (currentBytes > 0) {
+            val finalUrl = if (isGoogleVideo) {
+                val sep = if (cleanBaseUrl.contains("?")) "&" else "?"
+                "$cleanBaseUrl${sep}range=$currentBytes-$end"
+            } else {
+                url
+            }
+
+            val requestBuilder = Request.Builder()
+                .url(finalUrl)
+
+            dressGoogleVideoRequest(requestBuilder, finalUrl)
+
+            if (!isGoogleVideo && currentBytes > 0) {
                 requestBuilder.header("Range", "bytes=$currentBytes-")
             }
 
@@ -452,9 +483,8 @@ class DownloadManager(
                     }
                 }
 
-                val isPartial = (response.code == 206)
-                val append = isPartial && currentBytes > 0
-                if (!isPartial && currentBytes > 0) {
+                val append = currentBytes > 0 && (response.code == 206 || (isGoogleVideo && finalUrl.contains("range=")))
+                if (!append && currentBytes > 0) {
                     destFile.delete()
                 }
 
@@ -489,259 +519,27 @@ class DownloadManager(
         destFile.exists() && destFile.length() > 0
     }
 
-    fun downloadOnlineVideo(
-        context: Context,
-        track: TrackEntity,
-        resolution: String? = null,
-        customFolder: String? = null
-    ) {
-        if (_downloadStates.value[track.id]?.isDownloading == true || _downloadStates.value[track.id]?.isDownloaded == true) return
-
-        lastContext = context.applicationContext
-        val targetRes = resolution ?: getDefaultVideoResolution()
-
-        val job = coroutineScope.launch(Dispatchers.IO) {
-            _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.01f))
-            val currentActiveCount = activeJobs.size
-            NotificationHelper.showDownloadProgress(
-                context = context.applicationContext,
-                trackId = track.id,
-                trackTitle = "[Video] ${track.title}",
-                artist = track.artist,
-                completedCount = 1,
-                totalCount = currentActiveCount.coerceAtLeast(1),
-                progress = 0.05f
-            )
-
-            var tempVideoFile: File? = null
-            var tempAudioFile: File? = null
-            var tempMuxedFile: File? = null
-            var savedDestFile: File? = null
-
-            try {
-                val videoId = onlineRepository.extractVideoId(track)
-
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Fetching video stream ($targetRes)...", Toast.LENGTH_SHORT).show()
-                }
-
-                val videoInfo = onlineRepository.getVideoStreamInfo(videoId, targetRes)
-                val downloadUrl = videoInfo?.streamUrl
-                val audioUrl = videoInfo?.audioUrl
-
-                if (downloadUrl.isNullOrBlank() || !downloadUrl.startsWith("http")) {
-                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Video stream unavailable"))
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Failed to get video stream for download", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-
-                val needsMuxing = !audioUrl.isNullOrBlank()
-                val actualRes = videoInfo.resolution
-                val client = OkHttpClient.Builder()
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .retryOnConnectionFailure(true)
-                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-
-                val videoFile = File(context.cacheDir, "temp_vid_${track.id}.mp4")
-                tempVideoFile = videoFile
-                activeTempFiles[track.id] = videoFile
-                if (videoFile.exists()) videoFile.delete()
-
-                var videoProgress = 0f
-                var audioProgress = 0f
-
-                val updateCombinedProgress = {
-                    val combinedProg = if (needsMuxing) {
-                        (videoProgress * 0.88f + audioProgress * 0.02f).coerceIn(0.01f, 0.90f)
-                    } else {
-                        videoProgress.coerceIn(0.01f, 0.95f)
-                    }
-                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = combinedProg))
-                    NotificationHelper.showDownloadProgress(
-                        context = context.applicationContext,
-                        trackId = track.id,
-                        trackTitle = "[Video] ${track.title} ($actualRes)",
-                        artist = track.artist,
-                        completedCount = totalDownloadedInBatch + 1,
-                        totalCount = activeJobs.size.coerceAtLeast(1),
-                        progress = combinedProg
-                    )
-                }
-
-                // --- Download video and audio in parallel for speed and to prevent stream timeout ---
-                var audioFile: File? = null
-                val (videoSuccess, audioSuccess) = coroutineScope {
-                    val videoDeferred = async(Dispatchers.IO) {
-                        downloadStreamWithResume(
-                            client = client,
-                            url = downloadUrl,
-                            destFile = videoFile,
-                            trackId = track.id,
-                            onProgress = { downloaded, total ->
-                                if (total > 0) {
-                                    videoProgress = (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                                    updateCombinedProgress()
-                                }
-                            }
-                        )
-                    }
-
-                    val audioDeferred = if (needsMuxing) {
-                        val aFile = File(context.cacheDir, "temp_aud_${track.id}.m4a")
-                        tempAudioFile = aFile
-                        audioFile = aFile
-                        if (aFile.exists()) aFile.delete()
-
-                        async(Dispatchers.IO) {
-                            downloadStreamWithResume(
-                                client = client,
-                                url = audioUrl!!,
-                                destFile = aFile,
-                                trackId = -track.id,
-                                onProgress = { downloaded, total ->
-                                    if (total > 0) {
-                                        audioProgress = (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                                        updateCombinedProgress()
-                                    }
-                                }
-                            )
-                        }
-                    } else null
-
-                    Pair(videoDeferred.await(), audioDeferred?.await() ?: true)
-                }
-
-                if (!videoSuccess || !videoFile.exists() || videoFile.length() == 0L) {
-                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Video download failed"))
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Video download failed", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-
-                // --- Mux video + audio using FFmpeg ---
-                if (needsMuxing && audioSuccess && audioFile != null && audioFile!!.exists() && audioFile!!.length() > 0) {
-                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.92f))
-                    NotificationHelper.showDownloadProgress(
-                        context = context.applicationContext,
-                        trackId = track.id,
-                        trackTitle = "[Video] ${track.title} - Merging audio+video...",
-                        artist = track.artist,
-                        completedCount = totalDownloadedInBatch + 1,
-                        totalCount = activeJobs.size.coerceAtLeast(1),
-                        progress = 0.92f
-                    )
-
-                    val muxedFile = File(context.cacheDir, "temp_muxed_${track.id}.mp4")
-                    tempMuxedFile = muxedFile
-                    if (muxedFile.exists()) muxedFile.delete()
-
-                    try {
-                        val cmd = "-i \"${videoFile.absolutePath}\" -i \"${audioFile!!.absolutePath}\" -c copy -shortest \"${muxedFile.absolutePath}\""
-                        Log.d("MUESO_DOWNLOAD", "FFmpeg mux command: $cmd")
-                        val session = com.arthenica.ffmpegkit.FFmpegKit.execute(cmd)
-                        val returnCode = session.returnCode
-
-                        if (com.arthenica.ffmpegkit.ReturnCode.isSuccess(returnCode)) {
-                            videoFile.delete()
-                            audioFile!!.delete()
-                            muxedFile.renameTo(videoFile)
-                            tempMuxedFile = null
-                            Log.d("MUESO_DOWNLOAD", "Successfully muxed video+audio for ${track.title}")
-                        } else {
-                            Log.w("MUESO_DOWNLOAD", "FFmpeg mux failed (rc=${returnCode}), saving video-only. Output: ${session.output}")
-                            try { muxedFile.delete() } catch (_: Exception) {}
-                        }
-                    } catch (muxErr: Exception) {
-                        Log.e("MUESO_DOWNLOAD", "FFmpeg mux error for ${track.title}, saving video-only", muxErr)
-                        try { tempMuxedFile?.delete() } catch (_: Exception) {}
-                        tempMuxedFile = null
-                    }
-                }
-
-                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.99f))
-
-                val folderSetting = customFolder ?: getVideoDownloadFolder()
-                val targetDir = when {
-                    folderSetting == "Downloads" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    folderSetting == "DCIM/Mueso" -> {
-                        val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
-                        File(dcimDir, "Mueso")
-                    }
-                    folderSetting == "Internal App Storage" -> context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
-                    folderSetting.startsWith("/") -> File(folderSetting)
-                    else -> {
-                        val moviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-                        File(moviesDir, folderSetting.removePrefix("Movies/"))
-                    }
-                }
-                if (!targetDir.exists()) targetDir.mkdirs()
-
-                val sanitizedTitle = track.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim()
-                val ext = ".mp4"
-                val destFile = File(targetDir, "$sanitizedTitle ($actualRes)$ext")
-                videoFile.copyTo(destFile, overwrite = true)
-                videoFile.delete()
-                try { tempAudioFile?.delete() } catch (_: Exception) {}
-                activeTempFiles.remove(track.id)
-                tempVideoFile = null
-                tempAudioFile = null
-                savedDestFile = destFile
-
-                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf("video/mp4"), null)
-
-                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
-                totalDownloadedInBatch++
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Saved video \"${track.title}\" ($actualRes) to ${targetDir.name}", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: CancellationException) {
-                Log.d("MUESO_DOWNLOAD", "Video download cancelled for ${track.title}")
-                try { tempVideoFile?.delete() } catch (_: Exception) {}
-                try { tempAudioFile?.delete() } catch (_: Exception) {}
-                try { tempMuxedFile?.delete() } catch (_: Exception) {}
-                activeTempFiles.remove(track.id)?.let { try { it.delete() } catch (_: Exception) {} }
-                _downloadStates.value = _downloadStates.value - track.id
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Video download cancelled", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                Log.e("MUESO_DOWNLOAD", "Error downloading video ${track.title}", e)
-                try { tempVideoFile?.delete() } catch (_: Exception) {}
-                try { tempAudioFile?.delete() } catch (_: Exception) {}
-                try { tempMuxedFile?.delete() } catch (_: Exception) {}
-                activeTempFiles.remove(track.id)?.let { try { it.delete() } catch (_: Exception) {} }
-                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = e.message))
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Video download failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            } finally {
-                activeJobs.remove(track.id)
-                val prefix = "${track.id}"
-                val negPrefix = "-${track.id}"
-                activeCalls.keys.filter { it == prefix || it == negPrefix || it.startsWith("${prefix}_") || it.startsWith("${negPrefix}_") }.forEach { activeCalls.remove(it) }
-                activeTempFiles.remove(track.id)
-                if (activeJobs.isEmpty()) {
-                    if (totalDownloadedInBatch > 0) {
-                        NotificationHelper.showDownloadComplete(
-                            context = context.applicationContext,
-                            totalDownloaded = totalDownloadedInBatch.coerceAtLeast(1),
-                            lastTitle = "[Video] ${track.title}",
-                            lastArtist = track.artist,
-                            lastFilePath = savedDestFile?.absolutePath
-                        )
-                        totalDownloadedInBatch = 0
-                    } else {
-                        NotificationHelper.dismissDownloadNotification(context.applicationContext)
-                    }
-                }
+    private fun dressGoogleVideoRequest(requestBuilder: Request.Builder, url: String) {
+        val isIos = url.contains("c=IOS") || url.contains("cver=20.11.6") || url.contains("cver=19.")
+        val isAndroid = url.contains("c=ANDROID")
+        when {
+            isIos -> {
+                requestBuilder.header("User-Agent", "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)")
+                requestBuilder.header("Accept", "*/*")
+                requestBuilder.header("Accept-Encoding", "identity;q=1, *;q=0")
+            }
+            isAndroid -> {
+                requestBuilder.header("User-Agent", "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
+                requestBuilder.header("Accept", "*/*")
+                requestBuilder.header("Accept-Encoding", "identity;q=1, *;q=0")
+            }
+            else -> {
+                requestBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+                requestBuilder.header("Accept", "*/*")
+                requestBuilder.header("Accept-Encoding", "identity;q=1, *;q=0")
+                requestBuilder.header("Origin", "https://music.youtube.com")
+                requestBuilder.header("Referer", "https://music.youtube.com/")
             }
         }
-        activeJobs[track.id] = job
     }
 }

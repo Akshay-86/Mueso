@@ -38,6 +38,13 @@ class YouTubeStreamResolver(
 
     private val streamCache = ConcurrentHashMap<String, CachedStream>()
 
+    private var authCookie: String? = null
+
+    fun setAuthCookie(cookie: String?) {
+        this.authCookie = cookie
+        Log.d(TAG, "Auth cookie updated (hasCookie=${!cookie.isNullOrBlank()})")
+    }
+
     data class CachedStream(
         val url: String,
         val expiryEpochMs: Long
@@ -55,73 +62,72 @@ class YouTubeStreamResolver(
         val clientId: Int,
         val extraClientFields: Map<String, Any> = emptyMap(),
         val extraHeaders: Map<String, String> = emptyMap(),
-        val thirdParty: JSONObject? = null
+        val thirdParty: JSONObject? = null,
+        val requiresAuth: Boolean = false
     )
 
     private val strategies = listOf(
-        // Strategy 1: VISIONOS (Apple Vision Pro) - Returns direct pre-signed URLs, no cipher, no login, no botguard required!
+        // Strategy 1: Authenticated YouTube Music (WEB_REMIX) - Works directly without PO token when logged in (matching Zuno)
         ClientStrategy(
-            label = "VISIONOS",
-            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName = "VISIONOS",
-            clientVersion = "1.02",
-            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-            clientId = 101,
+            label = "WEB_REMIX_AUTH",
+            apiUrl = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName = "WEB_REMIX",
+            clientVersion = "1.20250506.00.00",
+            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            clientId = 67,
             extraClientFields = mapOf(
-                "deviceMake" to "Apple",
-                "deviceModel" to "RealityDevice17,1",
-                "osName" to "visionOS",
-                "osVersion" to "26.5.23O471"
-            )
+                "platform" to "DESKTOP",
+                "osName" to "Windows",
+                "osVersion" to "10.0",
+                "browserName" to "Chrome",
+                "browserVersion" to "135.0.0.0"
+            ),
+            extraHeaders = mapOf(
+                "Origin" to "https://music.youtube.com",
+                "Referer" to "https://music.youtube.com/"
+            ),
+            requiresAuth = true
         ),
-        // Strategy 2: TV HTML5 Embedded Player
-        ClientStrategy(
-            label = "TVHTML5_EMBEDDED",
-            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientVersion = "2.0",
-            userAgent = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36",
-            clientId = 85,
-            thirdParty = JSONObject().apply {
-                put("embedUrl", "https://www.youtube.com")
-            }
-        ),
-        // Strategy 3: Regular WEB client on youtube.com (not music.youtube.com)
-        ClientStrategy(
-            label = "WEB",
-            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName = "WEB",
-            clientVersion = "2.20241126.01.00",
-            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            clientId = 1
-        ),
-        // Strategy 4: Android client on regular YouTube (not YouTube Music)
-        ClientStrategy(
-            label = "ANDROID",
-            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName = "ANDROID",
-            clientVersion = "19.09.37",
-            userAgent = "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
-            clientId = 3,
-            extraClientFields = mapOf(
-                "androidSdkVersion" to 34,
-                "platform" to "MOBILE",
-                "osName" to "Android",
-                "osVersion" to "14"
-            )
-        ),
-        // Strategy 5: iOS client
+        // Strategy 2: iOS Client (from Zuno's create_ios_context) - Returns direct pre-signed audio URLs without botguard block
         ClientStrategy(
             label = "IOS",
             apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName = "IOS",
-            clientVersion = "19.45.4",
-            userAgent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
+            clientVersion = "20.11.6",
+            userAgent = "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)",
             clientId = 5,
             extraClientFields = mapOf(
-                "deviceModel" to "iPhone16,2",
-                "osName" to "iOS",
-                "osVersion" to "18.1.0.22B83"
+                "deviceModel" to "iPhone10,4",
+                "osName" to "iPhone",
+                "osVersion" to "16.7.7.20H330"
+            )
+        ),
+        // Strategy 3: Android Client (from Zuno's create_android_context)
+        ClientStrategy(
+            label = "ANDROID",
+            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName = "ANDROID",
+            clientVersion = "21.03.36",
+            userAgent = "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip",
+            clientId = 3,
+            extraClientFields = mapOf(
+                "platform" to "MOBILE",
+                "osName" to "Android",
+                "osVersion" to "16",
+                "androidSdkVersion" to 36
+            )
+        ),
+        // Strategy 4: TV Client (from Zuno's create_tv_context)
+        ClientStrategy(
+            label = "TVHTML5",
+            apiUrl = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName = "TVHTML5",
+            clientVersion = "7.20260311.12.00",
+            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+            clientId = 7,
+            extraClientFields = mapOf(
+                "platform" to "TV",
+                "osName" to "Linux"
             )
         )
     )
@@ -192,6 +198,23 @@ class YouTubeStreamResolver(
             if (strategy.label == "WEB" || strategy.label == "TVHTML5_EMBEDDED") {
                 requestBuilder.header("Origin", "https://www.youtube.com")
                 requestBuilder.header("Referer", "https://www.youtube.com/")
+            }
+
+            if (strategy.requiresAuth) {
+                val cookie = authCookie
+                if (cookie.isNullOrBlank()) return null
+                requestBuilder.header("Cookie", cookie)
+                val sapisid = extractCookieValue(cookie, "SAPISID")
+                    ?: extractCookieValue(cookie, "__Secure-1PAPISID")
+                    ?: extractCookieValue(cookie, "__Secure-3PAPISID")
+                if (!sapisid.isNullOrBlank()) {
+                    try {
+                        val hash = getSapisidHash(sapisid, "https://music.youtube.com")
+                        requestBuilder.header("Authorization", "SAPISIDHASH $hash")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to compute SAPISIDHASH", e)
+                    }
+                }
             }
 
             for ((name, value) in strategy.extraHeaders) {
@@ -289,5 +312,19 @@ class YouTubeStreamResolver(
         val itag = best.optInt("itag", 0)
         Log.d(TAG, "Player $label: best audio itag=$itag, bitrate=${bitrate/1000}kbps, mime=$mime for $videoId")
         return url
+    }
+
+    private fun extractCookieValue(cookie: String, key: String): String? {
+        val regex = Regex("(?:^|;\\s*)$key=([^;]+)")
+        return regex.find(cookie)?.groupValues?.getOrNull(1)
+    }
+
+    private fun getSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String {
+        val timestamp = System.currentTimeMillis() / 1000
+        val payload = "$timestamp $sapisid $origin"
+        val md = java.security.MessageDigest.getInstance("SHA-1")
+        val digest = md.digest(payload.toByteArray())
+        val hash = digest.joinToString("") { "%02x".format(it) }
+        return "${timestamp}_$hash"
     }
 }

@@ -71,9 +71,6 @@ fun SettingsScreen(
     val thumbnailQuality by viewModel.thumbnailQuality.collectAsState()
     val downloadQuality by viewModel.downloadQuality.collectAsState()
     val downloadFolder by viewModel.downloadFolder.collectAsState()
-    val downloadType by viewModel.downloadType.collectAsState()
-    val videoDownloadResolution by viewModel.videoDownloadResolution.collectAsState()
-    val videoDownloadFolder by viewModel.videoDownloadFolder.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
@@ -578,16 +575,6 @@ fun SettingsScreen(
                         .padding(vertical = 4.dp)
                 ) {
                     SettingsSelectorItem(
-                        title = "Default Download Action",
-                        subtitle = "Action triggered on download button tap",
-                        icon = Icons.Default.Download,
-                        currentValue = downloadType,
-                        options = listOf("Audio (Song)", "Video"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setDownloadType(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
                         title = "Download Audio Quality",
                         subtitle = "Bit rate for offline audio tracks",
                         icon = Icons.Default.MusicNote,
@@ -605,22 +592,6 @@ fun SettingsScreen(
                         presetFolders = listOf("Music/Mueso", "Downloads", "Internal App Storage"),
                         isDarkMode = isDarkMode,
                         onFolderSelect = { viewModel.setDownloadFolder(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsVideoResolutionItem(
-                        currentValue = videoDownloadResolution,
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setVideoDownloadResolution(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsFolderSelectorItem(
-                        title = "Video Download Location",
-                        subtitle = "Folder where MP4 video files save",
-                        icon = Icons.Default.VideoLibrary,
-                        currentFolder = videoDownloadFolder,
-                        presetFolders = listOf("Movies/Mueso", "DCIM/Mueso", "Downloads", "Internal App Storage"),
-                        isDarkMode = isDarkMode,
-                        onFolderSelect = { viewModel.setVideoDownloadFolder(it) }
                     )
                 }
             }
@@ -1182,176 +1153,5 @@ private fun SettingsFolderSelectorItem(
                 }
             )
         }
-    }
-}
-
-@Composable
-private fun SettingsVideoResolutionItem(
-    currentValue: String,
-    isDarkMode: Boolean,
-    onSelect: (String) -> Unit
-) {
-    var showChooseDialog by remember { mutableStateOf(false) }
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
-
-    val customResolutions = listOf(
-        "8K (4320p Ultra HD)",
-        "4K (2160p UHD)",
-        "2K (1440p QHD)",
-        "1080p (Full HD)",
-        "720p (HD)",
-        "480p (SD)",
-        "360p (Medium)",
-        "240p (Low)",
-        "144p (Data Saver)"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.Videocam, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("Default Video Resolution", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Auto-fallbacks if video is lower resolution", color = textSub, fontSize = 12.sp)
-                }
-            }
-
-            AnimatedContent(
-                targetState = currentValue,
-                transitionSpec = {
-                    (fadeIn(tween(200))).togetherWith(fadeOut(tween(150)))
-                },
-                label = "VideoResTextAnimation"
-            ) { targetText ->
-                Text(
-                    text = targetText,
-                    color = AccentOrange,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        // 4 Segmented Pills: Max, Default, Low, Choose
-        val pills = listOf("Max", "Default", "Low", "Choose")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            pills.forEach { pill ->
-                val isSelected = when (pill) {
-                    "Max" -> currentValue.contains("Maximum") || currentValue.contains("Max")
-                    "Default" -> currentValue.contains("Default") || (currentValue.contains("1080p") && !currentValue.contains("Full HD"))
-                    "Low" -> currentValue.contains("Low") && !currentValue.contains("240p")
-                    "Choose" -> !currentValue.contains("Maximum") && !currentValue.contains("Default") && !(currentValue.contains("Low") && !currentValue.contains("240p"))
-                    else -> false
-                }
-
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) AccentOrange else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "pillBgColor"
-                )
-
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "pillTextColor"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(bgColor)
-                        .clickable {
-                            when (pill) {
-                                "Max" -> onSelect("Maximum (Highest Quality)")
-                                "Default" -> onSelect("Default (1080p FHD)")
-                                "Low" -> onSelect("Low (480p SD)")
-                                "Choose" -> showChooseDialog = true
-                            }
-                        }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = pill,
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
-
-    if (showChooseDialog) {
-        AlertDialog(
-            onDismissRequest = { showChooseDialog = false },
-            title = { Text("Choose Video Resolution", color = textPrimary, fontWeight = FontWeight.Bold) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(customResolutions) { resOption ->
-                        val isPicked = currentValue == resOption
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isPicked) AccentOrange.copy(alpha = 0.15f) else Color.Transparent)
-                                .clickable {
-                                    onSelect(resOption)
-                                    showChooseDialog = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = resOption,
-                                color = if (isPicked) AccentOrange else textPrimary,
-                                fontWeight = if (isPicked) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp
-                            )
-                            if (isPicked) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showChooseDialog = false }) {
-                    Text("Close", color = AccentOrange)
-                }
-            }
-        )
     }
 }

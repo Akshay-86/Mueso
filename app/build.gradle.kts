@@ -137,9 +137,6 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
-    // Constraints & Layout
-    implementation(libs.androidx.constraintlayout)
-    
     // Material Design
     implementation(libs.material)
 
@@ -156,22 +153,13 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
-    // Networking
-    val retrofit_version = "2.11.0"
-    implementation("com.squareup.retrofit2:retrofit:$retrofit_version")
-    implementation("com.squareup.retrofit2:converter-moshi:$retrofit_version")
+    // Networking & Serialization (Moshi for Google Drive backup, OkHttp for InnerTube)
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Google Auth & WorkManager
     implementation("com.google.android.gms:play-services-auth:21.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
-
-    // FFmpeg (for muxing video+audio streams)
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.7")
-
-    // YouTube Stream Extractor (NewPipeExtractor)
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.4")
 
     // Android YouTube Player (official IFrame wrapper, fixes Error 150/152)
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")

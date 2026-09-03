@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>YtResolver</title>
+    <script src="yt_resolver.bundle.js"></script>
+</head>
+<body>
+    <script>
+        window.resolveTrack = async function(videoId) {
+            try {
+                if (!window.YtResolver) {
+                    if (window.AndroidBridge) window.AndroidBridge.onError(videoId, "YtResolver JS bundle not loaded");
+                    return;
+                }
+                const result = await window.YtResolver.resolveDownloadUrl(videoId);
+                if (window.AndroidBridge) {
+                    window.AndroidBridge.onResolved(videoId, result.url, result.mimeType || "audio/mp4");
+                }
+            } catch (e) {
+                if (window.AndroidBridge) {
+                    window.AndroidBridge.onError(videoId, e.message || String(e));
+                }
+            }
+        };
+
+        window.onload = function() {
+            if (window.AndroidBridge && window.AndroidBridge.onReady) {
+                window.AndroidBridge.onReady();
+            }
+        };
+    </script>
+</body>
+</html>

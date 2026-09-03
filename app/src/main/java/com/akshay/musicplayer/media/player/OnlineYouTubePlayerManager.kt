@@ -90,6 +90,28 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     javaScriptEnabled = true
                     mediaPlaybackRequiresUserGesture = false
                 }
+                wv.webViewClient = object : android.webkit.WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: android.webkit.WebView?,
+                        request: android.webkit.WebResourceRequest?
+                    ): android.webkit.WebResourceResponse? {
+                        val reqUrl = request?.url?.toString() ?: ""
+                        if (reqUrl.contains("googlevideo.com/videoplayback")) {
+                            val vid = currentVideoId
+                            if (vid != null) {
+                                val isAudio = reqUrl.contains("mime=audio") ||
+                                        reqUrl.contains("itag=140") ||
+                                        reqUrl.contains("itag=251") ||
+                                        reqUrl.contains("itag=139")
+                                if (isAudio) {
+                                    Log.d("MUESO_STREAM_CAPTURE", "Captured active player audio stream for $vid")
+                                    com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(vid, reqUrl)
+                                }
+                            }
+                        }
+                        return super.shouldInterceptRequest(view, request)
+                    }
+                }
                 wv.webChromeClient = object : android.webkit.WebChromeClient() {
                     override fun onConsoleMessage(cm: android.webkit.ConsoleMessage?): Boolean {
                         Log.d("MUESO_WV_CONSOLE", "${cm?.message()} (${cm?.sourceId()}:${cm?.lineNumber()})")

@@ -31,30 +31,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")
     val downloadFolder: StateFlow<String> = _downloadFolder.asStateFlow()
 
-    private val _downloadType = MutableStateFlow(sharedPreferences.getString("download_type", "Audio (Song)") ?: "Audio (Song)")
-    val downloadType: StateFlow<String> = _downloadType.asStateFlow()
-
-    private val _videoDownloadResolution = MutableStateFlow(sharedPreferences.getString("video_download_resolution", "1080p (FHD)") ?: "1080p (FHD)")
-    val videoDownloadResolution: StateFlow<String> = _videoDownloadResolution.asStateFlow()
-
-    private val _videoDownloadFolder = MutableStateFlow(sharedPreferences.getString("video_download_folder", "Movies/Mueso") ?: "Movies/Mueso")
-    val videoDownloadFolder: StateFlow<String> = _videoDownloadFolder.asStateFlow()
-
-    fun setDownloadType(type: String) {
-        _downloadType.value = type
-        sharedPreferences.edit().putString("download_type", type).apply()
-    }
-
-    fun setVideoDownloadResolution(resolution: String) {
-        _videoDownloadResolution.value = resolution
-        sharedPreferences.edit().putString("video_download_resolution", resolution).apply()
-    }
-
-    fun setVideoDownloadFolder(folder: String) {
-        _videoDownloadFolder.value = folder
-        sharedPreferences.edit().putString("video_download_folder", folder).apply()
-    }
-
     private val _enableLyrics = MutableStateFlow(sharedPreferences.getBoolean("enable_lyrics", true))
     val enableLyrics: StateFlow<Boolean> = _enableLyrics.asStateFlow()
 
@@ -177,9 +153,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _thumbnailQuality.value = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
         _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
-        _downloadType.value = sharedPreferences.getString("download_type", "Audio (Song)") ?: "Audio (Song)"
-        _videoDownloadResolution.value = sharedPreferences.getString("video_download_resolution", "1080p (FHD)") ?: "1080p (FHD)"
-        _videoDownloadFolder.value = sharedPreferences.getString("video_download_folder", "Movies/Mueso") ?: "Movies/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
         _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", true)
         _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)

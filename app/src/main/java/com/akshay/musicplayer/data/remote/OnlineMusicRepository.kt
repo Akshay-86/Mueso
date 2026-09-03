@@ -21,16 +21,6 @@ import java.util.concurrent.TimeUnit
 
 import com.akshay.musicplayer.data.remote.stream.YouTubeStreamResolver
 
-data class VideoStreamInfo(
-    val title: String,
-    val artist: String,
-    val streamUrl: String,
-    val audioUrl: String = "",
-    val resolution: String = "Audio Stream (160kbps)",
-    val availableResolutions: List<String> = listOf("Audio Stream (160kbps)"),
-    val duration: Int = 0
-)
-
 data class SponsorSegment(
     val startMs: Long,
     val endMs: Long,
@@ -59,6 +49,11 @@ class OnlineMusicRepository {
 
     val innerTube = InnerTubeClient(httpClient)
     val streamResolver = YouTubeStreamResolver(httpClient)
+
+    fun setAuthCookie(cookie: String?) {
+        innerTube.setAuthCookie(cookie)
+        streamResolver.setAuthCookie(cookie)
+    }
 
     // ==========================================
     // 1. DYNAMIC & CURATED PLAYLISTS
@@ -211,40 +206,35 @@ class OnlineMusicRepository {
         return@withContext emptyList()
     }
 
-    suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {
+    suspend fun getStreamUrl(videoId: String, context: android.content.Context? = null): String = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext ""
         try {
+            // 1. Check in-memory cache from active playback or previous extraction
+            val cached = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(videoId)
+            if (!cached.isNullOrBlank()) {
+                Log.d(TAG, "Resolved audio stream from cache for videoId=$videoId")
+                return@withContext cached
+            }
+
+            // 2. If context provided, try headless web extraction
+            if (context != null) {
+                val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(context, videoId)
+                if (!extracted.isNullOrBlank()) {
+                    Log.d(TAG, "Resolved audio stream via Headless WebView for videoId=$videoId")
+                    return@withContext extracted
+                }
+            }
+
+            // 3. Fallback to streamResolver
             val resolved = streamResolver.resolveAudioStream(videoId)
             if (!resolved.isNullOrBlank()) {
-                Log.d(TAG, "Resolved audio stream for videoId=$videoId via InnerTube (length=${resolved.length})")
+                Log.d(TAG, "Resolved audio stream for videoId=$videoId via StreamResolver (length=${resolved.length})")
                 return@withContext resolved
             }
         } catch (e: Exception) {
-            Log.w(TAG, "InnerTube stream resolution error for $videoId", e)
+            Log.w(TAG, "Stream resolution error for $videoId", e)
         }
         return@withContext ""
-    }
-
-    suspend fun getVideoStreamInfo(videoId: String, targetResolution: String = "1080p"): VideoStreamInfo? = withContext(Dispatchers.IO) {
-        val streamUrl = getStreamUrl(videoId)
-        if (streamUrl.isBlank()) return@withContext null
-        return@withContext VideoStreamInfo(
-            title = "Audio Stream",
-            artist = "YouTube Music",
-            streamUrl = streamUrl,
-            audioUrl = streamUrl,
-            resolution = "Audio Stream (160kbps)",
-            availableResolutions = listOf("Audio Stream (160kbps)"),
-            duration = 0
-        )
-    }
-
-    suspend fun getAvailableVideoResolutionsForTrack(track: TrackEntity): List<String> = withContext(Dispatchers.IO) {
-        return@withContext listOf("Audio Stream (160kbps Opus)", "Audio Stream (128kbps AAC)")
-    }
-
-    suspend fun getAvailableVideoResolutions(videoId: String): List<String> = withContext(Dispatchers.IO) {
-        return@withContext listOf("Audio Stream (160kbps Opus)", "Audio Stream (128kbps AAC)")
     }
 
     fun extractVideoId(track: TrackEntity): String {
