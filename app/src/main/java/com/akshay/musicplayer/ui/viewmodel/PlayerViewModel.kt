@@ -83,11 +83,16 @@ class PlayerViewModel(
 
     val isYouTubeLoggedIn = youtubeAuthManager.isLoggedIn
     val youtubeUserName = youtubeAuthManager.userName
+    val youtubeUserHandle = youtubeAuthManager.userHandle
+    val youtubeUserAvatar = youtubeAuthManager.userAvatar
+    val youtubeSavedAccounts = youtubeAuthManager.savedAccounts
     val youtubeLikedSongs = youtubeAuthManager.likedSongs
     val youtubeUserPlaylists = youtubeAuthManager.userPlaylists
     val isLoadingYouTubeLibrary = youtubeAuthManager.isLoadingLibrary
 
-    fun saveYouTubeCookies(cookieString: String, name: String? = null) = youtubeAuthManager.saveCookies(cookieString, name)
+    fun saveYouTubeCookies(cookieString: String, name: String? = null, avatar: String? = null) = youtubeAuthManager.saveCookies(cookieString, name, avatar)
+    fun switchYouTubeAccount(accountId: String) = youtubeAuthManager.switchAccount(accountId)
+    fun removeYouTubeAccount(accountId: String) = youtubeAuthManager.removeAccount(accountId)
     fun logoutYouTube() = youtubeAuthManager.logout()
     fun refreshYouTubeLibrary() = youtubeAuthManager.refreshLibrary()
     fun toggleYouTubeLike(track: TrackEntity, isLiked: Boolean) = youtubeAuthManager.toggleLikeSong(track, isLiked)

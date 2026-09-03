@@ -721,6 +721,46 @@ class InnerTubeClient(
     }
 
     // ==========================================
+    // 7. ACCOUNT PROFILE (/account/account_menu)
+    // ==========================================
+    suspend fun getAccountInfo(): InnerTubeAccountInfo? = withContext(Dispatchers.IO) {
+        if (!isLoggedIn()) return@withContext null
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+        }
+        try {
+            val request = buildBaseRequest("account/account_menu", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "getAccountInfo returned error: ${response.code}")
+                    return@withContext null
+                }
+                val json = JSONObject(response.body?.string() ?: return@withContext null)
+                val actions = json.optJSONArray("actions") ?: return@withContext null
+                val header = actions.optJSONObject(0)
+                    ?.optJSONObject("openPopupAction")
+                    ?.optJSONObject("popup")
+                    ?.optJSONObject("multiPageMenuRenderer")
+                    ?.optJSONObject("header")
+                    ?.optJSONObject("activeAccountHeaderRenderer") ?: return@withContext null
+
+                val name = header.optJSONObject("accountName")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    ?: "YouTube Music User"
+                val handle = header.optJSONObject("channelHandle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    ?: header.optJSONObject("email")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                val thumbs = header.optJSONObject("accountPhoto")?.optJSONArray("thumbnails")
+                val avatar = thumbs?.optJSONObject(thumbs.length() - 1)?.optString("url")
+
+                Log.d(TAG, "Fetched account info: name='$name', handle='$handle'")
+                return@withContext InnerTubeAccountInfo(name, handle, avatar)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getAccountInfo failed", e)
+            return@withContext null
+        }
+    }
+
+    // ==========================================
     // UTILS
     // ==========================================
     private fun parseDurationToSeconds(text: String): Int {

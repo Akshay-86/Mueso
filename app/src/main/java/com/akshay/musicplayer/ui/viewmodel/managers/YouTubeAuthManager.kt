@@ -12,6 +12,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+
+data class YouTubeAccount(
+    val id: String,
+    val name: String,
+    val handle: String?,
+    val avatarUrl: String?,
+    val cookieString: String
+)
 
 class YouTubeAuthManager(
     private val context: Context,
@@ -21,8 +31,11 @@ class YouTubeAuthManager(
     companion object {
         private const val TAG = "MUESO_YTM_AUTH"
         private const val PREFS_NAME = "mueso_yt_auth"
+        private const val KEY_SAVED_ACCOUNTS = "ytm_saved_accounts_json"
+        private const val KEY_ACTIVE_ACCOUNT_ID = "ytm_active_account_id"
         private const val KEY_AUTH_COOKIE = "ytm_auth_cookie"
         private const val KEY_USER_NAME = "ytm_user_name"
+        private const val KEY_USER_HANDLE = "ytm_user_handle"
         private const val KEY_USER_AVATAR = "ytm_user_avatar"
     }
 
@@ -31,8 +44,17 @@ class YouTubeAuthManager(
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
+    private val _currentAccount = MutableStateFlow<YouTubeAccount?>(null)
+    val currentAccount: StateFlow<YouTubeAccount?> = _currentAccount.asStateFlow()
+
+    private val _savedAccounts = MutableStateFlow<List<YouTubeAccount>>(emptyList())
+    val savedAccounts: StateFlow<List<YouTubeAccount>> = _savedAccounts.asStateFlow()
+
     private val _userName = MutableStateFlow<String?>(null)
     val userName: StateFlow<String?> = _userName.asStateFlow()
+
+    private val _userHandle = MutableStateFlow<String?>(null)
+    val userHandle: StateFlow<String?> = _userHandle.asStateFlow()
 
     private val _userAvatar = MutableStateFlow<String?>(null)
     val userAvatar: StateFlow<String?> = _userAvatar.asStateFlow()
@@ -52,20 +74,107 @@ class YouTubeAuthManager(
         loadSavedSession()
     }
 
+    private fun loadAccountsFromPrefs(): List<YouTubeAccount> {
+        val jsonStr = prefs.getString(KEY_SAVED_ACCOUNTS, null)
+        if (!jsonStr.isNullOrBlank()) {
+            try {
+                val arr = JSONArray(jsonStr)
+                val list = mutableListOf<YouTubeAccount>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(
+                        YouTubeAccount(
+                            id = obj.getString("id"),
+                            name = obj.getString("name"),
+                            handle = obj.optString("handle").takeIf { it.isNotBlank() },
+                            avatarUrl = obj.optString("avatarUrl").takeIf { it.isNotBlank() },
+                            cookieString = obj.getString("cookieString")
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) return list
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse saved accounts", e)
+            }
+        }
+        val legacyCookie = prefs.getString(KEY_AUTH_COOKIE, null)
+        if (!legacyCookie.isNullOrBlank()) {
+            val name = prefs.getString(KEY_USER_NAME, "YouTube Music User") ?: "YouTube Music User"
+            val handle = prefs.getString(KEY_USER_HANDLE, null)
+            val avatar = prefs.getString(KEY_USER_AVATAR, null)
+            return listOf(
+                YouTubeAccount(
+                    id = handle ?: "account_0",
+                    name = name,
+                    handle = handle,
+                    avatarUrl = avatar,
+                    cookieString = legacyCookie
+                )
+            )
+        }
+        return emptyList()
+    }
+
+    private fun saveAccountsToPrefs(accounts: List<YouTubeAccount>, activeId: String?) {
+        val arr = JSONArray()
+        for (acc in accounts) {
+            val obj = JSONObject()
+            obj.put("id", acc.id)
+            obj.put("name", acc.name)
+            obj.put("handle", acc.handle ?: "")
+            obj.put("avatarUrl", acc.avatarUrl ?: "")
+            obj.put("cookieString", acc.cookieString)
+            arr.put(obj)
+        }
+        prefs.edit()
+            .putString(KEY_SAVED_ACCOUNTS, arr.toString())
+            .putString(KEY_ACTIVE_ACCOUNT_ID, activeId)
+            .apply()
+    }
+
     fun loadSavedSession() {
-        val savedCookie = prefs.getString(KEY_AUTH_COOKIE, null)
-        if (!savedCookie.isNullOrBlank()) {
-            onlineRepo.innerTube.setAuthCookie(savedCookie)
+        val accounts = loadAccountsFromPrefs()
+        _savedAccounts.value = accounts
+
+        val activeId = prefs.getString(KEY_ACTIVE_ACCOUNT_ID, null)
+        val activeAccount = accounts.find { it.id == activeId } ?: accounts.firstOrNull()
+
+        if (activeAccount != null && activeAccount.cookieString.isNotBlank()) {
+            _currentAccount.value = activeAccount
+            _userName.value = activeAccount.name
+            _userHandle.value = activeAccount.handle
+            _userAvatar.value = activeAccount.avatarUrl
+
+            onlineRepo.innerTube.setAuthCookie(activeAccount.cookieString)
             val isValid = onlineRepo.innerTube.isLoggedIn()
             _isLoggedIn.value = isValid
-            _userName.value = prefs.getString(KEY_USER_NAME, "YouTube Music User")
-            _userAvatar.value = prefs.getString(KEY_USER_AVATAR, null)
 
             if (isValid) {
                 refreshLibrary()
+                coroutineScope.launch(Dispatchers.IO) {
+                    val info = onlineRepo.innerTube.getAccountInfo()
+                    if (info != null) {
+                        _userName.value = info.name
+                        _userHandle.value = info.handle
+                        _userAvatar.value = info.avatarUrl
+                        val updated = activeAccount.copy(
+                            name = info.name,
+                            handle = info.handle,
+                            avatarUrl = info.avatarUrl
+                        )
+                        _currentAccount.value = updated
+                        val updatedList = _savedAccounts.value.map { if (it.id == updated.id) updated else it }
+                        _savedAccounts.value = updatedList
+                        saveAccountsToPrefs(updatedList, updated.id)
+                    }
+                }
             }
         } else {
+            _currentAccount.value = null
             _isLoggedIn.value = false
+            _userName.value = null
+            _userHandle.value = null
+            _userAvatar.value = null
         }
         onSessionChanged?.invoke()
     }
@@ -73,30 +182,114 @@ class YouTubeAuthManager(
     fun saveCookies(cookieString: String, name: String? = null, avatar: String? = null) {
         if (cookieString.isBlank()) return
 
-        prefs.edit()
-            .putString(KEY_AUTH_COOKIE, cookieString)
-            .putString(KEY_USER_NAME, name ?: "YouTube Music User")
-            .putString(KEY_USER_AVATAR, avatar)
-            .apply()
-
         onlineRepo.innerTube.setAuthCookie(cookieString)
-        _isLoggedIn.value = onlineRepo.innerTube.isLoggedIn()
-        _userName.value = name ?: "YouTube Music User"
-        _userAvatar.value = avatar
+        val isValid = onlineRepo.innerTube.isLoggedIn()
+        _isLoggedIn.value = isValid
 
-        Log.d(TAG, "Saved YouTube Music auth cookie successfully (logged in: ${_isLoggedIn.value})")
+        coroutineScope.launch(Dispatchers.IO) {
+            val info = onlineRepo.innerTube.getAccountInfo()
+            val finalName = info?.name ?: name ?: "YouTube Music User"
+            val finalHandle = info?.handle
+            val finalAvatar = info?.avatarUrl ?: avatar
+
+            _userName.value = finalName
+            _userHandle.value = finalHandle
+            _userAvatar.value = finalAvatar
+
+            val accountId = finalHandle ?: "account_${System.currentTimeMillis()}"
+            val newAccount = YouTubeAccount(
+                id = accountId,
+                name = finalName,
+                handle = finalHandle,
+                avatarUrl = finalAvatar,
+                cookieString = cookieString
+            )
+
+            val currentList = _savedAccounts.value.toMutableList()
+            currentList.removeAll { it.id == accountId || it.cookieString == cookieString }
+            currentList.add(0, newAccount)
+            _savedAccounts.value = currentList
+            _currentAccount.value = newAccount
+
+            saveAccountsToPrefs(currentList, newAccount.id)
+            Log.d(TAG, "Saved YouTube Music account '$finalName' ($finalHandle). Total accounts: ${currentList.size}")
+
+            refreshLibrary()
+            onSessionChanged?.invoke()
+        }
+    }
+
+    fun switchAccount(accountId: String) {
+        val target = _savedAccounts.value.find { it.id == accountId } ?: return
+        Log.d(TAG, "Switching to account: ${target.name} (${target.handle})")
+        _currentAccount.value = target
+        _userName.value = target.name
+        _userHandle.value = target.handle
+        _userAvatar.value = target.avatarUrl
+
+        onlineRepo.innerTube.setAuthCookie(target.cookieString)
+        _isLoggedIn.value = onlineRepo.innerTube.isLoggedIn()
+
+        saveAccountsToPrefs(_savedAccounts.value, target.id)
         refreshLibrary()
         onSessionChanged?.invoke()
     }
 
+    fun removeAccount(accountId: String) {
+        val currentList = _savedAccounts.value.toMutableList()
+        currentList.removeAll { it.id == accountId }
+        _savedAccounts.value = currentList
+
+        if (_currentAccount.value?.id == accountId) {
+            val next = currentList.firstOrNull()
+            if (next != null) {
+                switchAccount(next.id)
+            } else {
+                logout()
+            }
+        } else {
+            saveAccountsToPrefs(currentList, _currentAccount.value?.id)
+        }
+    }
+
     fun logout() {
-        prefs.edit().clear().apply()
+        val activeId = _currentAccount.value?.id
+        val currentList = _savedAccounts.value.toMutableList()
+        if (activeId != null) {
+            currentList.removeAll { it.id == activeId }
+        } else {
+            currentList.clear()
+        }
+        _savedAccounts.value = currentList
+
+        saveAccountsToPrefs(currentList, currentList.firstOrNull()?.id)
+
+        if (currentList.isNotEmpty()) {
+            switchAccount(currentList[0].id)
+            return
+        }
+
         onlineRepo.innerTube.setAuthCookie(null)
         _isLoggedIn.value = false
+        _currentAccount.value = null
         _userName.value = null
+        _userHandle.value = null
         _userAvatar.value = null
         _likedSongs.value = emptyList()
         _userPlaylists.value = emptyList()
+
+        // Clear Android WebView cookies & storage so next login doesn't auto-log in!
+        coroutineScope.launch(Dispatchers.Main) {
+            try {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+                Log.d(TAG, "Cleared WebView cookies and WebStorage successfully on logout")
+            } catch (e: Exception) {
+                Log.w(TAG, "Error clearing WebView cookies", e)
+            }
+        }
+
         Log.d(TAG, "Logged out of YouTube Music")
         onSessionChanged?.invoke()
     }
@@ -107,12 +300,10 @@ class YouTubeAuthManager(
         coroutineScope.launch(Dispatchers.IO) {
             _isLoadingLibrary.value = true
             try {
-                // 1. Fetch Liked Songs ("LM")
                 val likedTracks = onlineRepo.innerTube.getLikedSongs().map { it.toTrackEntity() }
                 _likedSongs.value = likedTracks
                 Log.d(TAG, "Fetched ${likedTracks.size} Liked Songs from YouTube Music")
 
-                // 2. Fetch User Playlists
                 val playlists = onlineRepo.innerTube.getUserPlaylists()
                 _userPlaylists.value = playlists
                 Log.d(TAG, "Fetched ${playlists.size} User Playlists from YouTube Music")

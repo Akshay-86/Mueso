@@ -55,3 +55,9 @@ data class StreamFormat(
     val contentLength: Long = 0L,
     val isAudioOnly: Boolean = true
 )
+
+data class InnerTubeAccountInfo(
+    val name: String,
+    val handle: String?,
+    val avatarUrl: String?
+)

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +52,7 @@ private val OrangeAccent = Color(0xFFFF512F)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YouTubeLoginDialog(
+    cleanSession: Boolean = false,
     onDismiss: () -> Unit,
     onLoginSuccess: (cookieString: String, userName: String?) -> Unit
 ) {
@@ -115,6 +117,27 @@ fun YouTubeLoginDialog(
                     }
 
                     IconButton(
+                        onClick = {
+                            val cm = CookieManager.getInstance()
+                            cm.removeAllCookies {
+                                cm.flush()
+                                android.webkit.WebStorage.getInstance().deleteAllData()
+                                webViewInstance?.clearCache(true)
+                                webViewInstance?.clearHistory()
+                                webViewInstance?.loadUrl("https://accounts.google.com/AddSession?continue=https://music.youtube.com/")
+                            }
+                            Toast.makeText(context, "Session cleared. Sign into another account", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AccountCircle,
+                            contentDescription = "Switch Account",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    IconButton(
                         onClick = { webViewInstance?.reload() },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -160,32 +183,42 @@ fun YouTubeLoginDialog(
                                         super.onPageFinished(view, url)
 
                                         val currentUrl = url ?: ""
-                                        val cookies = cookieManager.getCookie(currentUrl) ?: ""
-                                        val ytmCookies = cookieManager.getCookie("https://music.youtube.com") ?: cookies
-
-                                        if (ytmCookies.contains("SAPISID") || ytmCookies.contains("__Secure-1PAPISID") || ytmCookies.contains("SID")) {
-                                            Log.d("MUESO_YTM_LOGIN", "Authenticated cookies detected from $currentUrl")
-                                            Toast.makeText(context, "YouTube Music Connected Successfully!", Toast.LENGTH_SHORT).show()
-                                            onLoginSuccess(ytmCookies, null)
-                                            onDismiss()
+                                        if (currentUrl.contains("music.youtube.com")) {
+                                            val ytmCookies = cookieManager.getCookie("https://music.youtube.com") ?: ""
+                                            if (ytmCookies.contains("SAPISID") || ytmCookies.contains("__Secure-1PAPISID") || ytmCookies.contains("SID")) {
+                                                Log.d("MUESO_YTM_LOGIN", "Authenticated cookies detected on music.youtube.com")
+                                                Toast.makeText(context, "YouTube Music Connected Successfully!", Toast.LENGTH_SHORT).show()
+                                                onLoginSuccess(ytmCookies, null)
+                                                onDismiss()
+                                            }
                                         }
                                     }
 
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                         val nextUrl = request?.url?.toString() ?: ""
-                                        val cookies = cookieManager.getCookie("https://music.youtube.com") ?: ""
-                                        if (cookies.contains("SAPISID") || cookies.contains("__Secure-1PAPISID") || cookies.contains("SID")) {
-                                            Log.d("MUESO_YTM_LOGIN", "Captured valid auth cookies before redirect")
-                                            Toast.makeText(context, "YouTube Music Connected Successfully!", Toast.LENGTH_SHORT).show()
-                                            onLoginSuccess(cookies, null)
-                                            onDismiss()
-                                            return true
+                                        if (nextUrl.contains("music.youtube.com")) {
+                                            val cookies = cookieManager.getCookie("https://music.youtube.com") ?: ""
+                                            if (cookies.contains("SAPISID") || cookies.contains("__Secure-1PAPISID") || cookies.contains("SID")) {
+                                                Log.d("MUESO_YTM_LOGIN", "Captured valid auth cookies before redirect to music.youtube.com")
+                                                Toast.makeText(context, "YouTube Music Connected Successfully!", Toast.LENGTH_SHORT).show()
+                                                onLoginSuccess(cookies, null)
+                                                onDismiss()
+                                                return true
+                                            }
                                         }
                                         return false
                                     }
                                 }
 
-                                loadUrl("https://accounts.google.com/ServiceLogin?continue=https://music.youtube.com/")
+                                if (cleanSession) {
+                                    cookieManager.removeAllCookies {
+                                        cookieManager.flush()
+                                        android.webkit.WebStorage.getInstance().deleteAllData()
+                                        loadUrl("https://accounts.google.com/ServiceLogin?continue=https://music.youtube.com/")
+                                    }
+                                } else {
+                                    loadUrl("https://accounts.google.com/AccountChooser?continue=https://music.youtube.com/")
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxSize()

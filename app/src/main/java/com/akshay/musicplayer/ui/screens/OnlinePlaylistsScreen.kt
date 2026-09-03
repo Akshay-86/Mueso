@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,12 +41,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import coil.compose.AsyncImage
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAccount
 
 private val OrangeAccent = Color(0xFFFF512F)
 private val TextSecondary = Color(0xFF8E8E93)
@@ -72,6 +78,9 @@ fun OnlinePlaylistsScreen(
     // YouTube Music Auth State
     val isYouTubeLoggedIn by viewModel.isYouTubeLoggedIn.collectAsState()
     val youtubeUserName by viewModel.youtubeUserName.collectAsState()
+    val youtubeUserHandle by viewModel.youtubeUserHandle.collectAsState()
+    val youtubeUserAvatar by viewModel.youtubeUserAvatar.collectAsState()
+    val youtubeSavedAccounts by viewModel.youtubeSavedAccounts.collectAsState()
     val youtubeLikedSongs by viewModel.youtubeLikedSongs.collectAsState()
     val youtubeUserPlaylists by viewModel.youtubeUserPlaylists.collectAsState()
 
@@ -82,6 +91,8 @@ fun OnlinePlaylistsScreen(
     val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
 
     var showYouTubeLoginDialog by remember { mutableStateOf(false) }
+    var loginDialogCleanSession by remember { mutableStateOf(false) }
+    var showAccountSwitcherDialog by remember { mutableStateOf(false) }
     var selectedPlaylist by remember { mutableStateOf<SelectedOnlinePlaylist?>(null) }
     var selectedCustomPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -172,26 +183,52 @@ fun OnlinePlaylistsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(
-                                    imageVector = if (isYouTubeLoggedIn) Icons.Default.LibraryMusic else Icons.Default.AccountCircle,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Column {
+                                if (isYouTubeLoggedIn && !youtubeUserAvatar.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = youtubeUserAvatar,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = if (isYouTubeLoggedIn) (youtubeUserName ?: "Connected to YouTube Music") else "Connect YouTube Music",
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    if (isYouTubeLoggedIn && !youtubeUserHandle.isNullOrBlank()) {
+                                        Text(
+                                            text = youtubeUserHandle!!,
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                     Text(
                                         text = if (isYouTubeLoggedIn) "${youtubeLikedSongs.size} Liked Songs • ${youtubeUserPlaylists.size} Playlists" else "Sign in to sync your Liked Songs and personal playlists",
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 12.sp
+                                        color = Color.White.copy(alpha = 0.75f),
+                                        fontSize = 11.sp
                                     )
                                 }
                             }
@@ -214,11 +251,14 @@ fun OnlinePlaylistsScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         if (!isYouTubeLoggedIn) {
                             Button(
-                                onClick = { showYouTubeLoginDialog = true },
+                                onClick = {
+                                    loginDialogCleanSession = true
+                                    showYouTubeLoginDialog = true
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -232,7 +272,7 @@ fun OnlinePlaylistsScreen(
                         } else {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Button(
                                     onClick = {
@@ -245,25 +285,38 @@ fun OnlinePlaylistsScreen(
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1.3f)
                                 ) {
                                     Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFF8E2DE2), modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Play Liked (${youtubeLikedSongs.size})",
+                                        text = "Liked (${youtubeLikedSongs.size})",
                                         color = Color(0xFF8E2DE2),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        fontSize = 12.sp,
+                                        maxLines = 1
                                     )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showAccountSwitcherDialog = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                                    modifier = Modifier.weight(1.1f)
+                                ) {
+                                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Accounts", fontSize = 12.sp, maxLines = 1)
                                 }
 
                                 OutlinedButton(
                                     onClick = { viewModel.logoutYouTube() },
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f))
                                 ) {
-                                    Text("Logout", fontSize = 13.sp)
+                                    Text("Logout", fontSize = 12.sp)
                                 }
                             }
                         }
@@ -451,9 +504,40 @@ fun OnlinePlaylistsScreen(
         // YouTube Music Login Dialog
         if (showYouTubeLoginDialog) {
             YouTubeLoginDialog(
-                onDismiss = { showYouTubeLoginDialog = false },
+                cleanSession = loginDialogCleanSession,
+                onDismiss = {
+                    showYouTubeLoginDialog = false
+                    loginDialogCleanSession = false
+                },
                 onLoginSuccess = { cookie, name ->
                     viewModel.saveYouTubeCookies(cookie, name)
+                }
+            )
+        }
+
+        // Account Switcher Dialog
+        if (showAccountSwitcherDialog) {
+            AccountSwitcherDialog(
+                currentAccountName = youtubeUserName,
+                currentAccountHandle = youtubeUserHandle,
+                savedAccounts = youtubeSavedAccounts,
+                isDarkMode = isDarkMode,
+                onDismiss = { showAccountSwitcherDialog = false },
+                onSelectAccount = { accountId ->
+                    viewModel.switchYouTubeAccount(accountId)
+                    showAccountSwitcherDialog = false
+                },
+                onRemoveAccount = { accountId ->
+                    viewModel.removeYouTubeAccount(accountId)
+                },
+                onAddNewAccount = {
+                    showAccountSwitcherDialog = false
+                    loginDialogCleanSession = true
+                    showYouTubeLoginDialog = true
+                },
+                onLogoutCurrent = {
+                    viewModel.logoutYouTube()
+                    showAccountSwitcherDialog = false
                 }
             )
         }
@@ -945,4 +1029,174 @@ fun OnlinePlaylistDetailScreen(
             }
         }
     }
+}
+
+@Composable
+fun AccountSwitcherDialog(
+    currentAccountName: String?,
+    currentAccountHandle: String?,
+    savedAccounts: List<YouTubeAccount>,
+    isDarkMode: Boolean,
+    onDismiss: () -> Unit,
+    onSelectAccount: (String) -> Unit,
+    onRemoveAccount: (String) -> Unit,
+    onAddNewAccount: () -> Unit,
+    onLogoutCurrent: () -> Unit
+) {
+    val bg = if (isDarkMode) Color(0xFF1E1E24) else Color.White
+    val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "YouTube Music Accounts",
+                    color = textColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = textSub)
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Switch between accounts or sign in with another account:",
+                    fontSize = 13.sp,
+                    color = textSub
+                )
+
+                savedAccounts.forEach { acc ->
+                    val isActive = (acc.name == currentAccountName && (acc.handle == currentAccountHandle || acc.handle == null))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (isActive) (if (isDarkMode) Color(0xFF8E2DE2).copy(alpha = 0.25f) else Color(0xFF8E2DE2).copy(alpha = 0.12f))
+                                else (if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                            )
+                            .border(
+                                width = if (isActive) 1.5.dp else 0.dp,
+                                color = if (isActive) Color(0xFF8E2DE2) else Color.Transparent,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                if (!isActive) onSelectAccount(acc.id)
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (!acc.avatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = acc.avatarUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = if (isActive) Color(0xFF8E2DE2) else textSub,
+                                    modifier = Modifier.size(38.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = acc.name,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = textColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isActive) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Active",
+                                            tint = Color(0xFF8E2DE2),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                if (!acc.handle.isNullOrBlank()) {
+                                    Text(
+                                        text = acc.handle,
+                                        fontSize = 12.sp,
+                                        color = textSub,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { onRemoveAccount(acc.id) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Remove Account",
+                                tint = textSub,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Add Account Button
+                OutlinedButton(
+                    onClick = onAddNewAccount,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8E2DE2)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8E2DE2).copy(alpha = 0.6f))
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add Another Account", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = Color(0xFF8E2DE2), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onLogoutCurrent) {
+                Text("Log Out", color = Color.Red.copy(alpha = 0.8f))
+            }
+        },
+        containerColor = bg,
+        shape = RoundedCornerShape(24.dp)
+    )
 }
