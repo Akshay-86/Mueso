@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,10 +42,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize Chaquopy Python runtime
-        if (!com.chaquo.python.Python.isStarted()) {
-            com.chaquo.python.Python.start(com.chaquo.python.android.AndroidPlatform(this))
-        }
+        AppContainer.initialize(applicationContext)
 
         // Setup ViewModel
         setupViewModel()
@@ -106,6 +107,23 @@ class MainActivity : ComponentActivity() {
             }
 
             MusicPlayerTheme(darkTheme = isDarkMode) {
+                // Attach YouTubePlayerView to the Window hierarchy with >= 200px dimensions (required by YouTube embed policy)
+                mediaPlayerController.getOnlinePlayerView()?.let { ytView ->
+                    AndroidView(
+                        factory = {
+                            (ytView.parent as? android.view.ViewGroup)?.removeView(ytView)
+                            ytView.apply {
+                                isClickable = false
+                                isFocusable = false
+                                setOnTouchListener { _, _ -> false }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(240.dp)
+                            .alpha(0.01f)
+                    )
+                }
+
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {
@@ -308,7 +326,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        playerViewModel.saveCurrentPlaybackPosition()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        playerViewModel.saveCurrentPlaybackPosition()
+    }
+
     override fun onDestroy() {
+        playerViewModel.saveCurrentPlaybackPosition()
         super.onDestroy()
         mediaPlayerController.release()
     }

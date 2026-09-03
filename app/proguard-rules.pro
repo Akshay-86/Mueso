@@ -48,10 +48,6 @@
 # ─── UpdateManager data class ───
 -keep class com.akshay.musicplayer.ui.viewmodel.managers.UpdateInfo { *; }
 
-# Chaquopy Python Integration Rules
--keep class com.chaquo.python.** { *; }
--dontwarn com.chaquo.python.**
-
 # FFmpegKit Rules
 -keep class com.arthenica.ffmpegkit.** { *; }
 -dontwarn com.arthenica.smartexception.java.Exceptions

@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.3.2"
-    id("com.chaquo.python")
 }
 
 fun getGitCommitSha(): String {
@@ -48,21 +47,6 @@ android {
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             isUniversalApk = true
-        }
-    }
-
-    chaquopy {
-        defaultConfig {
-            val localPython = file("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
-            if (localPython.exists()) {
-                buildPython(localPython.absolutePath)
-            } else {
-                buildPython("python3")
-            }
-            pip {
-                install("yt-dlp")
-                install("mutagen")
-            }
         }
     }
 
@@ -185,4 +169,10 @@ dependencies {
 
     // FFmpeg (for muxing video+audio streams)
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.7")
+
+    // YouTube Stream Extractor (NewPipeExtractor)
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.4")
+
+    // Android YouTube Player (official IFrame wrapper, fixes Error 150/152)
+    implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
 }

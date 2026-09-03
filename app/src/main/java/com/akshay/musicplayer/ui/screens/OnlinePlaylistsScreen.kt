@@ -9,23 +9,23 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,20 +33,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
-import com.akshay.musicplayer.data.remote.CuratedOnlinePlaylist
-import com.akshay.musicplayer.data.remote.OnlineMusicRepository
+import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
 import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
-import kotlinx.coroutines.launch
 
-private val BgDark = Color(0xFF0F0F0F)
-private val AccentOrange = Color(0xFFFF512F)
+private val OrangeAccent = Color(0xFFFF512F)
 private val TextSecondary = Color(0xFF8E8E93)
+
+data class SelectedOnlinePlaylist(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val artworkUrl: String? = null,
+    val gradientColors: List<Long> = listOf(0xFF8E2DE2, 0xFF4A00E0)
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,52 +64,45 @@ fun OnlinePlaylistsScreen(
     onDetailVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val repo = remember { OnlineMusicRepository() }
-    val curatedPlaylists = remember { repo.getCuratedPlaylists() }
-    val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
-
-    var selectedCuratedPlaylist by remember { mutableStateOf<CuratedOnlinePlaylist?>(null) }
-    var selectedCustomPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
-    
-    val curatedTracksMap = remember { mutableStateMapOf<String, List<TrackEntity>>() }
-    val isFetchingCuratedMap = remember { mutableStateMapOf<String, Boolean>() }
 
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
-    var selectedCategory by remember { mutableStateOf("All") }
+    // YouTube Music Auth State
+    val isYouTubeLoggedIn by viewModel.isYouTubeLoggedIn.collectAsState()
+    val youtubeUserName by viewModel.youtubeUserName.collectAsState()
+    val youtubeLikedSongs by viewModel.youtubeLikedSongs.collectAsState()
+    val youtubeUserPlaylists by viewModel.youtubeUserPlaylists.collectAsState()
+
+    // Dynamic Explore & Charts Shelves
+    val exploreShelves by viewModel.exploreShelves.collectAsState()
+    val chartsShelves by viewModel.chartsShelves.collectAsState()
+
+    val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
+
+    var showYouTubeLoginDialog by remember { mutableStateOf(false) }
+    var selectedPlaylist by remember { mutableStateOf<SelectedOnlinePlaylist?>(null) }
+    var selectedCustomPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var editingPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
 
-    val categories = listOf("All", "Top Charts", "Mood & Focus", "Fitness & Energy", "Classics", "My Playlists")
-
-    val isDetailOpen = selectedCuratedPlaylist != null || selectedCustomPlaylist != null
+    val isDetailOpen = selectedPlaylist != null || selectedCustomPlaylist != null
     LaunchedEffect(isDetailOpen) {
         onDetailVisibilityChanged(isDetailOpen)
     }
 
     androidx.activity.compose.BackHandler(enabled = isDetailOpen) {
-        selectedCuratedPlaylist = null
+        selectedPlaylist = null
         selectedCustomPlaylist = null
     }
 
-    // State for Editing Custom Online Playlist
-    var editingPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
-
-    // Pre-fetch Hero Curated Playlist if needed
-    val heroPlaylistId by viewModel.heroPlaylistId.collectAsState()
-    val currentHeroCurated = curatedPlaylists.firstOrNull { it.id == heroPlaylistId } ?: curatedPlaylists.first()
-    LaunchedEffect(currentHeroCurated.id) {
-        if (!curatedTracksMap.containsKey(currentHeroCurated.id)) {
-            val fetched = viewModel.getCuratedPlaylistTracks(currentHeroCurated.searchQuery)
-            curatedTracksMap[currentHeroCurated.id] = fetched
-        }
+    LaunchedEffect(Unit) {
+        viewModel.loadExploreAndCharts()
     }
 
     val mainListState = rememberLazyListState()
 
-    // Main Online Playlists Hub Screen
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -112,7 +113,7 @@ fun OnlinePlaylistsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            // Header Title Bar (positioned below TopNavigationBarWithSearch)
+            // Top Spacing & Header
             item {
                 Spacer(modifier = Modifier.height(100.dp))
                 Row(
@@ -124,24 +125,24 @@ fun OnlinePlaylistsScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Online Playlists Hub",
+                            text = "YouTube Music Hub",
                             color = textColor,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "Spotify & YouTube Music Curated Hub",
+                            text = "Live dynamic charts, ready-made playlists & library",
                             color = textSub,
                             fontSize = 13.sp
                         )
                     }
 
-                    // Create Playlist Button
+                    // Create Custom Playlist Button
                     IconButton(
                         onClick = { showCreateDialog = true },
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(AccentOrange)
+                            .background(OrangeAccent)
                             .size(40.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Create Online Playlist", tint = Color.White)
@@ -149,188 +150,205 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // Category Filter Chips Row
+            // 1. YouTube Music Account Card
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(categories) { cat ->
-                        val isSelected = cat == selectedCategory
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { selectedCategory = cat },
-                            label = { Text(cat, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AccentOrange,
-                                selectedLabelColor = Color.White,
-                                containerColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
-                                labelColor = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF3A3A3C)
-                            ),
-                            shape = RoundedCornerShape(20.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                if (isYouTubeLoggedIn) listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
+                                else listOf(Color(0xFFFF512F), Color(0xFFDD2476))
+                            )
                         )
-                    }
-                }
-            }
-
-            // Hero Banner (Featured Playlist - Dynamic based on heroPlaylistId with 2x2 Cover Art)
-            if (selectedCategory == "All" || selectedCategory == "Top Charts") {
-                item {
-                    val heroPlaylistId by viewModel.heroPlaylistId.collectAsState()
-                    val heroCurated = curatedPlaylists.firstOrNull { it.id == heroPlaylistId } ?: curatedPlaylists.first()
-                    val heroCustom = customOnlinePlaylists.firstOrNull { "custom_${it.id}" == heroPlaylistId }
-
-                    val heroTitle = heroCustom?.name ?: heroCurated.title
-                    val heroSubtitle = heroCustom?.description?.takeIf { it.isNotBlank() } ?: if (heroCustom != null) "Your Custom Online Playlist" else heroCurated.subtitle
-                    val heroGradients = if (heroCustom != null) listOf(0xFF8E2DE2, 0xFF4A00E0) else heroCurated.gradientColors
-
-                    // Collect tracks for Hero Playlist
-                    val heroCustomTracks = if (heroCustom != null) {
-                        val flow = remember(heroCustom.id) { viewModel.getOnlinePlaylistTracks(heroCustom.id) }
-                        val tracks by flow.collectAsState(initial = emptyList())
-                        tracks
-                    } else emptyList()
-
-                    val heroCuratedTracks = if (heroCustom == null) {
-                        curatedTracksMap[heroCurated.id] ?: emptyList()
-                    } else emptyList()
-
-                    val heroTracks = if (heroCustom != null) heroCustomTracks else heroCuratedTracks
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Brush.horizontalGradient(heroGradients.map { Color(it) }))
-                            .clickable {
-                                if (heroCustom != null) selectedCustomPlaylist = heroCustom
-                                else selectedCuratedPlaylist = heroCurated
-                            }
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                        .padding(16.dp)
+                ) {
+                    Column {
                         Row(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Left Column: Details & Play Button
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text(
-                                    text = "FEATURED HERO PLAYLIST",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 1.sp
+                                Icon(
+                                    imageVector = if (isYouTubeLoggedIn) Icons.Default.LibraryMusic else Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = heroTitle,
-                                    color = Color.White,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = heroSubtitle,
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 12.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                FloatingActionButton(
-                                    onClick = {
-                                        if (heroCustom != null) selectedCustomPlaylist = heroCustom
-                                        else selectedCuratedPlaylist = heroCurated
-                                    },
-                                    containerColor = Color.White,
-                                    contentColor = AccentOrange,
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(42.dp)
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = "Play", modifier = Modifier.size(24.dp))
+                                Column {
+                                    Text(
+                                        text = if (isYouTubeLoggedIn) (youtubeUserName ?: "Connected to YouTube Music") else "Connect YouTube Music",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Text(
+                                        text = if (isYouTubeLoggedIn) "${youtubeLikedSongs.size} Liked Songs • ${youtubeUserPlaylists.size} Playlists" else "Sign in to sync your Liked Songs and personal playlists",
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 12.sp
+                                    )
                                 }
                             }
 
-                            // Right Side: 2x2 Collage Cover Art Thumbnail Card (120dp)
-                            com.akshay.musicplayer.ui.components.PlaylistCollageArt(
-                                tracks = heroTracks,
-                                modifier = Modifier.size(120.dp),
-                                cornerRadius = 16.dp,
-                                fallbackGradient = heroGradients.map { Color(it) }
-                            )
+                            if (isYouTubeLoggedIn) {
+                                IconButton(
+                                    onClick = { viewModel.refreshYouTubeLibrary() },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.2f))
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Refresh",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (!isYouTubeLoggedIn) {
+                            Button(
+                                onClick = { showYouTubeLoginDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Sign in to YouTube Music",
+                                    color = Color(0xFFDD2476),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (youtubeLikedSongs.isNotEmpty()) {
+                                            viewModel.playOnlinePlaylist(youtubeLikedSongs, 0)
+                                            onNavigateToPlayer()
+                                        } else {
+                                            viewModel.refreshYouTubeLibrary()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFF8E2DE2), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Play Liked (${youtubeLikedSongs.size})",
+                                        color = Color(0xFF8E2DE2),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { viewModel.logoutYouTube() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
+                                ) {
+                                    Text("Logout", fontSize = 13.sp)
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // My Online Playlists Section
-            if (selectedCategory == "All" || selectedCategory == "My Playlists") {
+            // 2. User Liked Playlists (When Signed In)
+            if (isYouTubeLoggedIn && youtubeUserPlaylists.isNotEmpty()) {
                 item {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
-                            text = "My Online Playlists",
+                            text = "My YouTube Music Playlists",
                             color = textColor,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                         )
 
-                        if (customOnlinePlaylists.isEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 12.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
-                                    .clickable { showCreateDialog = true }
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, tint = AccentOrange)
-                                    Text(
-                                        text = "Create your first Online Playlist",
-                                        color = textColor.copy(alpha = 0.8f),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        } else {
-                            val customRows = customOnlinePlaylists.chunked(2)
-                            customRows.forEach { row ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    row.forEach { playlist ->
-                                        CustomPlaylistCard(
-                                            playlist = playlist,
-                                            viewModel = viewModel,
-                                            modifier = Modifier.weight(1f),
-                                            isDarkMode = isDarkMode,
-                                            onClick = { selectedCustomPlaylist = playlist },
-                                            onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
-                                            onEdit = { editingPlaylist = playlist },
-                                            onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(youtubeUserPlaylists) { pl: InnerTubePlaylist ->
+                                DynamicPlaylistCard(
+                                    title = pl.title,
+                                    subtitle = pl.subtitle,
+                                    artworkUrl = pl.artworkUrl,
+                                    isDarkMode = isDarkMode,
+                                    onClick = {
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = pl.id,
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl
                                         )
                                     }
-                                    if (row.size == 1) {
-                                        Spacer(modifier = Modifier.weight(1f))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Dynamic Charts Shelves (Live from YouTube Music)
+            if (chartsShelves.isNotEmpty()) {
+                chartsShelves.forEach { shelf ->
+                    if (shelf.playlists.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 16.dp)) {
+                                Text(
+                                    text = shelf.title,
+                                    color = textColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                                )
+                                if (shelf.subtitle.isNotBlank()) {
+                                    Text(
+                                        text = shelf.subtitle,
+                                        color = textSub,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(shelf.playlists) { pl: InnerTubePlaylist ->
+                                        DynamicPlaylistCard(
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl,
+                                            isDarkMode = isDarkMode,
+                                            onClick = {
+                                                selectedPlaylist = SelectedOnlinePlaylist(
+                                                    id = pl.id,
+                                                    title = pl.title,
+                                                    subtitle = pl.subtitle,
+                                                    artworkUrl = pl.artworkUrl
+                                                )
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -339,42 +357,90 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // Curated Playlists Sections
-            val filteredCurated = if (selectedCategory == "All" || selectedCategory == "My Playlists") {
-                curatedPlaylists
-            } else {
-                curatedPlaylists.filter { it.category == selectedCategory }
+            // 4. Dynamic Explore Shelves (Live from YouTube Music)
+            if (exploreShelves.isNotEmpty()) {
+                exploreShelves.forEach { shelf ->
+                    if (shelf.playlists.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 16.dp)) {
+                                Text(
+                                    text = shelf.title,
+                                    color = textColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                                )
+                                if (shelf.subtitle.isNotBlank()) {
+                                    Text(
+                                        text = shelf.subtitle,
+                                        color = textSub,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(shelf.playlists) { pl: InnerTubePlaylist ->
+                                        DynamicPlaylistCard(
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl,
+                                            isDarkMode = isDarkMode,
+                                            onClick = {
+                                                selectedPlaylist = SelectedOnlinePlaylist(
+                                                    id = pl.id,
+                                                    title = pl.title,
+                                                    subtitle = pl.subtitle,
+                                                    artworkUrl = pl.artworkUrl
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            item {
-                Column(modifier = Modifier.padding(top = 16.dp)) {
-                    Text(
-                        text = if (selectedCategory == "All") "Curated Playlists & Charts" else "$selectedCategory Playlists",
-                        color = textColor,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                    )
+            // 5. Custom In-App Online Playlists
+            if (customOnlinePlaylists.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 16.dp)) {
+                        Text(
+                            text = "Custom Online Playlists",
+                            color = textColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
 
-                    val rows = filteredCurated.chunked(2)
-                    rows.forEach { row ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            row.forEach { curated ->
-                                CuratedPlaylistGridCard(
-                                    playlist = curated,
-                                    isDarkMode = isDarkMode,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { selectedCuratedPlaylist = curated },
-                                    onSetHero = { viewModel.setHeroPlaylistId(curated.id) }
-                                )
-                            }
-                            if (row.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
+                        val customRows = customOnlinePlaylists.chunked(2)
+                        customRows.forEach { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                row.forEach { playlist ->
+                                    CustomPlaylistCard(
+                                        playlist = playlist,
+                                        viewModel = viewModel,
+                                        modifier = Modifier.weight(1f),
+                                        isDarkMode = isDarkMode,
+                                        onClick = { selectedCustomPlaylist = playlist },
+                                        onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
+                                        onEdit = { editingPlaylist = playlist },
+                                        onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
+                                    )
+                                }
+                                if (row.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -382,7 +448,17 @@ fun OnlinePlaylistsScreen(
             }
         }
 
-        // Dialog for creating a new online playlist
+        // YouTube Music Login Dialog
+        if (showYouTubeLoginDialog) {
+            YouTubeLoginDialog(
+                onDismiss = { showYouTubeLoginDialog = false },
+                onLoginSuccess = { cookie, name ->
+                    viewModel.saveYouTubeCookies(cookie, name)
+                }
+            )
+        }
+
+        // Create Online Playlist Dialog
         if (showCreateDialog) {
             CreateOnlinePlaylistDialog(
                 onDismiss = { showCreateDialog = false },
@@ -393,125 +469,112 @@ fun OnlinePlaylistsScreen(
             )
         }
 
-        // Dialog for editing an existing online playlist
+        // Edit Online Playlist Dialog
         if (editingPlaylist != null) {
+            val plToEdit = editingPlaylist!!
             EditPlaylistDialog(
-                initialName = editingPlaylist!!.name,
-                initialDescription = editingPlaylist!!.description ?: "",
-                onConfirm = { newName, newDesc ->
-                    viewModel.updateOnlinePlaylistDetails(editingPlaylist!!.id, newName, newDesc)
+                initialName = plToEdit.name,
+                initialDescription = plToEdit.description ?: "",
+                onConfirm = { newName, _ ->
+                    viewModel.renameOnlinePlaylist(plToEdit.id, newName)
                     editingPlaylist = null
                 },
                 onDismiss = { editingPlaylist = null }
             )
         }
 
-        // Overlay for selected Curated Playlist Detail
+        // Overlay for Selected Online Playlist Details
         AnimatedVisibility(
-            visible = selectedCuratedPlaylist != null,
+            visible = selectedPlaylist != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(androidx.compose.animation.core.tween(250)),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(androidx.compose.animation.core.tween(200))
         ) {
-            if (selectedCuratedPlaylist != null) {
-                val playlist = selectedCuratedPlaylist!!
-                var curatedTracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
+            if (selectedPlaylist != null) {
+                val pl = selectedPlaylist!!
+                var playlistTracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
                 var isLoadingTracks by remember { mutableStateOf(true) }
 
-                LaunchedEffect(playlist.id) {
+                LaunchedEffect(pl.id) {
                     isLoadingTracks = true
-                    val fetched = viewModel.getCuratedPlaylistTracks(playlist.searchQuery)
-                    curatedTracks = fetched
+                    val query = if (pl.id == "LM") "browse:LM" else "browse:${pl.id}"
+                    val fetched = viewModel.getCuratedPlaylistTracks(query)
+                    playlistTracks = fetched
                     isLoadingTracks = false
                 }
 
                 OnlinePlaylistDetailScreen(
-                    title = playlist.title,
-                    subtitle = playlist.subtitle,
-                    gradientColors = playlist.gradientColors.map { Color(it) },
-                    tracks = curatedTracks,
+                    title = pl.title,
+                    subtitle = pl.subtitle,
+                    gradientColors = pl.gradientColors.map { Color(it) },
+                    tracks = playlistTracks,
                     isLoading = isLoadingTracks,
                     isCustomUserPlaylist = false,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
-                    onBackClick = { selectedCuratedPlaylist = null },
+                    onBackClick = { selectedPlaylist = null },
                     onPlayAllClick = {
-                        if (curatedTracks.isNotEmpty()) {
-                            viewModel.playOnlinePlaylist(curatedTracks, 0)
-                            selectedCuratedPlaylist = null
+                        if (playlistTracks.isNotEmpty()) {
+                            viewModel.playOnlinePlaylist(playlistTracks, 0)
+                            selectedPlaylist = null
                             onNavigateToPlayer()
                         }
                     },
                     onAddToQueueClick = {
-                        if (curatedTracks.isNotEmpty()) {
-                            viewModel.addTracksToQueue(curatedTracks)
-                            Toast.makeText(context, "Added ${curatedTracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
+                        if (playlistTracks.isNotEmpty()) {
+                            viewModel.addTracksToQueue(playlistTracks)
+                            Toast.makeText(context, "Added ${playlistTracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onTrackClick = { index ->
-                        if (index in curatedTracks.indices) {
-                            viewModel.playOnlinePlaylist(curatedTracks, index)
-                            selectedCuratedPlaylist = null
-                            onNavigateToPlayer()
-                        }
-                    },
-                    onDownloadTrack = { track ->
-                        viewModel.downloadOnlineTrack(context, track)
+                        viewModel.playOnlinePlaylist(playlistTracks, index)
+                        selectedPlaylist = null
+                        onNavigateToPlayer()
                     }
                 )
             }
         }
 
-        // Overlay for selected Custom User Playlist Detail
+        // Overlay for Selected Custom Playlist Details
         AnimatedVisibility(
             visible = selectedCustomPlaylist != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(androidx.compose.animation.core.tween(250)),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(androidx.compose.animation.core.tween(200))
         ) {
             if (selectedCustomPlaylist != null) {
-                val playlist = selectedCustomPlaylist!!
-                val userTracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
-                val userTracks by userTracksFlow.collectAsState(initial = emptyList())
+                val custom = selectedCustomPlaylist!!
+                val flow = remember(custom.id) { viewModel.getOnlinePlaylistTracks(custom.id) }
+                val tracks by flow.collectAsState(initial = emptyList())
 
                 OnlinePlaylistDetailScreen(
-                    title = playlist.name,
-                    subtitle = playlist.description ?: "Custom Online Playlist",
+                    title = custom.name,
+                    subtitle = custom.description ?: "Custom Online Playlist",
                     gradientColors = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
-                    tracks = userTracks,
+                    tracks = tracks,
                     isLoading = false,
                     isCustomUserPlaylist = true,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
                     onBackClick = { selectedCustomPlaylist = null },
                     onPlayAllClick = {
-                        if (userTracks.isNotEmpty()) {
-                            viewModel.touchOnlinePlaylist(playlist.id)
-                            viewModel.playOnlinePlaylist(userTracks, 0)
+                        if (tracks.isNotEmpty()) {
+                            viewModel.playOnlinePlaylist(tracks, 0)
                             selectedCustomPlaylist = null
                             onNavigateToPlayer()
                         }
                     },
                     onAddToQueueClick = {
-                        if (userTracks.isNotEmpty()) {
-                            viewModel.addTracksToQueue(userTracks)
-                            Toast.makeText(context, "Added ${userTracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
+                        if (tracks.isNotEmpty()) {
+                            viewModel.addTracksToQueue(tracks)
+                            Toast.makeText(context, "Added ${tracks.size} track(s) to Queue", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onTrackClick = { index ->
-                        if (index in userTracks.indices) {
-                            viewModel.touchOnlinePlaylist(playlist.id)
-                            viewModel.playOnlinePlaylist(userTracks, index)
-                            selectedCustomPlaylist = null
-                            onNavigateToPlayer()
-                        }
+                    onTrackClick = { index: Int ->
+                        viewModel.playOnlinePlaylist(tracks, index)
+                        selectedCustomPlaylist = null
+                        onNavigateToPlayer()
                     },
-                    onRemoveTrack = { track ->
-                        viewModel.removeTrackFromOnlinePlaylist(playlist.id, track.id)
-                    },
-                    onMoveTrack = { fromIndex, toIndex ->
-                        viewModel.moveTrackInOnlinePlaylist(playlist.id, fromIndex, toIndex)
-                    },
-                    onDownloadTrack = { track ->
-                        viewModel.downloadOnlineTrack(context, track)
+                    onRemoveTrack = { trackId: Long ->
+                        viewModel.removeTrackFromOnlinePlaylist(custom.id, trackId)
                     }
                 )
             }
@@ -520,301 +583,366 @@ fun OnlinePlaylistsScreen(
 }
 
 @Composable
-private fun CustomPlaylistCard(
+fun DynamicPlaylistCard(
+    title: String,
+    subtitle: String,
+    artworkUrl: String?,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+
+    Column(
+        modifier = Modifier
+            .width(150.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(130.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = artworkUrl,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = OrangeAccent,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = title,
+            color = textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                color = textSec,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun CustomPlaylistCard(
     playlist: OnlinePlaylistEntity,
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier,
-    isDarkMode: Boolean = true,
+    isDarkMode: Boolean,
     onClick: () -> Unit,
     onSetHero: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    val userTracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
-    val userTracks by userTracksFlow.collectAsState(initial = emptyList())
+    val tracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
+    val tracks by tracksFlow.collectAsState(initial = emptyList())
+    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
 
-    val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
-
-    Column(
-        modifier = modifier.clickable(onClick = onClick)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-        ) {
-            com.akshay.musicplayer.ui.components.PlaylistCollageArt(
-                tracks = userTracks,
-                modifier = Modifier.fillMaxSize(),
-                cornerRadius = 16.dp,
-                fallbackGradient = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
-            )
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-            ) {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White)
-                }
-                androidx.compose.material3.MaterialTheme(
-                    colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
-                        surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
-                    ),
-                    shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
-                        extraSmall = RoundedCornerShape(12.dp)
-                    )
-                ) {
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                    DropdownMenuItem(
-                        text = { Text("Set as Hero Banner", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                        onClick = {
-                            showMenu = false
-                            onSetHero()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Edit Details", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                        onClick = {
-                            showMenu = false
-                            onEdit()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete Playlist", color = Color(0xFFFF453A)) },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        }
-                    )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = playlist.name,
-            color = textColor,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = "${userTracks.size} tracks",
-            color = textSub,
-            fontSize = 12.sp
-        )
-    }
-}
-
-@Composable
-private fun CuratedPlaylistGridCard(
-    playlist: CuratedOnlinePlaylist,
-    isDarkMode: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    onSetHero: () -> Unit
-) {
     var showMenu by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
-            .height(130.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Brush.linearGradient(playlist.gradientColors.map { Color(it) }))
+            .background(cardBg)
             .clickable(onClick = onClick)
-            .padding(14.dp),
-        contentAlignment = Alignment.BottomStart
+            .padding(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-        ) {
-            IconButton(onClick = { showMenu = true }, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White.copy(alpha = 0.8f))
-            }
-            androidx.compose.material3.MaterialTheme(
-                colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
-                    surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
-                ),
-                shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
-                    extraSmall = RoundedCornerShape(12.dp)
-                )
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                DropdownMenuItem(
-                    text = { Text("Set as Hero Banner", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                    onClick = {
-                        showMenu = false
-                        onSetHero()
+                Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = OrangeAccent, modifier = Modifier.size(24.dp))
+                Box {
+                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = textPrimary.copy(alpha = 0.6f))
                     }
-                )
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Edit Details") },
+                            onClick = { showMenu = false; onEdit() },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Playlist") },
+                            onClick = { showMenu = false; onDelete() },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) }
+                        )
+                    }
                 }
             }
-        }
 
-        Column(modifier = Modifier.fillMaxWidth()) {
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
-                text = playlist.category.uppercase(),
-                color = Color.White.copy(alpha = 0.65f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = playlist.title,
-                color = Color.White,
-                fontSize = 16.sp,
+                text = playlist.name,
+                color = textPrimary,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(2.dp))
+
             Text(
-                text = playlist.subtitle,
-                color = Color.White.copy(alpha = 0.8f),
-                fontSize = 11.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                text = "${tracks.size} track(s)",
+                color = textPrimary.copy(alpha = 0.6f),
+                fontSize = 12.sp
             )
         }
     }
-}
-
-@Composable
-private fun EditPlaylistDialog(
-    initialName: String,
-    initialDescription: String,
-    onConfirm: (newName: String, newDescription: String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var name by remember { mutableStateOf(initialName) }
-    var description by remember { mutableStateOf(initialDescription) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Playlist Details", color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Playlist Name") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentOrange,
-                        focusedLabelColor = AccentOrange,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                        unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description") },
-                    maxLines = 3,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentOrange,
-                        focusedLabelColor = AccentOrange,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                        unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        onConfirm(name.trim(), description.trim())
-                    }
-                }
-            ) {
-                Text("Save", color = AccentOrange, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.White.copy(alpha = 0.6f))
-            }
-        },
-        containerColor = Color(0xFF1E1E2E)
-    )
 }
 
 @Composable
 fun CreateOnlinePlaylistDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, description: String?) -> Unit,
+    onCreate: (String, String?) -> Unit,
     isDarkMode: Boolean = true
 ) {
     var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-
-    val dialogBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
+    var desc by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = dialogBg,
-        title = { Text("Create Online Playlist", color = textPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text("Create Online Playlist") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Playlist Name", color = textSub) },
+                    label = { Text("Playlist Name") },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = textPrimary,
-                        unfocusedTextColor = textPrimary,
-                        focusedBorderColor = AccentOrange,
-                        unfocusedBorderColor = textSub
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description (Optional)", color = textSub) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = textPrimary,
-                        unfocusedTextColor = textPrimary,
-                        focusedBorderColor = AccentOrange,
-                        unfocusedBorderColor = textSub
-                    )
+                    value = desc,
+                    onValueChange = { desc = it },
+                    label = { Text("Description (Optional)") },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (name.isNotBlank()) onCreate(name.trim(), description.trim().ifBlank { null }) },
-                enabled = name.isNotBlank()
+            Button(
+                onClick = { if (name.isNotBlank()) onCreate(name.trim(), desc.trim().ifBlank { null }) },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
             ) {
-                Text("Create", color = AccentOrange, fontWeight = FontWeight.Bold)
+                Text("Create")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = textSub)
+                Text("Cancel")
             }
         }
     )
+}
+
+@Composable
+fun EditPlaylistDialog(
+    initialName: String,
+    initialDescription: String,
+    onConfirm: (String, String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var desc by remember { mutableStateOf(initialDescription) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Playlist") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Playlist Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    label = { Text("Description (Optional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), desc.trim().ifBlank { null }) },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OnlinePlaylistDetailScreen(
+    title: String,
+    subtitle: String,
+    gradientColors: List<Color>,
+    tracks: List<TrackEntity>,
+    isLoading: Boolean,
+    isCustomUserPlaylist: Boolean,
+    isDarkMode: Boolean,
+    viewModel: PlayerViewModel,
+    onBackClick: () -> Unit,
+    onPlayAllClick: () -> Unit,
+    onAddToQueueClick: () -> Unit,
+    onTrackClick: (Int) -> Unit,
+    onRemoveTrack: ((Long) -> Unit)? = null
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Back", modifier = Modifier.size(24.dp))
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = textPrimary,
+                    navigationIconContentColor = textPrimary
+                )
+            )
+        }
+    ) { padding ->
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = OrangeAccent)
+            }
+        } else if (tracks.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("No tracks found in this playlist.", color = textSec)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onPlayAllClick,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Play All (${tracks.size})")
+                        }
+
+                        OutlinedButton(
+                            onClick = onAddToQueueClick,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("+ Queue")
+                        }
+                    }
+                }
+
+                items(tracks.size) { index ->
+                    val track = tracks[index]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.03f))
+                            .clickable { onTrackClick(index) }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!track.artworkUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = track.artworkUrl,
+                                    contentDescription = track.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color.White)
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                color = textPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = track.artist,
+                                color = textSec,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        if (isCustomUserPlaylist && onRemoveTrack != null) {
+                            IconButton(onClick = { onRemoveTrack(track.id) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Red.copy(alpha = 0.7f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

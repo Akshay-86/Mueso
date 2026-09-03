@@ -38,6 +38,16 @@ class PlaylistManager(
     val onlinePlaylists: StateFlow<List<OnlinePlaylistEntity>> = _onlinePlaylists.asStateFlow()
 
     init {
+        // Clear any stale/corrupted curated cache
+        val allKeys = sharedPreferences.all.keys
+        val cacheKeys = allKeys.filter { it.startsWith("curated_cache_") }
+        if (cacheKeys.isNotEmpty()) {
+            val editor = sharedPreferences.edit()
+            cacheKeys.forEach { editor.remove(it) }
+            editor.apply()
+            Log.d("MUESO_CACHE", "Purged ${cacheKeys.size} stale curated playlist cache entries")
+        }
+
         loadPlaylists()
         loadOnlinePlaylists()
     }
@@ -247,8 +257,13 @@ class PlaylistManager(
     }
 
     suspend fun getCuratedPlaylistTracks(query: String): List<TrackEntity> {
-        val preferredLanguage = sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu"
-        val cacheKey = "curated_cache_" + preferredLanguage.lowercase().replace(Regex("[^a-z0-9]"), "_") + "_" + query.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        val isBrowse = query.startsWith("browse:")
+        val preferredLanguage = if (isBrowse) "" else (sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu")
+        val cacheKey = if (isBrowse) {
+            "curated_cache_" + query.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        } else {
+            "curated_cache_" + preferredLanguage.lowercase().replace(Regex("[^a-z0-9]"), "_") + "_" + query.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        }
         val lastFetchedTime = sharedPreferences.getLong("${cacheKey}_time", 0L)
         val cachedJson = sharedPreferences.getString("${cacheKey}_json", null)
         val currentTime = System.currentTimeMillis()
@@ -275,7 +290,7 @@ class PlaylistManager(
                     )
                 }
                 if (cachedTracks.isNotEmpty()) {
-                    Log.d("MUESO_CACHE", "Serving curated playlist '$query' ($preferredLanguage) from 24-hr local cache (0ms delay, ${cachedTracks.size} tracks)")
+                    Log.d("MUESO_CACHE", "Serving curated playlist '$query' from 24-hr local cache (0ms delay, ${cachedTracks.size} tracks)")
                     return cachedTracks
                 }
             } catch (e: Exception) {
@@ -283,7 +298,7 @@ class PlaylistManager(
             }
         }
 
-        Log.d("MUESO_CACHE", "Fetching fresh curated tracks for '$query' ($preferredLanguage) from API...")
+        Log.d("MUESO_CACHE", "Fetching fresh curated tracks for '$query' from API...")
         val freshTracks = if (query.contains("top 50 global", ignoreCase = true)) {
             onlineRepository.fetchRealTop50GlobalCharts()
         } else {
