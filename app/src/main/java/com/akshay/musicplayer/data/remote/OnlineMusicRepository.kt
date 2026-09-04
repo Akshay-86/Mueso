@@ -141,6 +141,10 @@ class OnlineMusicRepository {
         return innerTube.getChartsShelves()
     }
 
+    suspend fun fetchMoodShelves(mood: String): List<InnerTubeShelf> {
+        return innerTube.getShelvesForMood(mood)
+    }
+
     suspend fun getTrendingTracks(country: String = "IN"): List<TrackEntity> = withContext(Dispatchers.IO) {
         val charts = innerTube.getChartsShelves()
         for (shelf in charts) {
@@ -202,11 +206,19 @@ class OnlineMusicRepository {
     // ==========================================
     // 2. SEARCH & STREAM RESOLUTION
     // ==========================================
-    suspend fun searchOnlineTracks(query: String): List<TrackEntity> = withContext(Dispatchers.IO) {
+    suspend fun searchOnlineTracks(query: String, category: String = "All"): List<TrackEntity> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val results = innerTube.search(query)
+        val filterParam = when (category.trim().lowercase()) {
+            "songs", "song" -> "EgWKAQIIAWoSEAQQCRADEAUQEBAKEBUQERAO"
+            "videos", "video" -> "EgWKAQIQAWoSEAQQCRADEAUQEBAKEBUQERAO"
+            "albums", "album" -> "EgWKAQIYAWoSEAQQCRADEAUQEBAKEBUQERAO"
+            "playlists", "playlist" -> "EgeKAQQoAEABahIQBBAJEAMQBRAQEAoQFRAREA4%3D"
+            "artists", "artist" -> "EgWKAQIgAWoSEAQQCRADEAUQEBAKEBUQERAO"
+            else -> null
+        }
+        val results = innerTube.search(query, filter = filterParam)
         if (results.isNotEmpty()) {
-            Log.d(TAG, "Search for '$query' returned ${results.size} tracks via InnerTube")
+            Log.d(TAG, "Search for '$query' (category: $category) returned ${results.size} tracks via InnerTube")
             return@withContext results.map { it.toTrackEntity() }
         }
         return@withContext emptyList()

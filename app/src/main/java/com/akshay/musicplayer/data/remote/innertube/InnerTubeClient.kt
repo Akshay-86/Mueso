@@ -153,12 +153,18 @@ class InnerTubeClient(
             val subRuns = card.optJSONObject("subtitle")?.optJSONArray("runs")
             var artist = "Unknown Artist"
             var durationSec = 0
+            var itemType = "Song"
             if (subRuns != null) {
                 val candidateTexts = mutableListOf<String>()
                 for (k in 0 until subRuns.length()) {
                     val run = subRuns.optJSONObject(k) ?: continue
                     val text = run.optString("text", "").trim()
                     if (text.isBlank() || text == "•" || text == "|") continue
+                    if (text.equals("Video", ignoreCase = true)) {
+                        itemType = "Video"
+                    } else if (text.equals("Song", ignoreCase = true) || text.equals("Single", ignoreCase = true)) {
+                        itemType = "Song"
+                    }
                     if (text.matches(Regex("\\d+:\\d+"))) {
                         durationSec = parseDurationToSeconds(text)
                     } else if (!text.equals("Song", ignoreCase = true) &&
@@ -188,7 +194,8 @@ class InnerTubeClient(
                         title = title,
                         artist = artist,
                         durationSec = durationSec,
-                        artworkUrl = getHighResArtworkUrl(thumbUrl)
+                        artworkUrl = getHighResArtworkUrl(thumbUrl),
+                        itemType = itemType
                     )
                 )
             }
@@ -243,7 +250,11 @@ class InnerTubeClient(
                 }
             }
         }
-        return tracks
+
+        // Prioritize songs first, then videos and other results
+        return tracks.sortedWith(
+            compareByDescending<InnerTubeTrack> { it.itemType.equals("Song", ignoreCase = true) }
+        )
     }
 
     private fun parseResponsiveListItem(item: JSONObject): InnerTubeTrack? {
@@ -270,6 +281,7 @@ class InnerTubeClient(
         var artistName = "Unknown Artist"
         var albumName: String? = null
         var durationSec = 0
+        var itemType = "Song"
         val artistRefs = mutableListOf<InnerTubeArtistRef>()
 
         if (flexColumns.length() > 1) {
@@ -282,6 +294,12 @@ class InnerTubeClient(
                     val text = run.optString("text", "").trim()
                     if (text == "•" || text == "|" || text.isBlank()) continue
                     runsList.add(text)
+
+                    if (text.equals("Video", ignoreCase = true)) {
+                        itemType = "Video"
+                    } else if (text.equals("Song", ignoreCase = true) || text.equals("Single", ignoreCase = true)) {
+                        itemType = "Song"
+                    }
 
                     val browseId = run.optJSONObject("navigationEndpoint")
                         ?.optJSONObject("browseEndpoint")?.optString("browseId")
@@ -337,7 +355,8 @@ class InnerTubeClient(
             artists = artistRefs,
             album = albumName,
             durationSec = durationSec,
-            artworkUrl = getHighResArtworkUrl(artworkUrl)
+            artworkUrl = getHighResArtworkUrl(artworkUrl),
+            itemType = itemType
         )
     }
 
@@ -479,6 +498,250 @@ class InnerTubeClient(
         }
     }
 
+    suspend fun searchTracks(query: String): List<InnerTubeTrack> = search(query)
+
+    suspend fun searchPlaylists(query: String): List<InnerTubePlaylist> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("query", query)
+            put("params", "Eg-KAQwIABAAGAEgACgB")
+        }
+
+        try {
+            val request = buildBaseRequest("search", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
+                return@withContext parseSearchPlaylists(json)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "searchPlaylists failed for query: '$query'", e)
+            return@withContext emptyList()
+        }
+    }
+
+    private fun parseSearchPlaylists(json: JSONObject): List<InnerTubePlaylist> {
+        val playlists = mutableListOf<InnerTubePlaylist>()
+        val seenIds = mutableSetOf<String>()
+
+        val contents = json.optJSONObject("contents")
+            ?.optJSONObject("tabbedSearchResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents") ?: return emptyList()
+
+        for (i in 0 until contents.length()) {
+            val section = contents.optJSONObject(i) ?: continue
+            val shelf = section.optJSONObject("musicShelfRenderer") ?: continue
+            val items = shelf.optJSONArray("contents") ?: continue
+
+            for (j in 0 until items.length()) {
+                val item = items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                val flexCols = item.optJSONArray("flexColumns") ?: continue
+                if (flexCols.length() == 0) continue
+
+                val col1Runs = flexCols.optJSONObject(0)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                    ?.optJSONObject("text")?.optJSONArray("runs") ?: continue
+                val title = col1Runs.optJSONObject(0)?.optString("text") ?: continue
+
+                var browseId: String? = null
+                for (r in 0 until col1Runs.length()) {
+                    val nav = col1Runs.optJSONObject(r)?.optJSONObject("navigationEndpoint")
+                    val bId = nav?.optJSONObject("browseEndpoint")?.optString("browseId")
+                    if (!bId.isNullOrBlank()) {
+                        browseId = bId
+                        break
+                    }
+                }
+                if (browseId == null) {
+                    browseId = item.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                }
+
+                if (browseId.isNullOrBlank()) continue
+                val playlistId = if (browseId.startsWith("VL")) browseId.removePrefix("VL") else browseId
+                if (!seenIds.add(playlistId)) continue
+
+                var subtitle = ""
+                if (flexCols.length() > 1) {
+                    val col2Runs = flexCols.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                        ?.optJSONObject("text")?.optJSONArray("runs")
+                    if (col2Runs != null) {
+                        val parts = mutableListOf<String>()
+                        for (k in 0 until col2Runs.length()) {
+                            val text = col2Runs.optJSONObject(k)?.optString("text", "")?.trim() ?: ""
+                            if (text.isNotBlank() && text != "•" && text != "|") {
+                                parts.add(text)
+                            }
+                        }
+                        subtitle = parts.joinToString(" • ")
+                    }
+                }
+
+                val thumbList = item.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+                    ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+
+                playlists.add(
+                    InnerTubePlaylist(
+                        id = playlistId,
+                        title = title,
+                        subtitle = subtitle,
+                        artworkUrl = getHighResArtworkUrl(thumbUrl)
+                    )
+                )
+            }
+        }
+        return playlists
+    }
+
+    private val moodParamsMap = mapOf(
+        "chill" to "ggMPOg1uX1JOQWZFeDByc2Jm",
+        "relax" to "ggMPOg1uX1JOQWZFeDByc2Jm",
+        "workout" to "ggMPOg1uX09LWkhnTjRGRUJh",
+        "work out" to "ggMPOg1uX09LWkhnTjRGRUJh",
+        "energize" to "ggMPOg1uX2lRZUZiMnNrQnJW",
+        "energise" to "ggMPOg1uX2lRZUZiMnNrQnJW",
+        "feel good" to "ggMPOg1uXzZQbDB5eThLRTQ3",
+        "focus" to "ggMPOg1uX0NvNGNhWThMYWRh",
+        "gaming" to "ggMPOg1uX3NmUVV4Vzl3WGQ0",
+        "party" to "ggMPOg1uX0pmQ0s2V0JRclZs",
+        "romance" to "ggMPOg1uX0FzQ2FhZWtUY211",
+        "sad" to "ggMPOg1uX0JLQ0gySWZKZVY1",
+        "sleep" to "ggMPOg1uX1MxaFQ3Z0JMZkN4",
+        "commute" to "ggMPOg1uX044Z2o5WERLckpU",
+        "pop" to "ggMPOg1uX1lLQkxHbHhWQUUy",
+        "hip-hop" to "ggMPOg1uX0M2dmRieXNxTW1s",
+        "rock" to "ggMPOg1uXzJKTm5jUEZ5Uzlu",
+        "indie & alternative" to "ggMPOg1uX21NWWpBbU01SDgy",
+        "indie" to "ggMPOg1uX21NWWpBbU01SDgy",
+        "dance & electronic" to "ggMPOg1uX1NPTld3SDN3WGs4",
+        "electronic" to "ggMPOg1uX1NPTld3SDN3WGs4",
+        "r&b & soul" to "ggMPOg1uX2JxQ2hxc2J5UFhR",
+        "r&b" to "ggMPOg1uX2JxQ2hxc2J5UFhR",
+        "k-pop" to "ggMPOg1uX0JrbjBDOFFPSzJW",
+        "classical" to "ggMPOg1uX1N4VmduTmdUR3dm",
+        "jazz" to "ggMPOg1uX3lPcDFRaE9wM1BS",
+        "hindi" to "ggMPOg1uX2ZvbzNJMzJwRkFT",
+        "punjabi" to "ggMPOg1uX1ZKNkRodjF2YWxv",
+        "telugu" to "ggMPOg1uX0syaEVmTXhSOVl6",
+        "tamil" to "ggMPOg1uX2p2emtjU3J3ZVFB",
+        "indian pop" to "ggMPOg1uXzNleFNpSmk2TTcy",
+        "desi hip-hop" to "ggMPOg1uX3VtYUhGSmtKdlhr",
+        "devotional" to "ggMPOg1uX3g1dEo4cmZVY1Jm"
+    )
+
+    private val dynamicMoodParamsCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    suspend fun getShelvesForMood(mood: String): List<InnerTubeShelf> = withContext(Dispatchers.IO) {
+        val normalized = mood.trim().lowercase()
+        if (normalized == "all") {
+            return@withContext if (isLoggedIn()) getHomeFeedShelves() else getExploreShelves()
+        }
+
+        try {
+            var params = moodParamsMap[normalized] ?: dynamicMoodParamsCache[normalized]
+
+            if (params == null) {
+                val fetchedMap = fetchMoodsAndGenresMap()
+                dynamicMoodParamsCache.putAll(fetchedMap)
+                params = dynamicMoodParamsCache[normalized]
+            }
+
+            if (!params.isNullOrBlank()) {
+                val payload = JSONObject().apply {
+                    put("context", buildContext())
+                    put("browseId", "FEmusic_moods_and_genres_category")
+                    put("params", params)
+                }
+                val request = buildBaseRequest("browse", payload)
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val json = JSONObject(response.body?.string() ?: "")
+                        val shelves = parseBrowseShelves(json)
+                        if (shelves.isNotEmpty()) {
+                            Log.d(TAG, "getShelvesForMood parsed ${shelves.size} shelves for $mood")
+                            return@withContext shelves
+                        }
+                    }
+                }
+            }
+
+            // Fallback: search playlists and tracks for this mood
+            val searchResults = searchPlaylists("$mood hits")
+            val topSongs = searchTracks("$mood songs")
+            val fallbackShelves = mutableListOf<InnerTubeShelf>()
+            if (topSongs.isNotEmpty()) {
+                fallbackShelves.add(
+                    InnerTubeShelf(
+                        title = "Top $mood Tracks",
+                        subtitle = "Trending in $mood",
+                        tracks = topSongs
+                    )
+                )
+            }
+            if (searchResults.isNotEmpty()) {
+                fallbackShelves.add(
+                    InnerTubeShelf(
+                        title = "$mood Playlists & Mixes",
+                        subtitle = "Curated for $mood",
+                        playlists = searchResults
+                    )
+                )
+            }
+            if (fallbackShelves.isNotEmpty()) {
+                return@withContext fallbackShelves
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getShelvesForMood failed for $mood", e)
+        }
+        return@withContext getExploreShelves()
+    }
+
+    private suspend fun fetchMoodsAndGenresMap(): Map<String, String> = withContext(Dispatchers.IO) {
+        val map = mutableMapOf<String, String>()
+        try {
+            val payload = JSONObject().apply {
+                put("context", buildContext())
+                put("browseId", "FEmusic_moods_and_genres")
+            }
+            val request = buildBaseRequest("browse", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyMap()
+                val json = JSONObject(response.body?.string() ?: return@withContext emptyMap())
+                val sections = json.optJSONObject("contents")
+                    ?.optJSONObject("singleColumnBrowseResultsRenderer")
+                    ?.optJSONArray("tabs")?.optJSONObject(0)
+                    ?.optJSONObject("tabRenderer")
+                    ?.optJSONObject("content")
+                    ?.optJSONObject("sectionListRenderer")
+                    ?.optJSONArray("contents") ?: return@withContext emptyMap()
+
+                for (i in 0 until sections.length()) {
+                    val section = sections.optJSONObject(i) ?: continue
+                    val grid = section.optJSONObject("gridRenderer") ?: section.optJSONObject("musicGridRenderer") ?: continue
+                    val items = grid.optJSONArray("items") ?: continue
+                    for (j in 0 until items.length()) {
+                        val item = items.optJSONObject(j) ?: continue
+                        val btn = item.optJSONObject("musicNavigationButtonRenderer") ?: continue
+                        val btnText = btn.optJSONObject("buttonText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.trim()?.lowercase() ?: continue
+                        val nav = btn.optJSONObject("clickCommand")?.optJSONObject("browseEndpoint") ?: continue
+                        val p = nav.optString("params")
+                        if (p.isNotBlank()) {
+                            map[btnText] = p
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchMoodsAndGenresMap error", e)
+        }
+        return@withContext map
+    }
+
     private fun parseBrowseShelves(json: JSONObject): List<InnerTubeShelf> {
         val shelves = mutableListOf<InnerTubeShelf>()
         val sectionList = json.optJSONObject("contents")
@@ -490,18 +753,37 @@ class InnerTubeClient(
             ?.optJSONArray("contents") ?: return emptyList()
 
         for (i in 0 until sectionList.length()) {
-            val section = sectionList.optJSONObject(i)?.optJSONObject("musicCarouselShelfRenderer") ?: continue
-            val shelfTitle = section.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Featured"
-            val shelfSubtitle = section.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                ?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
+            val sectionObj = sectionList.optJSONObject(i) ?: continue
+            val carousel = sectionObj.optJSONObject("musicCarouselShelfRenderer")
+            val musicShelf = sectionObj.optJSONObject("musicShelfRenderer")
+            val grid = sectionObj.optJSONObject("gridRenderer") ?: sectionObj.optJSONObject("musicGridRenderer")
 
-            val items = section.optJSONArray("contents") ?: continue
+            val shelfTitle = carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+                ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                ?: musicShelf?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                ?: grid?.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                ?: "Featured"
+
+            val shelfSubtitle = carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+                ?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                ?: carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+                ?.optJSONObject("title")?.optJSONArray("runs")?.let { if (it.length() > 1) it.optJSONObject(1)?.optString("text") else null }
+                ?: musicShelf?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                ?: ""
+
+            val items = carousel?.optJSONArray("contents")
+                ?: musicShelf?.optJSONArray("contents")
+                ?: grid?.optJSONArray("items")
+                ?: continue
+
             val playlistsInShelf = mutableListOf<InnerTubePlaylist>()
+            val tracksInShelf = mutableListOf<InnerTubeTrack>()
 
             for (j in 0 until items.length()) {
                 val itemObj = items.optJSONObject(j) ?: continue
                 val twoRow = itemObj.optJSONObject("musicTwoRowItemRenderer")
+                val responsive = itemObj.optJSONObject("musicResponsiveListItemRenderer")
+
                 if (twoRow != null) {
                     val title = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: continue
                     val subtitle = twoRow.optJSONObject("subtitle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
@@ -511,46 +793,57 @@ class InnerTubeClient(
                     val watchEndpoint = navEndpoint?.optJSONObject("watchEndpoint")
                     val playlistId = watchEndpoint?.optString("playlistId")
                     val videoId = watchEndpoint?.optString("videoId")
-                    val targetId = when {
-                        !browseId.isNullOrBlank() -> browseId
-                        !playlistId.isNullOrBlank() -> playlistId
-                        !videoId.isNullOrBlank() -> "online:$videoId"
-                        else -> ""
-                    }
 
                     val thumbList = twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")
                         ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
                     val artworkUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url") ?: ""
+                    val highResArt = getHighResArtworkUrl(artworkUrl)
 
-                    if (targetId.isNotBlank()) {
-                        playlistsInShelf.add(
-                            InnerTubePlaylist(
-                                id = targetId,
+                    // If it's a song item (has videoId and is not explicitly a playlist/album browseId)
+                    if (!videoId.isNullOrBlank() && (browseId.isNullOrBlank() || (!browseId.startsWith("VL") && !browseId.startsWith("MPRE") && !browseId.startsWith("UC")))) {
+                        tracksInShelf.add(
+                            InnerTubeTrack(
+                                videoId = videoId,
                                 title = title,
-                                subtitle = subtitle,
-                                artworkUrl = getHighResArtworkUrl(artworkUrl)
+                                artist = subtitle.ifBlank { "YouTube Music" },
+                                artworkUrl = highResArt
                             )
                         )
-                    }
-                } else {
-                    val responsive = itemObj.optJSONObject("musicResponsiveListItemRenderer")
-                    if (responsive != null) {
-                        val track = parseResponsiveListItem(responsive)
-                        if (track != null) {
+                    } else {
+                        val targetId = when {
+                            !browseId.isNullOrBlank() -> browseId
+                            !playlistId.isNullOrBlank() -> playlistId
+                            !videoId.isNullOrBlank() -> "online:$videoId"
+                            else -> ""
+                        }
+                        if (targetId.isNotBlank()) {
                             playlistsInShelf.add(
                                 InnerTubePlaylist(
-                                    id = "online:${track.videoId}",
-                                    title = track.title,
-                                    subtitle = track.artist,
-                                    artworkUrl = track.artworkUrl ?: ""
+                                    id = targetId,
+                                    title = title,
+                                    subtitle = subtitle,
+                                    artworkUrl = highResArt
                                 )
                             )
                         }
                     }
+                } else if (responsive != null) {
+                    val track = parseResponsiveListItem(responsive)
+                    if (track != null) {
+                        tracksInShelf.add(track)
+                    }
                 }
             }
-            if (playlistsInShelf.isNotEmpty()) {
-                shelves.add(InnerTubeShelf(shelfTitle, shelfSubtitle, playlists = playlistsInShelf))
+
+            if (playlistsInShelf.isNotEmpty() || tracksInShelf.isNotEmpty()) {
+                shelves.add(
+                    InnerTubeShelf(
+                        title = shelfTitle,
+                        subtitle = shelfSubtitle,
+                        playlists = playlistsInShelf,
+                        tracks = tracksInShelf
+                    )
+                )
             }
         }
         return shelves

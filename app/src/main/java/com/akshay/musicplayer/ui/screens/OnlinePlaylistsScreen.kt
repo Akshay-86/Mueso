@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,10 +43,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import coil.compose.AsyncImage
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
+import com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
@@ -87,6 +88,8 @@ fun OnlinePlaylistsScreen(
     // Dynamic Explore & Charts Shelves
     val exploreShelves by viewModel.exploreShelves.collectAsState()
     val chartsShelves by viewModel.chartsShelves.collectAsState()
+    val selectedMoodCategory by viewModel.selectedMoodCategory.collectAsState()
+    val isExploreLoading by viewModel.isExploreLoading.collectAsState()
 
     val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
 
@@ -159,6 +162,51 @@ fun OnlinePlaylistsScreen(
                         Icon(Icons.Default.Add, contentDescription = "Create Online Playlist", tint = Color.White)
                     }
                 }
+            }
+
+            // Mood & Activity Category Filter Chips
+            item {
+                val moodCategories = listOf(
+                    "All", "Chill", "Workout", "Energize", "Feel good", "Romance", 
+                    "Focus", "Party", "Sad", "Sleep", "Commute", "Gaming",
+                    "Pop", "Hip-hop", "Rock", "Indie & alternative", "Dance & electronic", 
+                    "R&B & soul", "K-Pop", "Classical", "Hindi", "Punjabi", "Telugu", "Tamil"
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(moodCategories) { mood ->
+                        val isSelected = mood.equals(selectedMoodCategory, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isSelected) OrangeAccent
+                                    else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                                    else Color.Black.copy(alpha = 0.05f)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) OrangeAccent else if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .clickable {
+                                    viewModel.selectMoodCategory(mood)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = mood,
+                                color = if (isSelected) Color.White else textColor,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             // 1. YouTube Music Account Card
@@ -325,7 +373,7 @@ fun OnlinePlaylistsScreen(
             }
 
             // 2. User Liked Playlists (When Signed In)
-            if (isYouTubeLoggedIn && youtubeUserPlaylists.isNotEmpty()) {
+            if (isYouTubeLoggedIn && youtubeUserPlaylists.isNotEmpty() && selectedMoodCategory == "All") {
                 item {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
@@ -361,10 +409,129 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
+            // Loading Indicator
+            if (isExploreLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = OrangeAccent,
+                            modifier = Modifier.size(36.dp),
+                            strokeWidth = 3.dp
+                        )
+                    }
+                }
+            }
+
+            // Empty State
+            if (!isExploreLoading && exploreShelves.isEmpty() && chartsShelves.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp, horizontal = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (selectedMoodCategory == "All") "No content available right now" else "No content found for \"$selectedMoodCategory\"",
+                            color = textSub,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.loadExploreAndCharts(selectedMoodCategory) },
+                            colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
+                        ) {
+                            Text("Refresh", color = Color.White)
+                        }
+                    }
+                }
+            }
+
             // 3. Dynamic Charts Shelves (Live from YouTube Music)
             if (chartsShelves.isNotEmpty()) {
                 chartsShelves.forEach { shelf ->
-                    if (shelf.playlists.isNotEmpty()) {
+                    if (shelf.tracks.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 16.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = shelf.title,
+                                            color = textColor,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (shelf.subtitle.isNotBlank()) {
+                                            Text(
+                                                text = shelf.subtitle,
+                                                color = textSub,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        onClick = {
+                                            val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                            viewModel.playOnlinePlaylist(trackEntities, 0)
+                                            onNavigateToPlayer()
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = OrangeAccent.copy(alpha = 0.15f),
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Play all",
+                                                tint = OrangeAccent,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = "Play all",
+                                                color = OrangeAccent,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    itemsIndexed(shelf.tracks) { index, track ->
+                                        OnlineSongCard(
+                                            track = track,
+                                            isDarkMode = isDarkMode,
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                                viewModel.playOnlinePlaylist(trackEntities, index)
+                                                onNavigateToPlayer()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (shelf.playlists.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.padding(top = 16.dp)) {
                                 Text(
@@ -413,7 +580,83 @@ fun OnlinePlaylistsScreen(
             // 4. Dynamic Explore Shelves (Live from YouTube Music)
             if (exploreShelves.isNotEmpty()) {
                 exploreShelves.forEach { shelf ->
-                    if (shelf.playlists.isNotEmpty()) {
+                    if (shelf.tracks.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 16.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = shelf.title,
+                                            color = textColor,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (shelf.subtitle.isNotBlank()) {
+                                            Text(
+                                                text = shelf.subtitle,
+                                                color = textSub,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        onClick = {
+                                            val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                            viewModel.playOnlinePlaylist(trackEntities, 0)
+                                            onNavigateToPlayer()
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = OrangeAccent.copy(alpha = 0.15f),
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Play all",
+                                                tint = OrangeAccent,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = "Play all",
+                                                color = OrangeAccent,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    itemsIndexed(shelf.tracks) { index, track ->
+                                        OnlineSongCard(
+                                            track = track,
+                                            isDarkMode = isDarkMode,
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                                viewModel.playOnlinePlaylist(trackEntities, index)
+                                                onNavigateToPlayer()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (shelf.playlists.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.padding(top = 16.dp)) {
                                 Text(
@@ -663,6 +906,86 @@ fun OnlinePlaylistsScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun OnlineSongCard(
+    track: InnerTubeTrack,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!track.artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = track.artworkUrl,
+                    contentDescription = track.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = OrangeAccent,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = track.title,
+            color = textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Text(
+            text = track.artist.ifBlank { "YouTube Music" },
+            color = textSec,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

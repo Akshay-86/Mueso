@@ -10,7 +10,8 @@ data class InnerTubeTrack(
     val album: String? = null,
     val durationSec: Int = 0,
     val artworkUrl: String? = null,
-    val isExplicit: Boolean = false
+    val isExplicit: Boolean = false,
+    val itemType: String = "Song"
 ) {
     fun toTrackEntity(): TrackEntity {
         val durationMs = if (durationSec > 0) durationSec * 1000L else 0L

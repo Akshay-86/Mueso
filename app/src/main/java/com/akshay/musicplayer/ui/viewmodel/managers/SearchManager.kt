@@ -18,6 +18,9 @@ class SearchManager(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _searchCategory = MutableStateFlow("All")
+    val searchCategory: StateFlow<String> = _searchCategory.asStateFlow()
+
     private val _isSearchingOnline = MutableStateFlow(false)
     val isSearchingOnline: StateFlow<Boolean> = _isSearchingOnline.asStateFlow()
 
@@ -26,8 +29,18 @@ class SearchManager(
 
     private var searchJob: Job? = null
 
+    fun setSearchCategory(category: String) {
+        if (_searchCategory.value == category) return
+        _searchCategory.value = category
+        triggerSearch(_searchQuery.value, category)
+    }
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
+        triggerSearch(query, _searchCategory.value)
+    }
+
+    private fun triggerSearch(query: String, category: String) {
         searchJob?.cancel()
         val q = query.trim().lowercase()
         if (q.isEmpty()) {
@@ -38,15 +51,19 @@ class SearchManager(
 
         _isSearchingOnline.value = true
         val currentTracks = getCurrentTracks()
-        val localMatches = currentTracks.filter {
-            it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+        val localMatches = if (category == "All" || category == "Songs") {
+            currentTracks.filter {
+                it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+            }
+        } else {
+            emptyList()
         }
         _searchResults.value = localMatches
 
         searchJob = coroutineScope.launch {
             delay(300)
             try {
-                val onlineResults = onlineRepository.searchOnlineTracks(query.trim())
+                val onlineResults = onlineRepository.searchOnlineTracks(query.trim(), category)
                 val localIds = localMatches.map { it.id }.toSet()
                 _searchResults.value = localMatches + onlineResults.filter { it.id !in localIds }
             } catch (e: Exception) {
@@ -59,3 +76,4 @@ class SearchManager(
 
     fun getSearchResults(): List<TrackEntity> = _searchResults.value
 }
+

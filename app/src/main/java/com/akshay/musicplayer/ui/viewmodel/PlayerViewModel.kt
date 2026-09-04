@@ -106,23 +106,45 @@ class PlayerViewModel(
     private val _chartsShelves = kotlinx.coroutines.flow.MutableStateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>>(emptyList())
     val chartsShelves: kotlinx.coroutines.flow.StateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>> = _chartsShelves
 
-    fun loadExploreAndCharts() {
+    private val _selectedMoodCategory = kotlinx.coroutines.flow.MutableStateFlow<String>("All")
+    val selectedMoodCategory: kotlinx.coroutines.flow.StateFlow<String> = _selectedMoodCategory
+
+    private val _isExploreLoading = kotlinx.coroutines.flow.MutableStateFlow<Boolean>(false)
+    val isExploreLoading: kotlinx.coroutines.flow.StateFlow<Boolean> = _isExploreLoading
+
+    fun selectMoodCategory(mood: String) {
+        if (_selectedMoodCategory.value == mood) return
+        _selectedMoodCategory.value = mood
+        loadExploreAndCharts(mood)
+    }
+
+    fun loadExploreAndCharts(mood: String = _selectedMoodCategory.value) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _isExploreLoading.value = true
             try {
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
-                Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (isAuthed: $isAuthed)")
-                val explore = if (isAuthed) {
-                    onlineRepository.innerTube.getHomeFeedShelves()
+                Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed)")
+                val explore = if (mood == "All") {
+                    if (isAuthed) {
+                        onlineRepository.innerTube.getHomeFeedShelves()
+                    } else {
+                        onlineRepository.fetchExploreShelves()
+                    }
                 } else {
-                    onlineRepository.fetchExploreShelves()
+                    onlineRepository.fetchMoodShelves(mood)
                 }
                 _exploreShelves.value = explore
-                val charts = onlineRepository.fetchChartsShelves()
-                _chartsShelves.value = charts
-                Log.d("MUESO_EXPLORE", "Loaded explore shelves: ${explore.map { it.title }}")
-                Log.d("MUESO_EXPLORE", "Loaded charts shelves: ${charts.map { it.title }}")
+                if (mood == "All") {
+                    val charts = onlineRepository.fetchChartsShelves()
+                    _chartsShelves.value = charts
+                } else {
+                    _chartsShelves.value = emptyList()
+                }
+                Log.d("MUESO_EXPLORE", "Loaded explore shelves (${explore.size}): ${explore.map { it.title }}")
             } catch (e: Exception) {
                 Log.e("MUESO_EXPLORE", "Failed to load explore and charts", e)
+            } finally {
+                _isExploreLoading.value = false
             }
         }
     }
@@ -177,9 +199,11 @@ class PlayerViewModel(
     fun setSkipNonMusicOffTopic(enabled: Boolean) = settingsManager.setSkipNonMusicOffTopic(enabled)
 
     val searchQuery = searchManager.searchQuery
+    val searchCategory = searchManager.searchCategory
     val isSearchingOnline = searchManager.isSearchingOnline
     val searchResults = searchManager.searchResults
     fun setSearchQuery(query: String) = searchManager.setSearchQuery(query)
+    fun setSearchCategory(category: String) = searchManager.setSearchCategory(category)
     fun getSearchResults() = searchManager.getSearchResults()
 
     val hasUnbackedUpChanges = backupManager.hasUnbackedUpChanges

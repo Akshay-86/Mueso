@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -194,16 +196,69 @@ fun MainScreen(viewModel: PlayerViewModel) {
         ) {
             val results by viewModel.searchResults.collectAsState()
             val isSearchingOnline by viewModel.isSearchingOnline.collectAsState()
+            val searchCategory by viewModel.searchCategory.collectAsState()
 
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 440.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(if (isDarkMode) Color(0xFF1E1E2E).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f))
                     .padding(12.dp)
             ) {
+                // Search Category Filter Chips
+                val searchCategories = listOf("All", "Songs", "Videos", "Albums", "Playlists", "Artists")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LazyRow(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(searchCategories) { cat ->
+                            val isSelected = cat.equals(searchCategory, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        if (isSelected) AccentOrange
+                                        else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                                        else Color.Black.copy(alpha = 0.05f)
+                                    )
+                                    .clickable { viewModel.setSearchCategory(cat) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = cat,
+                                    color = if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    if (isSearchingOnline) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        CircularProgressIndicator(
+                            color = AccentOrange,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+
                 if (isSearchingOnline && results.isEmpty()) {
                     Row(
                         modifier = Modifier
@@ -218,7 +273,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Searching online...", color = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f), fontSize = 14.sp)
+                        Text("Searching $searchCategory online...", color = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f), fontSize = 14.sp)
                     }
                 } else if (results.isEmpty()) {
                     Box(
@@ -227,7 +282,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                             .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No matching songs found", color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 14.sp)
+                        Text("No matching $searchCategory found", color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 14.sp)
                     }
                 } else {
                     val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
