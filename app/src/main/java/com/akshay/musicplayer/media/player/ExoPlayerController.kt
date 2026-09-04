@@ -1,17 +1,27 @@
 package com.akshay.musicplayer.media.player
 
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import androidx.core.content.ContextCompat
+import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import coil.ImageLoader
+import coil.request.ImageRequest
+import com.akshay.musicplayer.data.remote.OnlineMusicRepository
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.media.service.MusicPlayerService
 import com.akshay.musicplayer.ui.state.PlaybackState
@@ -27,6 +37,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 class ExoPlayerController(private val context: Context) : MediaPlayerController {
 
@@ -38,8 +51,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var currentTrackId: Long? = null
     private var positionUpdateJob: Job? = null
     private var pendingRestore: (() -> Unit)? = null
+    private var artworkLoadJob: Job? = null
     @Volatile private var isRestoring = false
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     // Online YouTube Player for streaming tracks that cannot be resolved as raw HTTP streams
     private val ytPlayerManager = OnlineYouTubePlayerManager(context)
@@ -50,6 +64,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     private var isSyncingToMediaSession = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val onlineRepo = OnlineMusicRepository()
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -113,6 +128,10 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val oldId = currentTrackId
             currentTrackId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
             Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: oldId=$oldId, newId=$currentTrackId, reason=$reason")
+            val currentTrack = tracksQueue.firstOrNull { it.id == currentTrackId }
+            if (currentTrack != null) {
+                updateArtworkForCurrentTrack(currentTrack)
+            }
             if (!isRestoring) {
                 updatePlaybackState()
             }
@@ -140,6 +159,127 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private fun getBestArtworkUri(track: TrackEntity): Uri? {
+        val art = track.artworkUrl
+        if (!art.isNullOrBlank()) {
+            return if (art.startsWith("http://") || art.startsWith("https://") || art.startsWith("content://") || art.startsWith("file://")) {
+                Uri.parse(art)
+            } else {
+                Uri.fromFile(File(art))
+            }
+        }
+        if (track.id > 0 && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http")) {
+            return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, track.id)
+        }
+        if (track.filePath.isNotBlank() && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http")) {
+            return Uri.fromFile(File(track.filePath))
+        }
+        return null
+    }
+
+    private fun updateArtworkForCurrentTrack(track: TrackEntity) {
+        artworkLoadJob?.cancel()
+        artworkLoadJob = scope.launch(Dispatchers.IO) {
+            val bytes = loadArtworkBytes(track) ?: return@launch
+            withContext(Dispatchers.Main) {
+                applyArtworkBytesToCurrentMediaItem(track.id, bytes)
+            }
+        }
+    }
+
+    private suspend fun loadArtworkBytes(track: TrackEntity): ByteArray? {
+        try {
+            val artUri = getBestArtworkUri(track) ?: return null
+            val uriString = artUri.toString()
+
+            // 1. If online HTTP/HTTPS URL
+            if (uriString.startsWith("http://") || uriString.startsWith("https://")) {
+                val candidates = onlineRepo.getYouTubeArtworkFallbackList(uriString)
+                val loader = ImageLoader.Builder(context).allowHardware(false).build()
+                for (cand in candidates) {
+                    try {
+                        val request = ImageRequest.Builder(context)
+                            .data(cand)
+                            .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                            .allowHardware(false)
+                            .build()
+                        val result = loader.execute(request)
+                        val bm = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                        if (bm != null) {
+                            val stream = ByteArrayOutputStream()
+                            bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            return stream.toByteArray()
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // 2. If content URI
+            if (artUri.scheme == "content") {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uriString.contains("audio/media")) {
+                    try {
+                        val bm = context.contentResolver.loadThumbnail(artUri, Size(1024, 1024), null)
+                        val stream = ByteArrayOutputStream()
+                        bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                        return stream.toByteArray()
+                    } catch (_: Exception) {}
+                }
+                try {
+                    val retriever = MediaMetadataRetriever()
+                    retriever.setDataSource(context, artUri)
+                    val raw = retriever.embeddedPicture
+                    retriever.release()
+                    if (raw != null) return raw
+                } catch (_: Exception) {}
+            }
+
+            // 3. If local file
+            val filePath = if (artUri.scheme == "file") artUri.path else if (!uriString.contains("://")) uriString else track.filePath
+            if (!filePath.isNullOrBlank() && !filePath.startsWith("online:") && !filePath.startsWith("http")) {
+                val file = File(filePath)
+                if (file.exists()) {
+                    try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(file.absolutePath)
+                        val raw = retriever.embeddedPicture
+                        retriever.release()
+                        if (raw != null) return raw
+                    } catch (_: Exception) {}
+
+                    try {
+                        val bm = BitmapFactory.decodeFile(file.absolutePath)
+                        if (bm != null) {
+                            val stream = ByteArrayOutputStream()
+                            bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            return stream.toByteArray()
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MUESO_ART", "Failed to load artwork bytes for track ${track.title}: ${e.message}")
+        }
+        return null
+    }
+
+    private fun applyArtworkBytesToCurrentMediaItem(trackId: Long, bytes: ByteArray) {
+        val controller = mediaController ?: return
+        val currentIndex = controller.currentMediaItemIndex
+        if (currentIndex in 0 until controller.mediaItemCount) {
+            val item = controller.getMediaItemAt(currentIndex)
+            if (item.mediaId == trackId.toString()) {
+                val updatedMetadata = item.mediaMetadata.buildUpon()
+                    .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                    .build()
+                val updatedMediaItem = item.buildUpon()
+                    .setMediaMetadata(updatedMetadata)
+                    .build()
+                controller.replaceMediaItem(currentIndex, updatedMediaItem)
+                controller.setPlaylistMetadata(updatedMetadata)
+            }
+        }
+    }
+
     private fun syncMediaSessionForOnlineTrack(track: TrackEntity, isPlaying: Boolean, positionMs: Long = -1L) {
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
         if (track.duration > 0L) {
@@ -158,11 +298,12 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 controller.volume = 0f
 
                 val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
+                val artworkUri = getBestArtworkUri(track)
                 val metadata = MediaMetadata.Builder()
                     .setTitle(track.title)
                     .setArtist(track.artist)
                     .setAlbumTitle(track.album.ifBlank { "YouTube Music" })
-                    .setArtworkUri(track.artworkUrl?.let { Uri.parse(it) })
+                    .setArtworkUri(artworkUri)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                     .build()
@@ -195,6 +336,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         controller.pause()
                     }
                 }
+
+                updateArtworkForCurrentTrack(track)
             } finally {
                 mainHandler.post {
                     isSyncingToMediaSession = false
@@ -335,7 +478,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setTitle(t.title)
                 .setArtist(t.artist)
                 .setAlbumTitle(t.album)
-                .setArtworkUri(if (t.artworkUrl != null) Uri.parse(t.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${t.albumId}"))
+                .setArtworkUri(getBestArtworkUri(t))
                 .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .build()
@@ -358,6 +501,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 currentPositionMs = 0L,
                 durationMs = controller.duration.coerceAtLeast(0L)
             )
+
+            updateArtworkForCurrentTrack(tracks[safeIndex])
         }
     }
 
@@ -405,7 +550,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setAlbumTitle(t.album)
                 .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .setArtworkUri(if (t.artworkUrl != null) Uri.parse(t.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${t.albumId}"))
+                .setArtworkUri(getBestArtworkUri(t))
                 .build()
 
             MediaItem.Builder()
@@ -427,6 +572,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     currentPositionMs = startPositionMs,
                     durationMs = controller.duration.coerceAtLeast(0L)
                 )
+
+                updateArtworkForCurrentTrack(track)
 
                 scope.launch {
                     delay(3000)
@@ -601,7 +748,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         .setTitle(track.title)
                         .setArtist(track.artist)
                         .setAlbumTitle(track.album)
-                        .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                        .setArtworkUri(getBestArtworkUri(track))
                         .setIsPlayable(true)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                         .build()
@@ -646,7 +793,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         .setTitle(track.title)
                         .setArtist(track.artist)
                         .setAlbumTitle(track.album)
-                        .setArtworkUri(if (track.artworkUrl != null) Uri.parse(track.artworkUrl) else Uri.parse("content://media/external/audio/albumart/${track.albumId}"))
+                        .setArtworkUri(getBestArtworkUri(track))
                         .setIsPlayable(true)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                         .build()

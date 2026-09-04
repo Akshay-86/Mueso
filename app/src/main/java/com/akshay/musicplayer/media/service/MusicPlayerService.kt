@@ -71,9 +71,11 @@ class MusicPlayerService : MediaSessionService() {
         )
 
         val forwardingPlayer = MusicForwardingPlayer(player)
+        val bitmapLoader = CoilBitmapLoader(this)
 
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
+            .setBitmapLoader(bitmapLoader)
             .setCallback(object : MediaSession.Callback {
                 override fun onPlayerCommandRequest(
                     session: MediaSession,

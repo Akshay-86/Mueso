@@ -117,6 +117,8 @@ class DownloadManager(
                 }
 
                 val client = OkHttpClient.Builder()
+                    .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
                     .followRedirects(true)
                     .followSslRedirects(true)
                     .build()
@@ -274,11 +276,11 @@ class DownloadManager(
         trackId: Long,
         onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit,
         maxRetriesPerChunk: Int = 5,
-        concurrency: Int = 4,
+        concurrency: Int = 1,
         onRefreshUrl: (suspend () -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val isGoogleVideo = url.contains("googlevideo.com")
-        var totalBytesExpected = if (isGoogleVideo) {
+        val totalBytesExpected = if (isGoogleVideo) {
             try {
                 android.net.Uri.parse(url).getQueryParameter("clen")?.toLongOrNull() ?: -1L
             } catch (_: Exception) {
@@ -288,168 +290,8 @@ class DownloadManager(
             -1L
         }
 
-        // Only probe non-googlevideo URLs with Range header
-        if (!isGoogleVideo && totalBytesExpected <= 0) {
-            try {
-                val probeReq = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .header("Range", "bytes=0-0")
-                    .build()
-                val probeCall = client.newCall(probeReq)
-                activeCalls["${trackId}_probe"] = probeCall
-                val probeResp = probeCall.execute()
-                val contentRange = probeResp.header("Content-Range")
-                if (!contentRange.isNullOrBlank()) {
-                    val totalStr = contentRange.substringAfterLast('/')
-                    totalBytesExpected = totalStr.toLongOrNull() ?: -1L
-                }
-                if (totalBytesExpected <= 0 && probeResp.code == 200) {
-                    totalBytesExpected = probeResp.body?.contentLength() ?: -1L
-                }
-                probeResp.close()
-            } catch (e: Exception) {
-                Log.w("MUESO_DOWNLOAD", "Probe failed for $trackId: ${e.message}")
-            } finally {
-                activeCalls.remove("${trackId}_probe")
-            }
-        }
-
-        Log.d("MUESO_DOWNLOAD", "[PROBE] trackId=$trackId isGoogleVideo=$isGoogleVideo totalSize=${if (totalBytesExpected > 0) "${totalBytesExpected / (1024*1024)}MB ($totalBytesExpected bytes)" else "unknown"}")
-
-        // For small files (< 512KB) or unknown sizes, download sequentially
-        val chunkSize = (totalBytesExpected / 4L).coerceIn(512 * 1024L, 2 * 1024 * 1024L)
-        if (totalBytesExpected <= 512 * 1024L || !isGoogleVideo) {
-            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk, onRefreshUrl)
-        }
-
-        // Parallel ranged chunk downloading (inspired by Zuno's ranged googlevideo engine)
-        try {
-            val raf = java.io.RandomAccessFile(destFile, "rw")
-            raf.setLength(totalBytesExpected)
-            raf.close()
-        } catch (e: Exception) {
-            Log.e("MUESO_DOWNLOAD", "Failed to preallocate file of size $totalBytesExpected", e)
-            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk)
-        }
-
-        data class Chunk(val index: Int, val start: Long, val end: Long)
-        val chunks = mutableListOf<Chunk>()
-        var offset = 0L
-        var idx = 0
-        while (offset < totalBytesExpected) {
-            val end = minOf(offset + chunkSize - 1, totalBytesExpected - 1)
-            chunks.add(Chunk(idx++, offset, end))
-            offset = end + 1
-        }
-
-        val totalChunks = chunks.size
-        Log.d("MUESO_DOWNLOAD", "[PARALLEL_START] trackId=$trackId totalSize=${totalBytesExpected / (1024*1024)}MB split into $totalChunks chunks")
-
-        val chunkQueue = kotlinx.coroutines.channels.Channel<Chunk>(totalChunks)
-        chunks.forEach { chunkQueue.trySend(it) }
-        chunkQueue.close()
-
-        val totalBytesDownloaded = java.util.concurrent.atomic.AtomicLong(0L)
-        val startTime = System.currentTimeMillis()
-        val hasFailed = java.util.concurrent.atomic.AtomicBoolean(false)
-        val cleanBaseUrl = url.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
-            .replace(Regex("[?&]rn=[0-9]+"), "")
-            .replace(Regex("[?&]rbuf=[0-9]+"), "")
-
-        coroutineScope {
-            val workers = (0 until concurrency.coerceAtMost(totalChunks)).map { workerId ->
-                async(Dispatchers.IO) {
-                    val buffer = ByteArray(64 * 1024)
-                    for (chunk in chunkQueue) {
-                        if (hasFailed.get()) break
-
-                        var chunkSuccess = false
-                        var attempt = 0
-                        while (attempt < maxRetriesPerChunk && !chunkSuccess && !hasFailed.get()) {
-                            attempt++
-                            val callKey = "${trackId}_w${workerId}_c${chunk.index}"
-                            val sep = if (cleanBaseUrl.contains("?")) "&" else "?"
-                            val chunkUrl = "$cleanBaseUrl${sep}range=${chunk.start}-${chunk.end}"
-
-                            val req = Request.Builder()
-                                .url(chunkUrl)
-
-                            dressGoogleVideoRequest(req, chunkUrl)
-                            val builtReq = req.build()
-
-                            try {
-                                val call = client.newCall(builtReq)
-                                activeCalls[callKey] = call
-                                val resp = call.execute()
-                                val body = resp.body
-
-                                if (!resp.isSuccessful || body == null) {
-                                    Log.w("MUESO_DOWNLOAD", "[WORKER_$workerId] Chunk #${chunk.index} HTTP ${resp.code} (attempt $attempt)")
-                                    if (attempt >= maxRetriesPerChunk) {
-                                        hasFailed.set(true)
-                                        return@async false
-                                    }
-                                    delay(1000L * attempt)
-                                    continue
-                                }
-
-                                val chunkRaf = java.io.RandomAccessFile(destFile, "rw")
-                                chunkRaf.seek(chunk.start)
-                                val inStream = body.byteStream()
-                                var read: Int
-
-                                try {
-                                    while (inStream.read(buffer).also { read = it } != -1) {
-                                        if (hasFailed.get()) break
-                                        chunkRaf.write(buffer, 0, read)
-                                        val totalReadSoFar = totalBytesDownloaded.addAndGet(read.toLong())
-                                        onProgress(totalReadSoFar, totalBytesExpected)
-                                    }
-                                    chunkSuccess = true
-                                } finally {
-                                    try { chunkRaf.close() } catch (_: Exception) {}
-                                    try { inStream.close() } catch (_: Exception) {}
-                                    try { body.close() } catch (_: Exception) {}
-                                }
-                            } catch (e: CancellationException) {
-                                hasFailed.set(true)
-                                throw e
-                            } catch (e: Exception) {
-                                Log.w("MUESO_DOWNLOAD", "[WORKER_$workerId] Chunk #${chunk.index} error: ${e.message}")
-                                if (attempt >= maxRetriesPerChunk) {
-                                    hasFailed.set(true)
-                                    return@async false
-                                }
-                                delay(1000L * attempt)
-                            } finally {
-                                activeCalls.remove(callKey)
-                            }
-                        }
-
-                        if (!chunkSuccess) {
-                            hasFailed.set(true)
-                            return@async false
-                        }
-                    }
-                    true
-                }
-            }
-            workers.forEach { it.await() }
-        }
-
-        val totalDurationMs = (System.currentTimeMillis() - startTime).coerceAtLeast(1)
-        val finalSize = if (destFile.exists()) destFile.length() else 0L
-        val avgSpeedMBs = (finalSize.toDouble() / (1024.0 * 1024.0)) / (totalDurationMs.toDouble() / 1000.0)
-        Log.d("MUESO_DOWNLOAD", "[PARALLEL_DONE] trackId=$trackId finalSize=${finalSize / (1024*1024)}MB in ${totalDurationMs/1000}s -> SPEED: ${String.format("%.2f", avgSpeedMBs)} MB/s")
-
-        if (hasFailed.get() || finalSize < totalBytesExpected) {
-            Log.w("MUESO_DOWNLOAD", "[PARALLEL_FAILED] One or more chunks failed for trackId=$trackId, falling back to sequential stream download")
-            try { destFile.delete() } catch (_: Exception) {}
-            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk, onRefreshUrl)
-        }
-
-        true
+        Log.d("MUESO_DOWNLOAD", "[START_DOWNLOAD] trackId=$trackId isGoogleVideo=$isGoogleVideo totalSize=${if (totalBytesExpected > 0) "${totalBytesExpected / (1024*1024)}MB ($totalBytesExpected bytes)" else "unknown"}")
+        downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk, onRefreshUrl)
     }
 
     private suspend fun downloadSequential(
@@ -474,7 +316,7 @@ class DownloadManager(
             totalBytesExpectedInit
         }
         var consecutiveFailures = 0
-        val buffer = ByteArray(64 * 1024)
+        val buffer = ByteArray(128 * 1024)
 
         while (consecutiveFailures < maxRetries) {
             val currentBytes = if (destFile.exists()) destFile.length() else 0L
