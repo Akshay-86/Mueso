@@ -45,6 +45,10 @@ class YouTubeStreamResolver(
         Log.d(TAG, "Auth cookie updated (hasCookie=${!cookie.isNullOrBlank()})")
     }
 
+    fun invalidateCache(videoId: String) {
+        streamCache.remove(videoId)
+    }
+
     data class CachedStream(
         val url: String,
         val expiryEpochMs: Long
@@ -304,8 +308,11 @@ class YouTubeStreamResolver(
             return null
         }
 
-        // Prefer highest bitrate
-        val best = audioFormats.maxByOrNull { it.optInt("bitrate", 0) } ?: audioFormats.first()
+        // Prefer audio/mp4 (AAC / itag 140) for universal hardware decoding and standard MP4 metadata tagging
+        val mp4Audio = audioFormats.filter { it.optString("mimeType", "").contains("audio/mp4") }
+        val best = mp4Audio.maxByOrNull { it.optInt("bitrate", 0) }
+            ?: audioFormats.maxByOrNull { it.optInt("bitrate", 0) }
+            ?: audioFormats.first()
         val url = best.optString("url", "")
         val bitrate = best.optInt("bitrate", 0)
         val mime = best.optString("mimeType", "")

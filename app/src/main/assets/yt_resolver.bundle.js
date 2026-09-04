@@ -33749,8 +33749,11 @@ return process("${n || ""}", "${sp || ""}", "${s || ""}");`;
   }
 
   // node_modules/youtubei.js/dist/src/platform/jsruntime/default.js
-  function evaluate(_data, _env) {
-    throw new Error("To decipher URLs, you must provide your own JavaScript evaluator. See https://ytjs.dev/guide/getting-started.html#providing-a-custom-javascript-interpreter for more details.");
+  // Custom evaluator for Android WebView - executes YouTube's player decipher scripts
+  function evaluate(data, env) {
+    const code = data.output;
+    const fn = new Function(code);
+    return fn();
   }
 
   // node_modules/youtubei.js/dist/src/core/Actions.js
@@ -40813,16 +40816,33 @@ ${getNsigProcessorFn(eval_args.n, eval_args.sp, eval_args.sig)}`;
     }
     return ytClientPromise;
   }
+  function withSessionClientVersion(streamUrl, yt) {
+    const sessionVersion = yt?.session?.context?.client?.clientVersion;
+    if (!sessionVersion) return streamUrl;
+    return streamUrl.replace(/([?&]cver=)[^&]*/, `$1${encodeURIComponent(sessionVersion)}`);
+  }
   async function resolveDownloadUrl(videoId) {
     const yt = await getYt();
     const poToken = await getPoToken(videoId);
+    if (poToken && yt.session) {
+      yt.session.po_token = poToken;
+      if (yt.session.player) {
+        yt.session.player.po_token = poToken;
+      }
+    }
     const info2 = await yt.getBasicInfo(videoId, poToken ? { po_token: poToken } : void 0);
     const formats = (info2.streaming_data?.adaptive_formats ?? []).filter(
       (f) => typeof f.mime_type === "string" && f.mime_type.startsWith("audio/")
     );
     if (formats.length === 0) throw new Error("No audio formats in streamingData");
     const format = formats.find((f) => f.mime_type.includes("audio/mp4")) || formats[0];
-    const decipheredUrl = await format.decipher(yt.session.player);
+    if (poToken && yt.session) {
+      yt.session.po_token = poToken;
+      if (yt.session.player) {
+        yt.session.player.po_token = poToken;
+      }
+    }
+    const decipheredUrl = withSessionClientVersion(await format.decipher(yt.session.player), yt);
     if (!decipheredUrl) throw new Error("Decipher returned empty URL");
     return { url: decipheredUrl, mimeType: format.mime_type };
   }

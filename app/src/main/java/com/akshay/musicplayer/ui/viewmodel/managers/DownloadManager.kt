@@ -6,6 +6,7 @@ import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
+import com.akshay.musicplayer.domain.models.LyricsData
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
 import kotlinx.coroutines.CancellationException
@@ -31,6 +32,8 @@ import com.akshay.musicplayer.media.notification.NotificationHelper
 class DownloadManager(
     private val onlineRepository: OnlineMusicRepository,
     private val getDownloadFolder: () -> String,
+    private val getCurrentTrack: () -> TrackEntity? = { null },
+    private val getSavedLyrics: (Long) -> LyricsData? = { null },
     private val coroutineScope: CoroutineScope
 ) {
     private val _downloadStates = MutableStateFlow<Map<Long, DownloadProgress>>(emptyMap())
@@ -145,6 +148,11 @@ class DownloadManager(
                                 progress = prog
                             )
                         }
+                    },
+                    onRefreshUrl = {
+                        if (videoId != null) {
+                            onlineRepository.getStreamUrl(videoId, context, forceRefresh = true)
+                        } else null
                     }
                 )
 
@@ -157,7 +165,28 @@ class DownloadManager(
                 }
 
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = 0.96f))
-                onlineRepository.embedMetadata(createdTempFile.absolutePath, track.title, track.artist, "Mueso Downloads", track.artworkUrl)
+
+                val fileToSave = createdTempFile
+
+                // Resolve active lyrics (currently playing track, track itself, or user-selected custom lyrics)
+                val currentPlayingTrack = getCurrentTrack()
+                val activeLyrics = if (track.id == currentPlayingTrack?.id && currentPlayingTrack.lyrics != null) {
+                    currentPlayingTrack.lyrics
+                } else {
+                    track.lyrics ?: getSavedLyrics(track.id)
+                }
+                val lrcContent = activeLyrics?.toLrcString()?.ifBlank { null }
+
+                val albumName = if (track.album.isNotBlank() && track.album != "Unknown Album") track.album else "Mueso Downloads"
+                val embedSuccess = onlineRepository.embedMetadata(
+                    filePath = fileToSave.absolutePath,
+                    title = track.title,
+                    artist = track.artist,
+                    album = albumName,
+                    artworkUrl = track.artworkUrl,
+                    lyricsText = lrcContent
+                )
+                Log.d("MUESO_DOWNLOAD", "Metadata embedded for '${track.title}' (success=$embedSuccess, lyrics=${!lrcContent.isNullOrBlank()})")
 
                 val folderSetting = getDownloadFolder()
                 val targetDir = when {
@@ -172,13 +201,26 @@ class DownloadManager(
                 if (!targetDir.exists()) targetDir.mkdirs()
 
                 val destFile = File(targetDir, "$sanitizedTitle$ext")
-                createdTempFile.copyTo(destFile, overwrite = true)
-                createdTempFile.delete()
+                fileToSave.copyTo(destFile, overwrite = true)
+                fileToSave.delete()
                 activeTempFiles.remove(track.id)
                 tempFile = null
                 savedDestFile = destFile
 
-                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
+                // Also save companion .lrc file next to the song for external players (e.g. Realme Music)
+                if (!lrcContent.isNullOrBlank()) {
+                    try {
+                        val lrcFile = File(targetDir, "$sanitizedTitle.lrc")
+                        lrcFile.writeText(lrcContent)
+                        Log.d("MUESO_DOWNLOAD", "Saved companion LRC file: ${lrcFile.absolutePath}")
+                    } catch (e: Exception) {
+                        Log.w("MUESO_DOWNLOAD", "Failed to write companion LRC file: ${e.message}")
+                    }
+                }
+
+                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null) { path, uri ->
+                    Log.d("MUESO_DOWNLOAD", "MediaScanner scanned $path -> $uri")
+                }
 
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
                 totalDownloadedInBatch++
@@ -232,7 +274,8 @@ class DownloadManager(
         trackId: Long,
         onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit,
         maxRetriesPerChunk: Int = 5,
-        concurrency: Int = 4
+        concurrency: Int = 4,
+        onRefreshUrl: (suspend () -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val isGoogleVideo = url.contains("googlevideo.com")
         var totalBytesExpected = if (isGoogleVideo) {
@@ -274,10 +317,10 @@ class DownloadManager(
 
         Log.d("MUESO_DOWNLOAD", "[PROBE] trackId=$trackId isGoogleVideo=$isGoogleVideo totalSize=${if (totalBytesExpected > 0) "${totalBytesExpected / (1024*1024)}MB ($totalBytesExpected bytes)" else "unknown"}")
 
-        // For small files or unknown sizes, download sequentially
-        val chunkSize = 2 * 1024 * 1024L // 2MB chunk size
-        if (totalBytesExpected <= 6 * 1024 * 1024L || !isGoogleVideo) {
-            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk)
+        // For small files (< 512KB) or unknown sizes, download sequentially
+        val chunkSize = (totalBytesExpected / 4L).coerceIn(512 * 1024L, 2 * 1024 * 1024L)
+        if (totalBytesExpected <= 512 * 1024L || !isGoogleVideo) {
+            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk, onRefreshUrl)
         }
 
         // Parallel ranged chunk downloading (inspired by Zuno's ranged googlevideo engine)
@@ -400,57 +443,61 @@ class DownloadManager(
         val avgSpeedMBs = (finalSize.toDouble() / (1024.0 * 1024.0)) / (totalDurationMs.toDouble() / 1000.0)
         Log.d("MUESO_DOWNLOAD", "[PARALLEL_DONE] trackId=$trackId finalSize=${finalSize / (1024*1024)}MB in ${totalDurationMs/1000}s -> SPEED: ${String.format("%.2f", avgSpeedMBs)} MB/s")
 
-        !hasFailed.get() && finalSize >= totalBytesExpected
+        if (hasFailed.get() || finalSize < totalBytesExpected) {
+            Log.w("MUESO_DOWNLOAD", "[PARALLEL_FAILED] One or more chunks failed for trackId=$trackId, falling back to sequential stream download")
+            try { destFile.delete() } catch (_: Exception) {}
+            return@withContext downloadSequential(client, url, destFile, trackId, totalBytesExpected, onProgress, maxRetriesPerChunk, onRefreshUrl)
+        }
+
+        true
     }
 
     private suspend fun downloadSequential(
         client: OkHttpClient,
-        url: String,
+        initialUrl: String,
         destFile: File,
         trackId: Long,
         totalBytesExpectedInit: Long,
         onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit,
-        maxRetries: Int = 5
+        maxRetries: Int = 5,
+        onRefreshUrl: (suspend () -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val isGoogleVideo = url.contains("googlevideo.com")
+        var currentUrl = initialUrl
+        var isGoogleVideo = currentUrl.contains("googlevideo.com")
         var totalBytesExpected = if (isGoogleVideo) {
             try {
-                android.net.Uri.parse(url).getQueryParameter("clen")?.toLongOrNull() ?: totalBytesExpectedInit
+                android.net.Uri.parse(currentUrl).getQueryParameter("clen")?.toLongOrNull() ?: totalBytesExpectedInit
             } catch (_: Exception) {
                 totalBytesExpectedInit
             }
         } else {
             totalBytesExpectedInit
         }
-        var attempt = 0
+        var consecutiveFailures = 0
         val buffer = ByteArray(64 * 1024)
-        val cleanBaseUrl = url.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
-            .replace(Regex("[?&]rn=[0-9]+"), "")
-            .replace(Regex("[?&]rbuf=[0-9]+"), "")
 
-        while (attempt < maxRetries) {
-            attempt++
+        while (consecutiveFailures < maxRetries) {
             val currentBytes = if (destFile.exists()) destFile.length() else 0L
             if (totalBytesExpected > 0 && currentBytes >= totalBytesExpected) {
                 return@withContext true
             }
 
-            val sliceSize = 512 * 1024L // 512 KB per slice to prevent googlevideo range size rejection
-            val end = if (totalBytesExpected > 0) minOf(currentBytes + sliceSize - 1, totalBytesExpected - 1) else currentBytes + sliceSize - 1
+            val cleanBaseUrl = currentUrl.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
+                .replace(Regex("[?&]rn=[0-9]+"), "")
+                .replace(Regex("[?&]rbuf=[0-9]+"), "")
 
-            val finalUrl = if (isGoogleVideo) {
+            val end = if (totalBytesExpected > 0) totalBytesExpected - 1 else -1L
+            val finalUrl = if (isGoogleVideo && end > 0) {
                 val sep = if (cleanBaseUrl.contains("?")) "&" else "?"
                 "$cleanBaseUrl${sep}range=$currentBytes-$end"
             } else {
-                url
+                currentUrl
             }
 
-            val requestBuilder = Request.Builder()
-                .url(finalUrl)
-
-            dressGoogleVideoRequest(requestBuilder, finalUrl)
-
-            if (!isGoogleVideo && currentBytes > 0) {
+            val requestBuilder = Request.Builder().url(finalUrl)
+            if (isGoogleVideo) {
+                dressGoogleVideoRequest(requestBuilder, finalUrl)
+            } else if (currentBytes > 0) {
                 requestBuilder.header("Range", "bytes=$currentBytes-")
             }
 
@@ -463,13 +510,25 @@ class DownloadManager(
                 val body = response.body
 
                 if (response.code == 416) {
-                    return@withContext true
+                    return@withContext destFile.exists() && destFile.length() > 0
+                }
+
+                if (response.code == 403) {
+                    Log.w("MUESO_DOWNLOAD", "[SEQ_ERR] HTTP 403 for $trackId, attempting stream URL refresh")
+                    val refreshed = onRefreshUrl?.invoke()
+                    if (!refreshed.isNullOrBlank() && refreshed != currentUrl) {
+                        Log.d("MUESO_DOWNLOAD", "[REFRESH_SUCCESS] Obtained fresh stream URL for $trackId")
+                        currentUrl = refreshed
+                        isGoogleVideo = currentUrl.contains("googlevideo.com")
+                        consecutiveFailures = 0
+                        continue
+                    }
                 }
 
                 if (!response.isSuccessful || body == null) {
-                    Log.w("MUESO_DOWNLOAD", "[SEQ_ERR] HTTP ${response.code} for $trackId (attempt $attempt/$maxRetries)")
-                    if (attempt >= maxRetries) return@withContext false
-                    delay(1000L * attempt)
+                    Log.w("MUESO_DOWNLOAD", "[SEQ_ERR] HTTP ${response.code} for $trackId")
+                    consecutiveFailures++
+                    delay(1000L * consecutiveFailures)
                     continue
                 }
 
@@ -483,7 +542,7 @@ class DownloadManager(
                     }
                 }
 
-                val append = currentBytes > 0 && (response.code == 206 || (isGoogleVideo && finalUrl.contains("range=")))
+                val append = currentBytes > 0 && (response.code == 206 || (isGoogleVideo && (finalUrl.contains("range=") || finalUrl.contains("&range="))))
                 if (!append && currentBytes > 0) {
                     destFile.delete()
                 }
@@ -500,7 +559,11 @@ class DownloadManager(
                         onProgress(fileBytes, totalBytesExpected)
                     }
                     outputStream.flush()
-                    return@withContext true
+                    consecutiveFailures = 0
+
+                    if (totalBytesExpected <= 0 || fileBytes >= totalBytesExpected) {
+                        return@withContext true
+                    }
                 } finally {
                     try { outputStream.close() } catch (_: Exception) {}
                     try { inputStream.close() } catch (_: Exception) {}
@@ -509,14 +572,14 @@ class DownloadManager(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w("MUESO_DOWNLOAD", "[SEQ_EXCEPTION] for $trackId (attempt $attempt/$maxRetries): ${e.message}")
-                if (attempt >= maxRetries) return@withContext false
-                delay(1000L * attempt)
+                Log.w("MUESO_DOWNLOAD", "[SEQ_EXCEPTION] for $trackId: ${e.message}")
+                consecutiveFailures++
+                delay(1000L * consecutiveFailures)
             } finally {
                 activeCalls.remove(callKey)
             }
         }
-        destFile.exists() && destFile.length() > 0
+        return@withContext destFile.exists() && destFile.length() > 0 && (totalBytesExpected <= 0 || destFile.length() >= totalBytesExpected)
     }
 
     private fun dressGoogleVideoRequest(requestBuilder: Request.Builder, url: String) {
@@ -537,6 +600,7 @@ class DownloadManager(
                 requestBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
                 requestBuilder.header("Accept", "*/*")
                 requestBuilder.header("Accept-Encoding", "identity;q=1, *;q=0")
+                requestBuilder.header("Accept-Language", "en-US,en;q=0.9")
                 requestBuilder.header("Origin", "https://music.youtube.com")
                 requestBuilder.header("Referer", "https://music.youtube.com/")
             }

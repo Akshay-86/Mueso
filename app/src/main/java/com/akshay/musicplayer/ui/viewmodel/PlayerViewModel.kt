@@ -68,6 +68,11 @@ class PlayerViewModel(
     val downloadManager = DownloadManager(
         onlineRepository = onlineRepository,
         getDownloadFolder = { settingsManager.downloadFolder.value },
+        getCurrentTrack = {
+            val id = _playbackState.value.currentTrackId
+            if (id != null) currentTracks.firstOrNull { it.id == id } else null
+        },
+        getSavedLyrics = { trackId -> getSavedCustomLyrics(trackId) },
         coroutineScope = viewModelScope
     )
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })

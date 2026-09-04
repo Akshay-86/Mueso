@@ -163,4 +163,8 @@ dependencies {
 
     // Android YouTube Player (official IFrame wrapper, fixes Error 150/152)
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
+
+    // Audio Tagging & Metadata embedding (pure Java, no native .so)
+    implementation("com.github.AdrienPoupa:jaudiotagger:2.2.3")
 }
+

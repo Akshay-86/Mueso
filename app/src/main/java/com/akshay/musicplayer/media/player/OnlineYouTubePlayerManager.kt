@@ -104,7 +104,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                         reqUrl.contains("itag=251") ||
                                         reqUrl.contains("itag=139")
                                 if (isAudio) {
-                                    Log.d("MUESO_STREAM_CAPTURE", "Captured active player audio stream for $vid")
+                                    Log.d("MUESO_STREAM_CAPTURE", "Active player audio stream active for $vid")
                                     com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(vid, reqUrl)
                                 }
                             }

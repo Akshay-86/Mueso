@@ -15,11 +15,17 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 import com.akshay.musicplayer.data.remote.stream.YouTubeStreamResolver
+import org.jaudiotagger.audio.AudioFileIO
+import org.jaudiotagger.tag.FieldKey
+import org.jaudiotagger.tag.images.AndroidArtwork
 
 data class SponsorSegment(
     val startMs: Long,
@@ -206,14 +212,19 @@ class OnlineMusicRepository {
         return@withContext emptyList()
     }
 
-    suspend fun getStreamUrl(videoId: String, context: android.content.Context? = null): String = withContext(Dispatchers.IO) {
+    suspend fun getStreamUrl(videoId: String, context: android.content.Context? = null, forceRefresh: Boolean = false): String = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext ""
         try {
-            // 1. Check in-memory cache from active playback or previous extraction
-            val cached = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(videoId)
-            if (!cached.isNullOrBlank()) {
-                Log.d(TAG, "Resolved audio stream from cache for videoId=$videoId")
-                return@withContext cached
+            if (forceRefresh) {
+                com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
+                streamResolver.invalidateCache(videoId)
+            } else {
+                // 1. Check in-memory cache from active playback or previous extraction
+                val cached = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(videoId)
+                if (!cached.isNullOrBlank()) {
+                    Log.d(TAG, "Resolved audio stream from cache for videoId=$videoId")
+                    return@withContext cached
+                }
             }
 
             // 2. If context provided, try headless web extraction
@@ -247,9 +258,115 @@ class OnlineMusicRepository {
         }
     }
 
-    suspend fun embedMetadata(filePath: String, title: String, artist: String, album: String, artworkUrl: String?): Boolean = withContext(Dispatchers.IO) {
+    suspend fun embedMetadata(
+        filePath: String,
+        title: String,
+        artist: String,
+        album: String,
+        artworkUrl: String?,
+        lyricsText: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         val file = File(filePath)
-        return@withContext file.exists() && file.length() > 0
+        if (!file.exists() || file.length() == 0L) return@withContext false
+
+        var (cleanedTitle, cleanedArtist) = cleanTitleAndArtist(title, artist)
+        if (cleanedArtist.isBlank() && cleanedTitle.contains(" - ")) {
+            val parts = cleanedTitle.split(" - ", limit = 2)
+            cleanedArtist = parts[0].trim()
+            cleanedTitle = parts[1].trim()
+        }
+        val finalArtist = if (cleanedArtist.isNotBlank() && !cleanedArtist.equals("Unknown Artist", ignoreCase = true)) cleanedArtist else artist.ifBlank { "Unknown Artist" }
+        val finalTitle = cleanedTitle.ifBlank { title }
+        val finalAlbum = if (album.isNotBlank() && !album.equals("Unknown Album", ignoreCase = true)) album else finalTitle
+
+        // 1. Download and decode artwork JPEG bytes
+        var jpegBytes: ByteArray? = null
+        if (!artworkUrl.isNullOrBlank()) {
+            val candidates = getYouTubeArtworkFallbackList(artworkUrl)
+            for (candUrl in candidates) {
+                if (jpegBytes != null) break
+                try {
+                    val req = Request.Builder()
+                        .url(candUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val bytes = resp.body?.bytes()
+                            if (bytes != null && bytes.size > 500) {
+                                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                if (bitmap != null) {
+                                    val stream = ByteArrayOutputStream()
+                                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+                                    jpegBytes = stream.toByteArray()
+                                    bitmap.recycle()
+                                    Log.d(TAG, "Downloaded artwork (${jpegBytes?.size} bytes) from $candUrl")
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to download artwork candidate '$candUrl': ${e.message}")
+                }
+            }
+        }
+
+        val finalJpegBytes = jpegBytes
+        // 2. If it's an MP4 / M4A file, use our native Mp4MetadataEditor
+        if (file.name.endsWith(".m4a", ignoreCase = true) || file.name.endsWith(".mp4", ignoreCase = true)) {
+            val success = Mp4MetadataEditor.embedMetadata(
+                file = file,
+                title = finalTitle,
+                artist = finalArtist,
+                album = finalAlbum,
+                albumArtist = finalArtist,
+                lyrics = lyricsText,
+                jpegBytes = finalJpegBytes
+            )
+            if (success) {
+                Log.d(TAG, "Successfully embedded MP4 metadata (lyrics=${!lyricsText.isNullOrBlank()}) in $filePath for '$finalTitle' by '$finalArtist'")
+                return@withContext true
+            }
+        }
+
+        // 3. Fallback to Jaudiotagger (for MP3 / other formats)
+        try {
+            val audioFile = AudioFileIO.read(file)
+            val tag = audioFile.tagOrCreateAndSetDefault
+
+            if (finalTitle.isNotBlank()) {
+                tag.setField(FieldKey.TITLE, finalTitle)
+            }
+            if (finalArtist.isNotBlank() && !finalArtist.equals("Unknown Artist", ignoreCase = true)) {
+                tag.setField(FieldKey.ARTIST, finalArtist)
+                tag.setField(FieldKey.ALBUM_ARTIST, finalArtist)
+            }
+            if (finalAlbum.isNotBlank()) {
+                tag.setField(FieldKey.ALBUM, finalAlbum)
+            }
+
+            if (!lyricsText.isNullOrBlank()) {
+                try {
+                    tag.setField(FieldKey.LYRICS, lyricsText)
+                } catch (_: Exception) {}
+            }
+
+            if (finalJpegBytes != null && finalJpegBytes.isNotEmpty()) {
+                val artwork = AndroidArtwork()
+                artwork.binaryData = finalJpegBytes
+                artwork.mimeType = "image/jpeg"
+                artwork.pictureType = 3 // Cover (front)
+                try { tag.deleteArtworkField() } catch (_: Exception) {}
+                tag.setField(artwork)
+            }
+
+            audioFile.commit()
+            Log.d(TAG, "Successfully embedded metadata in $filePath for '$finalTitle' by '$finalArtist' (album: '$finalAlbum')")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error embedding metadata in $filePath: ${e.message}", e)
+            false
+        }
     }
 
     // ==========================================
@@ -365,6 +482,12 @@ class OnlineMusicRepository {
         return tryFetchFromUrl(url)
     }
 
+    private fun JSONObject.optCleanString(name: String): String? {
+        if (isNull(name)) return null
+        val str = optString(name, "").trim()
+        return str.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+    }
+
     private fun tryFetchFromUrl(url: String): LyricsData? {
         val request = Request.Builder()
             .url(url)
@@ -375,11 +498,11 @@ class OnlineMusicRepository {
                 if (!response.isSuccessful) return null
                 val body = response.body?.string() ?: return null
                 val json = JSONObject(body)
-                val syncedLyrics = json.optString("syncedLyrics", "").trim()
-                val plainLyrics = json.optString("plainLyrics", "").trim()
-                if (syncedLyrics.isNotBlank()) {
+                val syncedLyrics = json.optCleanString("syncedLyrics")
+                val plainLyrics = json.optCleanString("plainLyrics")
+                if (!syncedLyrics.isNullOrBlank()) {
                     LyricsData(lines = LrcParser.parse(syncedLyrics), rawText = syncedLyrics)
-                } else if (plainLyrics.isNotBlank()) {
+                } else if (!plainLyrics.isNullOrBlank()) {
                     LyricsData(lines = LrcParser.parse(plainLyrics), rawText = plainLyrics)
                 } else {
                     null
@@ -407,8 +530,8 @@ class OnlineMusicRepository {
                 for (i in 0 until array.length()) {
                     val item = array.optJSONObject(i) ?: continue
                     val trackName = item.optString("trackName", "")
-                    val syncedLyrics = item.optString("syncedLyrics", "").trim()
-                    if (syncedLyrics.isNotBlank() && matchesTrackTitle(trackName, targetTitle)) {
+                    val syncedLyrics = item.optCleanString("syncedLyrics")
+                    if (!syncedLyrics.isNullOrBlank() && matchesTrackTitle(trackName, targetTitle)) {
                         return LyricsData(lines = LrcParser.parse(syncedLyrics), rawText = syncedLyrics)
                     }
                 }
@@ -416,8 +539,8 @@ class OnlineMusicRepository {
                 for (i in 0 until array.length()) {
                     val item = array.optJSONObject(i) ?: continue
                     val trackName = item.optString("trackName", "")
-                    val plainLyrics = item.optString("plainLyrics", "").trim()
-                    if (plainLyrics.isNotBlank() && matchesTrackTitle(trackName, targetTitle)) {
+                    val plainLyrics = item.optCleanString("plainLyrics")
+                    if (!plainLyrics.isNullOrBlank() && matchesTrackTitle(trackName, targetTitle)) {
                         return LyricsData(lines = LrcParser.parse(plainLyrics), rawText = plainLyrics)
                     }
                 }
@@ -448,9 +571,9 @@ class OnlineMusicRepository {
                     val artistName = item.optString("artistName", "")
                     val albumName = item.optString("albumName", "")
                     val durationSeconds = item.optDouble("duration", 0.0).toInt()
-                    val syncedLyrics = item.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
-                    val plainLyrics = item.optString("plainLyrics", "").takeIf { it.isNotBlank() }
-                    val isSynced = syncedLyrics != null
+                    val syncedLyrics = item.optCleanString("syncedLyrics")
+                    val plainLyrics = item.optCleanString("plainLyrics")
+                    val isSynced = !syncedLyrics.isNullOrBlank() && (syncedLyrics.contains("[0") || syncedLyrics.contains("[1") || syncedLyrics.contains("[:"))
                     if (trackName.isNotBlank()) {
                         list.add(
                             LrclibSearchResultItem(
@@ -490,9 +613,12 @@ class OnlineMusicRepository {
 
     fun getYouTubeArtworkFallbackList(rawUrl: String?, targetQuality: String = "Highest (1080p Maxres)"): List<String> {
         if (rawUrl.isNullOrBlank()) return emptyList()
+        val list = mutableListOf<String>()
         if (rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com")) {
-            val highRes = getHighResArtworkUrl(rawUrl) ?: rawUrl
-            return listOf(highRes, rawUrl)
+            list.add(rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj").replace(Regex("=s\\d+.*"), "=s1200"))
+            list.add(rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w544-h544-l90-rj"))
+            list.add(rawUrl)
+            return list.distinct()
         }
         val videoId = if (rawUrl.contains("/vi/")) {
             rawUrl.substringAfter("/vi/").substringBefore("/")
@@ -500,15 +626,14 @@ class OnlineMusicRepository {
             ""
         }
         if (videoId.isNotBlank()) {
-            return listOf(
-                "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg",
-                "https://i.ytimg.com/vi/$videoId/sddefault.jpg",
-                "https://i.ytimg.com/vi/$videoId/hq720.jpg",
-                "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
-                "https://i.ytimg.com/vi/$videoId/mqdefault.jpg"
-            )
+            list.add("https://i.ytimg.com/vi/$videoId/maxresdefault.jpg")
+            list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
+            list.add("https://i.ytimg.com/vi/$videoId/hq720.jpg")
+            list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+            list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
         }
-        return listOf(rawUrl)
+        list.add(rawUrl)
+        return list.distinct()
     }
 
     private fun cleanTitleAndArtist(title: String, artist: String): Pair<String, String> {
