@@ -46,7 +46,7 @@ class YouTubeStreamResolver(
     }
 
     fun invalidateCache(videoId: String) {
-        streamCache.remove(videoId)
+        streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
     }
 
     data class CachedStream(
@@ -140,21 +140,22 @@ class YouTubeStreamResolver(
      * Resolves a playable audio stream URL for the given videoId.
      * Tries multiple client strategies until one succeeds.
      */
-    suspend fun resolveAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolveAudioStream(videoId: String, qualityPreference: String? = null): String? = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext null
 
+        val cacheKey = if (qualityPreference != null) "$videoId:$qualityPreference" else videoId
         // Check cache
-        val cached = streamCache[videoId]
+        val cached = streamCache[cacheKey] ?: streamCache[videoId]
         if (cached != null && System.currentTimeMillis() < cached.expiryEpochMs) {
-            Log.d(TAG, "Returning cached stream URL for videoId=$videoId")
+            Log.d(TAG, "Returning cached stream URL for videoId=$videoId (quality=$qualityPreference)")
             return@withContext cached.url
         }
 
         for (strategy in strategies) {
-            val url = tryPlayerEndpoint(videoId, strategy)
+            val url = tryPlayerEndpoint(videoId, strategy, qualityPreference)
             if (url != null) {
-                Log.d(TAG, "Resolved via ${strategy.label} for $videoId (url length=${url.length})")
-                streamCache[videoId] = CachedStream(url, System.currentTimeMillis() + 3 * 3600 * 1000L)
+                Log.d(TAG, "Resolved via ${strategy.label} for $videoId (quality=$qualityPreference, url length=${url.length})")
+                streamCache[cacheKey] = CachedStream(url, System.currentTimeMillis() + 3 * 3600 * 1000L)
                 return@withContext url
             }
         }
@@ -163,7 +164,7 @@ class YouTubeStreamResolver(
         return@withContext null
     }
 
-    private fun tryPlayerEndpoint(videoId: String, strategy: ClientStrategy): String? {
+    private fun tryPlayerEndpoint(videoId: String, strategy: ClientStrategy, qualityPreference: String? = null): String? {
         try {
             val clientObj = JSONObject().apply {
                 put("clientName", strategy.clientName)
@@ -259,7 +260,7 @@ class YouTubeStreamResolver(
 
                 // Try adaptive formats first (audio-only, higher quality)
                 val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
-                val audioUrl = extractBestAudioUrl(adaptiveFormats, strategy.label, videoId)
+                val audioUrl = extractBestAudioUrl(adaptiveFormats, strategy.label, videoId, qualityPreference)
                 if (audioUrl != null) return audioUrl
 
                 // Fallback to muxed formats
@@ -284,7 +285,12 @@ class YouTubeStreamResolver(
         }
     }
 
-    private fun extractBestAudioUrl(adaptiveFormats: org.json.JSONArray?, label: String, videoId: String): String? {
+    private fun extractBestAudioUrl(
+        adaptiveFormats: org.json.JSONArray?,
+        label: String,
+        videoId: String,
+        qualityPreference: String? = null
+    ): String? {
         if (adaptiveFormats == null) return null
 
         val audioFormats = mutableListOf<JSONObject>()
@@ -308,16 +314,30 @@ class YouTubeStreamResolver(
             return null
         }
 
-        // Prefer audio/mp4 (AAC / itag 140) for universal hardware decoding and standard MP4 metadata tagging
-        val mp4Audio = audioFormats.filter { it.optString("mimeType", "").contains("audio/mp4") }
-        val best = mp4Audio.maxByOrNull { it.optInt("bitrate", 0) }
-            ?: audioFormats.maxByOrNull { it.optInt("bitrate", 0) }
-            ?: audioFormats.first()
-        val url = best.optString("url", "")
-        val bitrate = best.optInt("bitrate", 0)
-        val mime = best.optString("mimeType", "")
-        val itag = best.optInt("itag", 0)
-        Log.d(TAG, "Player $label: best audio itag=$itag, bitrate=${bitrate/1000}kbps, mime=$mime for $videoId")
+        val quality = qualityPreference?.lowercase() ?: "high"
+        val selected = when {
+            quality.contains("low") || quality.contains("96") || quality.contains("64") || quality.contains("48") -> {
+                // Low quality (Data Saver): pick lowest bitrate audio stream (e.g. itag 139 ~48kbps AAC or 50kbps Opus)
+                audioFormats.minByOrNull { it.optInt("bitrate", 0) }
+            }
+            quality.contains("medium") || quality.contains("128") || quality.contains("160") -> {
+                // Medium quality (Standard / 128 kbps): prefer standard AAC 128-148kbps (itag 140) or Opus 160kbps (itag 251)
+                val mediumMp4 = audioFormats.firstOrNull { it.optInt("itag", 0) == 140 }
+                mediumMp4 ?: audioFormats.minByOrNull { Math.abs(it.optInt("bitrate", 0) - 130000) }
+            }
+            else -> {
+                // High / Highest / Standard (256/320 kbps / best available): pick highest bitrate AAC or audio format
+                val mp4Audio = audioFormats.filter { it.optString("mimeType", "").contains("audio/mp4") }
+                mp4Audio.maxByOrNull { it.optInt("bitrate", 0) }
+                    ?: audioFormats.maxByOrNull { it.optInt("bitrate", 0) }
+            }
+        } ?: audioFormats.first()
+
+        val url = selected.optString("url", "")
+        val bitrate = selected.optInt("bitrate", 0)
+        val mime = selected.optString("mimeType", "")
+        val itag = selected.optInt("itag", 0)
+        Log.d(TAG, "Player $label: selected audio (pref='$qualityPreference') itag=$itag, bitrate=${bitrate/1000}kbps, mime=$mime for $videoId")
         return url
     }
 

@@ -392,10 +392,7 @@ fun PlayerPageContent(
                 val downloadStates by viewModel.downloadStates.collectAsState()
                 val trackDlState = downloadStates[track.id]
 
-                var showAddToOnlinePlaylistSheet by remember { mutableStateOf(false) }
-                var showAddToOfflinePlaylistSheet by remember { mutableStateOf(false) }
-                val onlinePlaylists by viewModel.onlinePlaylists.collectAsState()
-                val offlinePlaylists by viewModel.playlists.collectAsState()
+                var showAddToPlaylistSheet by remember { mutableStateOf(false) }
 
                 val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
                 val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
@@ -423,39 +420,17 @@ fun PlayerPageContent(
                     },
                     onCancelDownloadClick = { viewModel.cancelDownload(track.id) },
                     onAddToPlaylistClick = {
-                        if (isOnlineSong) {
-                            showAddToOnlinePlaylistSheet = true
-                        } else {
-                            showAddToOfflinePlaylistSheet = true
-                        }
+                        showAddToPlaylistSheet = true
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (showAddToOnlinePlaylistSheet) {
-                    com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
+                if (showAddToPlaylistSheet) {
+                    com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet(
                         track = track,
                         viewModel = viewModel,
-                        onlinePlaylists = onlinePlaylists,
                         isDarkMode = isDarkMode,
-                        onSelectPlaylist = { playlist ->
-                            viewModel.addTrackToOnlinePlaylist(playlist.id, track)
-                        },
-                        onDismiss = { showAddToOnlinePlaylistSheet = false }
-                    )
-                }
-
-                if (showAddToOfflinePlaylistSheet) {
-                    com.akshay.musicplayer.ui.screens.AddToPlaylistDialog(
-                        playlists = offlinePlaylists,
-                        trackToAdd = track,
-                        viewModel = viewModel,
-                        isDarkMode = isDarkMode,
-                        onPlaylistSelected = { playlistId ->
-                            viewModel.addTrackToPlaylist(playlistId, track.id)
-                            showAddToOfflinePlaylistSheet = false
-                        },
-                        onDismiss = { showAddToOfflinePlaylistSheet = false }
+                        onDismiss = { showAddToPlaylistSheet = false }
                     )
                 }
 

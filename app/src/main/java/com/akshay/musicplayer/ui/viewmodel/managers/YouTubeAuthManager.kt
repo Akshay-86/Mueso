@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -334,4 +335,48 @@ class YouTubeAuthManager(
             }
         }
     }
+
+    fun addTrackToYouTubePlaylist(playlist: InnerTubePlaylist, track: TrackEntity, onResult: (Boolean) -> Unit = {}) {
+        if (!_isLoggedIn.value) {
+            onResult(false)
+            return
+        }
+
+        coroutineScope.launch(Dispatchers.IO) {
+            var videoId = onlineRepo.extractVideoId(track)
+            if (videoId.isBlank()) {
+                // Fallback: search track title and artist
+                val searchResults = onlineRepo.innerTube.search("${track.title} ${track.artist}", "Eg-KAQwIABAAGAEgASgB")
+                videoId = searchResults.firstOrNull()?.videoId ?: ""
+            }
+
+            if (videoId.isBlank()) {
+                withContext(Dispatchers.Main) { onResult(false) }
+                return@launch
+            }
+
+            val success = onlineRepo.innerTube.addTrackToPlaylist(playlist.id, videoId)
+            withContext(Dispatchers.Main) {
+                onResult(success)
+            }
+        }
+    }
+
+    fun createYouTubePlaylist(title: String, description: String = "", onResult: (String?) -> Unit = {}) {
+        if (!_isLoggedIn.value) {
+            onResult(null)
+            return
+        }
+
+        coroutineScope.launch(Dispatchers.IO) {
+            val playlistId = onlineRepo.innerTube.createPlaylist(title, description)
+            if (playlistId != null) {
+                refreshLibrary()
+            }
+            withContext(Dispatchers.Main) {
+                onResult(playlistId)
+            }
+        }
+    }
 }
+

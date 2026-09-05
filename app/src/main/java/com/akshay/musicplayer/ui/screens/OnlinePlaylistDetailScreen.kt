@@ -664,7 +664,8 @@ private fun OnlineTrackListItem(
                 artworkUrl = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}",
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                thumbnailQuality = "Low (Fast)"
             )
         }
 

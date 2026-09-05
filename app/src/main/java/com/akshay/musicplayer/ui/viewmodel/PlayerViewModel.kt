@@ -168,6 +168,7 @@ class PlayerViewModel(
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
     val enableLyrics = settingsManager.enableLyrics
+    val embedLyricsInDownload = settingsManager.embedLyricsInDownload
     val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
     val enableSponsorBlock = settingsManager.enableSponsorBlock
@@ -186,6 +187,7 @@ class PlayerViewModel(
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
+    fun setEmbedLyricsInDownload(enabled: Boolean) = settingsManager.setEmbedLyricsInDownload(enabled)
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)
         playlistManager.clearCuratedCache()
@@ -279,8 +281,13 @@ class PlayerViewModel(
     fun refreshAllPlaylistArtworks() = playlistManager.refreshAllPlaylistArtworks()
     suspend fun exportPlaylistsToJson(context: android.content.Context) = playlistManager.exportPlaylistsToJson(context)
     suspend fun importPlaylistsFromJson(context: android.content.Context, jsonString: String) = playlistManager.importPlaylistsFromJson(context, jsonString)
+    fun addTrackToYouTubePlaylist(playlist: com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist, track: com.akshay.musicplayer.domain.models.TrackEntity, onResult: (Boolean) -> Unit = {}) =
+        youtubeAuthManager.addTrackToYouTubePlaylist(playlist, track, onResult)
+    fun createYouTubePlaylist(title: String, description: String = "", onResult: (String?) -> Unit = {}) =
+        youtubeAuthManager.createYouTubePlaylist(title, description, onResult)
 
     // Spotify Import delegates
+
     val spotifyImportState = spotifyImportManager.importState
     val spotifyPlaylistData = spotifyImportManager.spotifyPlaylistData
     val spotifyMatchResults = spotifyImportManager.matchResults

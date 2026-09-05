@@ -935,11 +935,11 @@ fun OnlineSongCard(
             contentAlignment = Alignment.Center
         ) {
             if (!track.artworkUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = track.artworkUrl,
+                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                    artworkUrl = track.artworkUrl,
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    thumbnailQuality = "Medium (480p)"
                 )
             } else {
                 Icon(
@@ -1017,11 +1017,11 @@ fun DynamicPlaylistCard(
             contentAlignment = Alignment.Center
         ) {
             if (!artworkUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = artworkUrl,
+                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                    artworkUrl = artworkUrl,
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    thumbnailQuality = "Medium (480p)"
                 )
             } else {
                 Icon(
@@ -1313,11 +1313,11 @@ fun OnlinePlaylistDetailScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             if (!track.artworkUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = track.artworkUrl,
+                                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                                    artworkUrl = track.artworkUrl,
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    thumbnailQuality = "Low (Fast)"
                                 )
                             } else {
                                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color.White)

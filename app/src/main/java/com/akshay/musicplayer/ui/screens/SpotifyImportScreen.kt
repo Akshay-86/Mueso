@@ -82,6 +82,38 @@ fun SpotifyImportScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor)
             )
         },
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            if (importState == SpotifyImportState.Ready) {
+                val matched = matchResults.count { it.matchedTrack != null }
+                if (matched > 0) {
+                    ExtendedFloatingActionButton(
+                        onClick = { viewModel.createSpotifyPlaylist() },
+                        containerColor = AccentOrange,
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp),
+                        icon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = "Create Playlist ($matched tracks)",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .padding(bottom = 12.dp)
+                    )
+                }
+            }
+        },
         containerColor = bgColor
     ) { innerPadding ->
         LazyColumn(
@@ -90,7 +122,7 @@ fun SpotifyImportScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
         ) {
             // ─── URL Input Section ───
             item {
@@ -252,7 +284,8 @@ fun SpotifyImportScreen(
                                         artworkUrl = playlistData!!.artworkUrl!!,
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Crop,
+                                        thumbnailQuality = "Medium (480p)"
                                     )
                                 } else {
                                     Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(32.dp))
@@ -347,26 +380,6 @@ fun SpotifyImportScreen(
                         onSelectMatch = { track -> viewModel.selectSpotifyMatch(index, track) },
                         onToggleAlternatives = { viewModel.toggleSpotifyAlternatives(index) }
                     )
-                }
-            }
-
-            // ─── Create Playlist Button ───
-            if (importState == SpotifyImportState.Ready) {
-                item {
-                    val matched = matchResults.count { it.matchedTrack != null }
-                    Button(
-                        onClick = { viewModel.createSpotifyPlaylist() },
-                        enabled = matched > 0,
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Create Playlist ($matched tracks)", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
                 }
             }
 
@@ -546,7 +559,8 @@ private fun TrackMatchItem(
                                 artworkUrl = artworkUrl,
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                thumbnailQuality = "Low (Fast)"
                             )
                         } else {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
@@ -704,7 +718,8 @@ private fun TrackMatchItem(
                                             artworkUrl = artUrl,
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
+                                            contentScale = ContentScale.Crop,
+                                            thumbnailQuality = "Low (Fast)"
                                         )
                                     } else {
                                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = textSub, modifier = Modifier.size(16.dp))

@@ -314,12 +314,11 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                         .background(Color.White.copy(alpha = 0.1f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    coil.compose.AsyncImage(
-                                        model = thumbModel,
+                                    com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                                        artworkUrl = thumbModel,
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                        error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.MusicNote)
+                                        thumbnailQuality = "Low (Fast)"
                                     )
                                 }
 
@@ -425,19 +424,16 @@ fun MainScreen(viewModel: PlayerViewModel) {
             )
         }
 
-        // Add to Online Playlist Bottom Sheet from Search Results
+        // Add to Playlist Bottom Sheet (YouTube, Online, Local)
         if (selectedTrackForPlaylist != null) {
-            com.akshay.musicplayer.ui.components.AddToOnlinePlaylistBottomSheet(
+            com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet(
                 track = selectedTrackForPlaylist!!,
                 viewModel = viewModel,
-                onlinePlaylists = onlinePlaylists,
                 isDarkMode = isDarkMode,
-                onSelectPlaylist = { playlist ->
-                    viewModel.addTrackToOnlinePlaylist(playlist.id, selectedTrackForPlaylist!!)
-                },
                 onDismiss = { selectedTrackForPlaylist = null }
             )
         }
+
 
 
         // Dedicated Full-Page Settings Screen Overlay with smooth slide-up animation

@@ -224,9 +224,16 @@ class OnlineMusicRepository {
         return@withContext emptyList()
     }
 
-    suspend fun getStreamUrl(videoId: String, context: android.content.Context? = null, forceRefresh: Boolean = false): String = withContext(Dispatchers.IO) {
+    suspend fun getStreamUrl(
+        videoId: String,
+        context: android.content.Context? = null,
+        forceRefresh: Boolean = false,
+        audioQuality: String? = null
+    ): String = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext ""
         try {
+            val effectiveQuality = audioQuality ?: context?.getSharedPreferences("music_player_settings", android.content.Context.MODE_PRIVATE)?.getString("audio_quality", "High (320 kbps)")
+
             if (forceRefresh) {
                 com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
                 streamResolver.invalidateCache(videoId)
@@ -249,9 +256,9 @@ class OnlineMusicRepository {
             }
 
             // 3. Fallback to streamResolver
-            val resolved = streamResolver.resolveAudioStream(videoId)
+            val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
             if (!resolved.isNullOrBlank()) {
-                Log.d(TAG, "Resolved audio stream for videoId=$videoId via StreamResolver (length=${resolved.length})")
+                Log.d(TAG, "Resolved audio stream for videoId=$videoId (quality=$effectiveQuality) via StreamResolver (length=${resolved.length})")
                 return@withContext resolved
             }
         } catch (e: Exception) {
@@ -626,24 +633,84 @@ class OnlineMusicRepository {
     fun getYouTubeArtworkFallbackList(rawUrl: String?, targetQuality: String = "Highest (1080p Maxres)"): List<String> {
         if (rawUrl.isNullOrBlank()) return emptyList()
         val list = mutableListOf<String>()
-        if (rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com")) {
-            list.add(rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj").replace(Regex("=s\\d+.*"), "=s1200"))
-            list.add(rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w544-h544-l90-rj"))
+        val isGUserContent = rawUrl.contains("googleusercontent.com") || rawUrl.contains("ggpht.com")
+        val isYtImg = rawUrl.contains("/vi/") || rawUrl.contains("i.ytimg.com")
+
+        val isHighest = targetQuality.contains("Highest", ignoreCase = true) || targetQuality.contains("1080", ignoreCase = true)
+        val isHigh = targetQuality.contains("High (720p)", ignoreCase = true) || targetQuality.contains("720", ignoreCase = true)
+        val isLow = targetQuality.contains("Low", ignoreCase = true) || targetQuality.contains("Fast", ignoreCase = true)
+        // Default is Medium (480p)
+
+        if (isGUserContent) {
+            val base = rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "").replace(Regex("=s\\d+.*"), "")
+            when {
+                isHighest -> {
+                    list.add("$base=w1200-h1200-l90-rj")
+                    list.add("$base=s1200")
+                    list.add("$base=w544-h544-l90-rj")
+                }
+                isHigh -> {
+                    list.add("$base=w800-h800-l90-rj")
+                    list.add("$base=s800")
+                    list.add("$base=w544-h544-l90-rj")
+                    list.add("$base=w1200-h1200-l90-rj")
+                }
+                isLow -> {
+                    list.add("$base=w226-h226-l90-rj")
+                    list.add("$base=w120-h120-l90-rj")
+                    list.add("$base=w544-h544-l90-rj")
+                }
+                else -> { // Medium (480p / 544p standard)
+                    list.add("$base=w544-h544-l90-rj")
+                    list.add("$base=s544")
+                    list.add("$base=w226-h226-l90-rj")
+                    list.add("$base=w1200-h1200-l90-rj")
+                }
+            }
             list.add(rawUrl)
             return list.distinct()
         }
-        val videoId = if (rawUrl.contains("/vi/")) {
-            rawUrl.substringAfter("/vi/").substringBefore("/")
-        } else {
-            ""
+
+        if (isYtImg) {
+            val videoId = if (rawUrl.contains("/vi/")) {
+                rawUrl.substringAfter("/vi/").substringBefore("/")
+            } else {
+                ""
+            }
+            if (videoId.isNotBlank()) {
+                when {
+                    isHighest -> {
+                        list.add("https://i.ytimg.com/vi/$videoId/maxresdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/hq720.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
+                    }
+                    isHigh -> {
+                        list.add("https://i.ytimg.com/vi/$videoId/hq720.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/maxresdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
+                    }
+                    isLow -> {
+                        list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
+                    }
+                    else -> { // Medium (480p)
+                        list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/hq720.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
+                        list.add("https://i.ytimg.com/vi/$videoId/maxresdefault.jpg")
+                    }
+                }
+            }
+            list.add(rawUrl)
+            return list.distinct()
         }
-        if (videoId.isNotBlank()) {
-            list.add("https://i.ytimg.com/vi/$videoId/maxresdefault.jpg")
-            list.add("https://i.ytimg.com/vi/$videoId/sddefault.jpg")
-            list.add("https://i.ytimg.com/vi/$videoId/hq720.jpg")
-            list.add("https://i.ytimg.com/vi/$videoId/hqdefault.jpg")
-            list.add("https://i.ytimg.com/vi/$videoId/mqdefault.jpg")
-        }
+
         list.add(rawUrl)
         return list.distinct()
     }

@@ -1013,6 +1013,59 @@ class InnerTubeClient(
         }
     }
 
+    suspend fun addTrackToPlaylist(playlistId: String, videoId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isLoggedIn() || playlistId.isBlank() || videoId.isBlank()) return@withContext false
+
+        val cleanPlaylistId = playlistId.removePrefix("VL")
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("playlistId", cleanPlaylistId)
+            put("actions", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("addedVideoId", videoId)
+                    put("action", "ACTION_ADD_VIDEO")
+                })
+            })
+        }
+
+        try {
+            val request = buildBaseRequest("browse/edit_playlist", payload)
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Log.d(TAG, "addTrackToPlaylist response code: ${response.code}, body: ${body.take(200)}")
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "addTrackToPlaylist failed for playlist: $playlistId, videoId: $videoId", e)
+            return@withContext false
+        }
+    }
+
+    suspend fun createPlaylist(title: String, description: String = ""): String? = withContext(Dispatchers.IO) {
+        if (!isLoggedIn() || title.isBlank()) return@withContext null
+
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("title", title)
+            put("description", description)
+            put("privacyStatus", "PRIVATE")
+        }
+
+        try {
+            val request = buildBaseRequest("playlist/create", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val json = JSONObject(response.body?.string() ?: return@withContext null)
+                val playlistId = json.optString("playlistId")
+                return@withContext if (playlistId.isNotBlank()) playlistId else null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createPlaylist failed for title: $title", e)
+            return@withContext null
+        }
+    }
+
+
     // ==========================================
     // 7. ACCOUNT PROFILE (/account/account_menu)
     // ==========================================

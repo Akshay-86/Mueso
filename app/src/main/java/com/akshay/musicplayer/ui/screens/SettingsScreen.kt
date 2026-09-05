@@ -2,6 +2,9 @@
 package com.akshay.musicplayer.ui.screens
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -68,9 +71,9 @@ fun SettingsScreen(
     val showOnLockscreen by viewModel.showOnLockscreen.collectAsState()
     val highRefreshRate by viewModel.highRefreshRate.collectAsState()
     val audioQuality by viewModel.audioQuality.collectAsState()
-    val thumbnailQuality by viewModel.thumbnailQuality.collectAsState()
     val downloadQuality by viewModel.downloadQuality.collectAsState()
     val downloadFolder by viewModel.downloadFolder.collectAsState()
+    val embedLyricsInDownload by viewModel.embedLyricsInDownload.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
@@ -535,16 +538,6 @@ fun SettingsScreen(
                         onSelect = { viewModel.setAudioQuality(it) }
                     )
                     HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
-                        title = "Thumbnail Resolution",
-                        subtitle = "Cover artwork resolution",
-                        icon = Icons.Default.Image,
-                        currentValue = thumbnailQuality,
-                        options = listOf("Highest (1080p Maxres)", "High (720p)", "Medium (480p)", "Low (Fast)"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setThumbnailQuality(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
                     SettingsToggleItem(
                         title = "Show Synchronized Lyrics",
                         subtitle = "Display live karaoke lyrics in player",
@@ -586,12 +579,20 @@ fun SettingsScreen(
                     HorizontalDivider(color = dividerColor)
                     SettingsFolderSelectorItem(
                         title = "Audio Download Location",
-                        subtitle = "Folder where MP3 audio files save",
+                        subtitle = "Folder where downloaded audio files save",
                         icon = Icons.Default.Folder,
                         currentFolder = downloadFolder,
-                        presetFolders = listOf("Music/Mueso", "Downloads", "Internal App Storage"),
                         isDarkMode = isDarkMode,
                         onFolderSelect = { viewModel.setDownloadFolder(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Embed Lyrics in Downloads",
+                        subtitle = "Embed lyrics metadata & save .lrc companion",
+                        icon = Icons.Default.Lyrics,
+                        checked = embedLyricsInDownload,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setEmbedLyricsInDownload(it) }
                     )
                 }
             }
@@ -1065,18 +1066,56 @@ private fun SettingsSelectorItem(
 
 @Composable
 private fun SettingsFolderSelectorItem(
-    title: String = "Target Download Location",
-    subtitle: String = "Folder where MP3 files save",
+    title: String = "Audio Download Location",
+    subtitle: String = "Folder where downloaded audio files save",
     icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Folder,
     currentFolder: String,
-    presetFolders: List<String> = listOf("Music/Mueso", "Downloads", "Internal App Storage"),
     isDarkMode: Boolean,
     onFolderSelect: (String) -> Unit
 ) {
-    var showCustomDialog by remember { mutableStateOf(false) }
-    var customInput by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(false) }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+
+            val docId = try {
+                DocumentsContract.getTreeDocumentId(uri)
+            } catch (_: Exception) { null }
+
+            val displayPath = when {
+                docId != null && docId.startsWith("primary:") -> docId.removePrefix("primary:")
+                docId != null -> docId
+                else -> uri.lastPathSegment ?: "Custom Folder"
+            }
+            onFolderSelect(displayPath.ifBlank { "Music" })
+            showDialog = false
+        }
+    }
+
+    val displayFolder = when {
+        currentFolder == "Internal App Storage" -> "Internal App Storage"
+        currentFolder.startsWith("content://") -> {
+            try {
+                val uri = Uri.parse(currentFolder)
+                val docId = DocumentsContract.getTreeDocumentId(uri)
+                if (docId.startsWith("primary:")) docId.removePrefix("primary:") else docId
+            } catch (_: Exception) {
+                currentFolder
+            }
+        }
+        else -> currentFolder
+    }
 
     Column(
         modifier = Modifier
@@ -1084,7 +1123,9 @@ private fun SettingsFolderSelectorItem(
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDialog = true },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1099,56 +1140,83 @@ private fun SettingsFolderSelectorItem(
                     Text(subtitle, color = textSub, fontSize = 12.sp)
                 }
             }
-            TextButton(onClick = { showCustomDialog = true }) {
-                Text(currentFolder, color = AccentOrange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { showDialog = true }) {
+                Text(
+                    text = displayFolder,
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
-        if (showCustomDialog) {
+        if (showDialog) {
             AlertDialog(
-                onDismissRequest = { showCustomDialog = false },
-                title = { Text("Choose Download Folder", color = textPrimary) },
+                onDismissRequest = { showDialog = false },
+                title = { Text("Choose Download Location", color = textPrimary, fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        presetFolders.forEach { folder ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onFolderSelect(folder)
-                                        showCustomDialog = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(folder, color = textPrimary)
-                                if (folder == currentFolder) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = AccentOrange)
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // 1. Default Public Music Folder (Music/Mueso)
+                        val isPublicDefault = currentFolder == "Music/Mueso" || currentFolder == "Music"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isPublicDefault) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                                .clickable {
+                                    onFolderSelect("Music/Mueso")
+                                    showDialog = false
                                 }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = if (isPublicDefault) AccentOrange else textSub)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Public Music Folder (Music/Mueso)", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("Visible in all music apps & indexed by MediaStore", color = textSub, fontSize = 12.sp)
+                            }
+                            if (isPublicDefault) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
                             }
                         }
-                        OutlinedTextField(
-                            value = customInput,
-                            onValueChange = { customInput = it },
-                            placeholder = { Text("Or custom path e.g. /sdcard/Movies", fontSize = 12.sp) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+
+                        // 2. Android Native Folder Picker
+                        val isCustom = !isPublicDefault
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isCustom) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                                .clickable {
+                                    folderPickerLauncher.launch(null)
+                                }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = if (isCustom) AccentOrange else textSub)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Choose Custom Folder", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(
+                                    if (isCustom) "Selected: $displayFolder" else "Pick with Android file manager",
+                                    color = textSub,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (isCustom) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        if (customInput.isNotBlank()) {
-                            onFolderSelect(customInput.trim())
-                        }
-                        showCustomDialog = false
-                    }) {
-                        Text("Save Custom", color = AccentOrange)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCustomDialog = false }) {
-                        Text("Cancel", color = textSub)
+                    TextButton(onClick = { showDialog = false }) {
+                        Text("Close", color = textSub)
                     }
                 }
             )

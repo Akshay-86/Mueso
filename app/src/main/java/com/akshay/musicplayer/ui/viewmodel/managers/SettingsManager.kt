@@ -34,6 +34,9 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _enableLyrics = MutableStateFlow(sharedPreferences.getBoolean("enable_lyrics", true))
     val enableLyrics: StateFlow<Boolean> = _enableLyrics.asStateFlow()
 
+    private val _embedLyricsInDownload = MutableStateFlow(sharedPreferences.getBoolean("embed_lyrics_in_download", true))
+    val embedLyricsInDownload: StateFlow<Boolean> = _embedLyricsInDownload.asStateFlow()
+
     private val _preferredLanguage = MutableStateFlow(sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu")
     val preferredLanguage: StateFlow<String> = _preferredLanguage.asStateFlow()
 
@@ -43,7 +46,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     }
 
     // SponsorBlock Settings
-    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", true))
+    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", false))
     val enableSponsorBlock: StateFlow<Boolean> = _enableSponsorBlock.asStateFlow()
     
     private val _skipSponsor = MutableStateFlow(sharedPreferences.getBoolean("skip_sponsor", true))
@@ -106,6 +109,11 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putBoolean("enable_lyrics", enabled).apply()
     }
 
+    fun setEmbedLyricsInDownload(enabled: Boolean) {
+        _embedLyricsInDownload.value = enabled
+        sharedPreferences.edit().putBoolean("embed_lyrics_in_download", enabled).apply()
+    }
+
     fun setEnableSponsorBlock(enabled: Boolean) {
         _enableSponsorBlock.value = enabled
         sharedPreferences.edit().putBoolean("enable_sponsorblock", enabled).apply()
@@ -154,7 +162,8 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
-        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", true)
+        _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
+        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", false)
         _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)
         _skipSelfPromo.value = sharedPreferences.getBoolean("skip_self_promo", true)
         _skipInteraction.value = sharedPreferences.getBoolean("skip_interaction", true)

@@ -103,6 +103,7 @@ fun AlbumArtBackground(
                 contentDescription = contentDescription,
                 alignment = BiasAlignment(horizontalBias, 0f),
                 contentScale = ContentScale.Crop,
+                thumbnailQuality = "Highest (1080p Maxres)",
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {

@@ -105,8 +105,10 @@ class DownloadManager(
             var savedDestFile: File? = null
 
             try {
+                val dlQuality = context.getSharedPreferences("music_player_settings", Context.MODE_PRIVATE)
+                    .getString("download_quality", "Standard (256 kbps)")
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
-                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId, context) else track.filePath
+                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId, context, audioQuality = dlQuality) else track.filePath
                 
                 if (!downloadUrl.startsWith("http")) {
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Stream URL unavailable"))
@@ -153,7 +155,7 @@ class DownloadManager(
                     },
                     onRefreshUrl = {
                         if (videoId != null) {
-                            onlineRepository.getStreamUrl(videoId, context, forceRefresh = true)
+                            onlineRepository.getStreamUrl(videoId, context, forceRefresh = true, audioQuality = dlQuality)
                         } else null
                     }
                 )
@@ -171,13 +173,15 @@ class DownloadManager(
                 val fileToSave = createdTempFile
 
                 // Resolve active lyrics (currently playing track, track itself, or user-selected custom lyrics)
+                val shouldEmbedLyrics = context.getSharedPreferences("music_player_settings", Context.MODE_PRIVATE)
+                    .getBoolean("embed_lyrics_in_download", true)
                 val currentPlayingTrack = getCurrentTrack()
                 val activeLyrics = if (track.id == currentPlayingTrack?.id && currentPlayingTrack.lyrics != null) {
                     currentPlayingTrack.lyrics
                 } else {
                     track.lyrics ?: getSavedLyrics(track.id)
                 }
-                val lrcContent = activeLyrics?.toLrcString()?.ifBlank { null }
+                val lrcContent = if (shouldEmbedLyrics) activeLyrics?.toLrcString()?.ifBlank { null } else null
 
                 val albumName = if (track.album.isNotBlank() && track.album != "Unknown Album") track.album else "Mueso Downloads"
                 val embedSuccess = onlineRepository.embedMetadata(
@@ -192,27 +196,39 @@ class DownloadManager(
 
                 val folderSetting = getDownloadFolder()
                 val targetDir = when {
-                    folderSetting == "Downloads" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                     folderSetting == "Internal App Storage" -> context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
+                    folderSetting == "Downloads" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                     folderSetting.startsWith("/") -> File(folderSetting)
-                    else -> {
+                    folderSetting.startsWith("Music/") -> {
                         val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
                         File(musicDir, folderSetting.removePrefix("Music/"))
                     }
+                    folderSetting.equals("Music", ignoreCase = true) -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                    else -> {
+                        val externalDir = Environment.getExternalStorageDirectory()
+                        val customDir = File(externalDir, folderSetting)
+                        if (customDir.exists() || folderSetting.contains("/")) {
+                            customDir
+                        } else {
+                            val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                            File(musicDir, folderSetting)
+                        }
+                    }
                 }
                 if (!targetDir.exists()) targetDir.mkdirs()
+                val actualDir = if (targetDir.exists()) targetDir else (context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir)
 
-                val destFile = File(targetDir, "$sanitizedTitle$ext")
+                val destFile = File(actualDir, "$sanitizedTitle$ext")
                 fileToSave.copyTo(destFile, overwrite = true)
                 fileToSave.delete()
                 activeTempFiles.remove(track.id)
                 tempFile = null
                 savedDestFile = destFile
 
-                // Also save companion .lrc file next to the song for external players (e.g. Realme Music)
-                if (!lrcContent.isNullOrBlank()) {
+                // Also save companion .lrc file next to the song for external players (e.g. Realme Music) if enabled
+                if (shouldEmbedLyrics && !lrcContent.isNullOrBlank()) {
                     try {
-                        val lrcFile = File(targetDir, "$sanitizedTitle.lrc")
+                        val lrcFile = File(actualDir, "$sanitizedTitle.lrc")
                         lrcFile.writeText(lrcContent)
                         Log.d("MUESO_DOWNLOAD", "Saved companion LRC file: ${lrcFile.absolutePath}")
                     } catch (e: Exception) {
@@ -227,7 +243,7 @@ class DownloadManager(
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
                 totalDownloadedInBatch++
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Saved \"${track.title}\" to ${targetDir.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Saved \"${track.title}\" to ${actualDir.name}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: CancellationException) {
                 Log.d("MUESO_DOWNLOAD", "Download cancelled for track ${track.title}")
