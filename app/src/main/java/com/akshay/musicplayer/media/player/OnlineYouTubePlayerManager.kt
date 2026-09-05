@@ -77,6 +77,10 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                 json.put("disablekb", 1)
                 json.put("rel", 0)
                 json.put("iv_load_policy", 3)
+                json.put("modestbranding", 1)
+                json.put("showinfo", 0)
+                json.put("fs", 0)
+                json.put("autohide", 1)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to inject widget_referrer", e)
             }
@@ -126,7 +130,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     activePlayer = youTubePlayer
                     isReady = true
 
-                    // Apply allow attributes on the embedded iframe as in Zuno AudioEngine
+                    // Apply allow attributes on the embedded iframe and clean YT embed UI styles
                     findWebView(view)?.evaluateJavascript(
                         """
                         (function() {
@@ -134,6 +138,19 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             if (ifr) {
                                 ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
                             }
+                            var style = document.createElement('style');
+                            style.innerHTML = `
+                                .ytp-chrome-top, .ytp-title, .ytp-watermark, .ytp-pause-overlay,
+                                .ytp-ce-element, .ytp-ce-covering-overlay, .ytp-cards-teaser,
+                                .ytp-show-cards-title, .ytp-share-button, .ytp-youtube-button,
+                                .ytp-gradient-top, .ytp-gradient-bottom, .ytp-title-channel {
+                                    display: none !important;
+                                    opacity: 0 !important;
+                                    visibility: hidden !important;
+                                    pointer-events: none !important;
+                                }
+                            `;
+                            document.head.appendChild(style);
                         })();
                         """.trimIndent(), null
                     )

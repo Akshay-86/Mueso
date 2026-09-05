@@ -29,20 +29,24 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
@@ -351,14 +355,72 @@ fun PlayerPageContent(
             )
 
             val enableLyrics by viewModel.enableLyrics.collectAsState()
+            val enableVideoMode by viewModel.enableVideoMode.collectAsState()
+            val isVideoModeActive by viewModel.isVideoModeActive.collectAsState()
             val isDarkMode by viewModel.isDarkMode.collectAsState()
             val playButtonPosition by viewModel.playButtonPosition.collectAsState()
             val lyricsFetchStatusMap by viewModel.lyricsFetchStatus.collectAsState()
             val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
             val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
+            val hasVideoAvailable = track.filePath.startsWith("online:")
+            var showFullScreenVideo by remember { mutableStateOf(false) }
 
-            // Dynamic lyrics view (if enabled in settings)
-            if (enableLyrics) {
+            // 1. Center Content: Video surface OR Lyrics View OR Spacers
+            if (enableVideoMode && isVideoModeActive && hasVideoAvailable) {
+                val ytView = viewModel.getOnlinePlayerView()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black)
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (ytView != null) {
+                        AndroidView(
+                            factory = {
+                                (ytView.parent as? android.view.ViewGroup)?.removeView(ytView)
+                                ytView.apply {
+                                    layoutParams = android.view.ViewGroup.LayoutParams(
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    alpha = 1f
+                                    visibility = android.view.View.VISIBLE
+                                }
+                                ytView
+                            },
+                            update = { view ->
+                                view.alpha = 1f
+                                view.visibility = android.view.View.VISIBLE
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        CircularProgressIndicator(color = Color(0xFFFF512F), strokeWidth = 2.dp)
+                    }
+
+                    // Top-Right Fullscreen Expand Button (Matching YT Music web)
+                    IconButton(
+                        onClick = { showFullScreenVideo = true },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Fullscreen",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            } else if (enableLyrics) {
                 LyricsView(
                     lyrics = track.lyrics,
                     currentPositionMs = playbackState.currentPositionMs,
@@ -378,6 +440,136 @@ fun PlayerPageContent(
                 )
             } else {
                 Spacer(modifier = Modifier.weight(1f))
+            }
+
+            // 2. Song | Video Switcher Pill (Placed directly below lyrics/video card)
+            if (enableVideoMode && hasVideoAvailable) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Song Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (!isVideoModeActive) (if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.White) else Color.Transparent)
+                            .clickable { viewModel.setVideoModeActive(false) }
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = if (!isVideoModeActive) (if (isDarkMode) Color.White else Color(0xFF1D1D1F)) else (if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Song",
+                                color = if (!isVideoModeActive) (if (isDarkMode) Color.White else Color(0xFF1D1D1F)) else (if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)),
+                                fontSize = 12.sp,
+                                fontWeight = if (!isVideoModeActive) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Video Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isVideoModeActive) (if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.White) else Color.Transparent)
+                            .clickable { viewModel.setVideoModeActive(true) }
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = if (isVideoModeActive) (if (isDarkMode) Color.White else Color(0xFF1D1D1F)) else (if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Video",
+                                color = if (isVideoModeActive) (if (isDarkMode) Color.White else Color(0xFF1D1D1F)) else (if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)),
+                                fontSize = 12.sp,
+                                fontWeight = if (isVideoModeActive) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Fullscreen Immersive Video Dialog
+            if (showFullScreenVideo && enableVideoMode && isVideoModeActive && hasVideoAvailable) {
+                val ytView = viewModel.getOnlinePlayerView()
+                Dialog(
+                    onDismissRequest = { showFullScreenVideo = false },
+                    properties = DialogProperties(
+                        usePlatformDefaultWidth = false,
+                        dismissOnBackPress = true
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (ytView != null) {
+                            AndroidView(
+                                factory = {
+                                    (ytView.parent as? android.view.ViewGroup)?.removeView(ytView)
+                                    ytView.apply {
+                                        layoutParams = android.view.ViewGroup.LayoutParams(
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        alpha = 1f
+                                        visibility = android.view.View.VISIBLE
+                                    }
+                                    ytView
+                                },
+                                update = { view ->
+                                    view.alpha = 1f
+                                    view.visibility = android.view.View.VISIBLE
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                            )
+                        }
+
+                        // Top-right exit fullscreen button
+                        IconButton(
+                            onClick = { showFullScreenVideo = false },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .statusBarsPadding()
+                                .padding(16.dp)
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.65f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FullscreenExit,
+                                contentDescription = "Exit Fullscreen",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))

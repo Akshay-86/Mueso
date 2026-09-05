@@ -15,15 +15,17 @@ data class InnerTubeTrack(
 ) {
     fun toTrackEntity(): TrackEntity {
         val durationMs = if (durationSec > 0) durationSec * 1000L else 0L
+        val isVid = itemType.equals("Video", ignoreCase = true)
         return TrackEntity(
             id = videoId.hashCode().toLong(),
             title = title,
             artist = artist.ifBlank { "Unknown Artist" },
-            album = album ?: "YouTube Music",
+            album = album ?: if (isVid) "Music Video" else "YouTube Music",
             duration = durationMs,
             albumId = 0L,
             filePath = "online:$videoId",
-            artworkUrl = artworkUrl
+            artworkUrl = artworkUrl,
+            isVideo = isVid
         )
     }
 }

@@ -30,4 +30,5 @@ interface MediaPlayerController {
     fun appendTracksToQueue(tracks: List<TrackEntity>)
     fun insertTracksToQueue(index: Int, tracks: List<TrackEntity>)
     fun clearUpcomingQueue(fromIndex: Int)
+    fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = null
 }

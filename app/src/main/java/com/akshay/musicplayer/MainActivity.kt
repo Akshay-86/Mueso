@@ -108,23 +108,6 @@ class MainActivity : ComponentActivity() {
             }
 
             MusicPlayerTheme(darkTheme = isDarkMode) {
-                // Attach YouTubePlayerView to the Window hierarchy with >= 200px dimensions (required by YouTube embed policy)
-                mediaPlayerController.getOnlinePlayerView()?.let { ytView ->
-                    AndroidView(
-                        factory = {
-                            (ytView.parent as? android.view.ViewGroup)?.removeView(ytView)
-                            ytView.apply {
-                                isClickable = false
-                                isFocusable = false
-                                setOnTouchListener { _, _ -> false }
-                            }
-                        },
-                        modifier = Modifier
-                            .size(240.dp)
-                            .alpha(0.01f)
-                    )
-                }
-
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {

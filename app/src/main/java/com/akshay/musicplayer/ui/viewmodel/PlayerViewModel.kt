@@ -179,6 +179,7 @@ class PlayerViewModel(
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
     val enableLyrics = settingsManager.enableLyrics
+    val enableVideoMode = settingsManager.enableVideoMode
     val embedLyricsInDownload = settingsManager.embedLyricsInDownload
     val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
@@ -189,6 +190,14 @@ class PlayerViewModel(
     val skipIntroOutro = settingsManager.skipIntroOutro
     val skipNonMusicOffTopic = settingsManager.skipNonMusicOffTopic
 
+    private val _isVideoModeActive = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isVideoModeActive: kotlinx.coroutines.flow.StateFlow<Boolean> = _isVideoModeActive.asStateFlow()
+    fun setVideoModeActive(active: Boolean) {
+        _isVideoModeActive.value = active
+    }
+
+    fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = mediaPlayerController.getOnlinePlayerView()
+
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setHeroPlaylistId(id: String) = settingsManager.setHeroPlaylistId(id)
     fun setShowOnLockscreen(enabled: Boolean) = settingsManager.setShowOnLockscreen(enabled)
@@ -198,6 +207,7 @@ class PlayerViewModel(
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
+    fun setEnableVideoMode(enabled: Boolean) = settingsManager.setEnableVideoMode(enabled)
     fun setEmbedLyricsInDownload(enabled: Boolean) = settingsManager.setEmbedLyricsInDownload(enabled)
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)

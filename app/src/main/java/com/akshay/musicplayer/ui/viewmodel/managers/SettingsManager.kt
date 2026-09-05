@@ -34,6 +34,14 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _enableLyrics = MutableStateFlow(sharedPreferences.getBoolean("enable_lyrics", true))
     val enableLyrics: StateFlow<Boolean> = _enableLyrics.asStateFlow()
 
+    private val _enableVideoMode = MutableStateFlow(sharedPreferences.getBoolean("enable_video_mode", false))
+    val enableVideoMode: StateFlow<Boolean> = _enableVideoMode.asStateFlow()
+
+    fun setEnableVideoMode(enabled: Boolean) {
+        _enableVideoMode.value = enabled
+        sharedPreferences.edit().putBoolean("enable_video_mode", enabled).apply()
+    }
+
     private val _embedLyricsInDownload = MutableStateFlow(sharedPreferences.getBoolean("embed_lyrics_in_download", true))
     val embedLyricsInDownload: StateFlow<Boolean> = _embedLyricsInDownload.asStateFlow()
 
@@ -162,6 +170,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
+        _enableVideoMode.value = sharedPreferences.getBoolean("enable_video_mode", false)
         _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
         _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", false)
         _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)

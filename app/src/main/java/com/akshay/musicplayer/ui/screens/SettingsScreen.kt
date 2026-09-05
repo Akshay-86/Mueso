@@ -75,6 +75,7 @@ fun SettingsScreen(
     val downloadFolder by viewModel.downloadFolder.collectAsState()
     val embedLyricsInDownload by viewModel.embedLyricsInDownload.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
+    val enableVideoMode by viewModel.enableVideoMode.collectAsState()
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
     val playButtonPosition by viewModel.playButtonPosition.collectAsState()
@@ -546,6 +547,16 @@ fun SettingsScreen(
                         isDarkMode = isDarkMode,
                         onCheckedChange = { viewModel.setEnableLyrics(it) }
                     )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Enable Video Mode",
+                        subtitle = "Show Song/Video switcher in player for tracks with music videos",
+                        icon = Icons.Default.Videocam,
+                        checked = enableVideoMode,
+                        isDarkMode = isDarkMode,
+                        badge = "BETA",
+                        onCheckedChange = { viewModel.setEnableVideoMode(it) }
+                    )
                 }
             }
 
@@ -905,6 +916,7 @@ private fun SettingsToggleItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     checked: Boolean,
     isDarkMode: Boolean,
+    badge: String? = null,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
@@ -930,8 +942,29 @@ private fun SettingsToggleItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-            Column {
-                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    if (badge != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentOrange.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = AccentOrange,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                }
                 Text(subtitle, color = textSub, fontSize = 12.sp)
             }
         }

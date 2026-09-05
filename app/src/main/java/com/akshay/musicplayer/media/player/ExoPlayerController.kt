@@ -953,5 +953,5 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun mediaEvents(): Flow<PlayerEvent> = _mediaEvents
 
-    fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = ytPlayerManager.getPlayerView()
+    override fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = ytPlayerManager.getPlayerView()
 }
