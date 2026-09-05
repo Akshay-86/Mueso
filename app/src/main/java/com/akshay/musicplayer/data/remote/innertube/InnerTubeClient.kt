@@ -878,6 +878,12 @@ class InnerTubeClient(
                 }
                 val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
                 val parsed = parsePlaylistTracks(json)
+                val desc = parsePlaylistDescription(json)
+                if (!desc.isNullOrBlank()) {
+                    val cleanId = playlistId.removePrefix("VL")
+                    playlistDescriptions[cleanId] = desc
+                    playlistDescriptions[playlistId] = desc
+                }
                 if (parsed.isEmpty() && playlistId.contains("RD")) {
                     val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
                     return@withContext getRadioTracks(videoId)
@@ -892,6 +898,128 @@ class InnerTubeClient(
             }
             return@withContext emptyList()
         }
+    }
+
+    private val playlistDescriptions = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun getCachedPlaylistDescription(playlistId: String): String? {
+        val cleanId = playlistId.removePrefix("VL")
+        return playlistDescriptions[cleanId] ?: playlistDescriptions[playlistId]
+    }
+
+    suspend fun fetchPlaylistDescription(playlistId: String): String? = withContext(Dispatchers.IO) {
+        val cleanId = playlistId.removePrefix("VL")
+        val cached = playlistDescriptions[cleanId] ?: playlistDescriptions[playlistId]
+        if (!cached.isNullOrBlank()) return@withContext cached
+
+        val cleanBrowseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("browseId", cleanBrowseId)
+        }
+        try {
+            val request = buildBaseRequest("browse", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val json = JSONObject(response.body?.string() ?: return@withContext null)
+                val desc = parsePlaylistDescription(json)
+                if (!desc.isNullOrBlank()) {
+                    playlistDescriptions[cleanId] = desc
+                    playlistDescriptions[playlistId] = desc
+                }
+                return@withContext desc
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchPlaylistDescription failed for $playlistId", e)
+            return@withContext null
+        }
+    }
+
+    private fun extractRunsText(obj: Any?): String? {
+        if (obj == null) return null
+        if (obj is String) {
+            val trimmed = obj.trim()
+            if (trimmed.isNotBlank()) return trimmed
+            return null
+        }
+        if (obj is JSONObject) {
+            val directText = obj.optString("simpleText", "").ifBlank { obj.optString("text", "") }
+            if (directText.isNotBlank()) return directText
+
+            val runs = obj.optJSONArray("runs")
+            if (runs != null && runs.length() > 0) {
+                val sb = StringBuilder()
+                for (i in 0 until runs.length()) {
+                    val runObj = runs.optJSONObject(i)
+                    val text = runObj?.optString("text", "") ?: ""
+                    sb.append(text)
+                }
+                val res = sb.toString().trim()
+                if (res.isNotBlank()) return res
+            }
+        }
+        return null
+    }
+
+    private fun parsePlaylistDescription(json: JSONObject): String? {
+        fun extractFromNode(node: Any?, depth: Int = 0): String? {
+            if (node == null || depth > 8) return null
+            if (node is JSONObject) {
+                // 1. Direct check for description or formattedDescription keys
+                for (key in listOf("description", "formattedDescription")) {
+                    val descNode = node.opt(key)
+                    if (descNode != null) {
+                        if (descNode is String && descNode.isNotBlank()) return descNode.trim()
+                        if (descNode is JSONObject) {
+                            val shelfDesc = descNode.optJSONObject("musicDescriptionShelfRenderer")?.opt("description")
+                            val shelfText = extractRunsText(shelfDesc)
+                            if (!shelfText.isNullOrBlank()) return shelfText
+
+                            val directText = extractRunsText(descNode)
+                            if (!directText.isNullOrBlank()) return directText
+                        }
+                    }
+                }
+
+                // 2. Check known renderers first
+                val editableHdr = node.optJSONObject("musicEditablePlaylistDetailHeaderRenderer")
+                if (editableHdr != null) {
+                    val res = extractFromNode(editableHdr, depth + 1)
+                    if (!res.isNullOrBlank()) return res
+                }
+
+                val editHdr = node.optJSONObject("musicPlaylistEditHeaderRenderer")
+                if (editHdr != null) {
+                    val res = extractFromNode(editHdr, depth + 1)
+                    if (!res.isNullOrBlank()) return res
+                }
+
+                val respHdr = node.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: node.optJSONObject("musicDetailHeaderRenderer")
+                if (respHdr != null) {
+                    val res = extractFromNode(respHdr, depth + 1)
+                    if (!res.isNullOrBlank()) return res
+                }
+
+                // 3. Search children objects
+                for (key in node.keys()) {
+                    if (key == "contents" || key == "header" || key == "editHeader" || key == "secondaryContents" || key == "sectionListRenderer" || key == "twoColumnBrowseResultsRenderer" || key == "singleColumnBrowseResultsRenderer" || key == "tabs" || key == "tabRenderer") {
+                        val child = node.opt(key)
+                        val res = extractFromNode(child, depth + 1)
+                        if (!res.isNullOrBlank()) return res
+                    }
+                }
+            } else if (node is org.json.JSONArray) {
+                for (i in 0 until node.length()) {
+                    val item = node.opt(i)
+                    val res = extractFromNode(item, depth + 1)
+                    if (!res.isNullOrBlank()) return res
+                }
+            }
+            return null
+        }
+
+        return extractFromNode(json)
     }
 
     private fun parsePlaylistTracks(json: JSONObject): List<InnerTubeTrack> {
@@ -1062,6 +1190,85 @@ class InnerTubeClient(
         } catch (e: Exception) {
             Log.e(TAG, "createPlaylist failed for title: $title", e)
             return@withContext null
+        }
+    }
+
+    suspend fun editPlaylistDetails(playlistId: String, newName: String, newDescription: String = ""): Boolean = withContext(Dispatchers.IO) {
+        if (!isLoggedIn() || playlistId.isBlank() || newName.isBlank()) return@withContext false
+        val cleanPlaylistId = playlistId.removePrefix("VL")
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("playlistId", cleanPlaylistId)
+            put("actions", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("action", "ACTION_SET_PLAYLIST_NAME")
+                    put("playlistName", newName)
+                })
+                put(JSONObject().apply {
+                    put("action", "ACTION_SET_PLAYLIST_DESCRIPTION")
+                    put("playlistDescription", newDescription)
+                })
+            })
+        }
+        try {
+            val request = buildBaseRequest("browse/edit_playlist", payload)
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Log.d(TAG, "editPlaylistDetails response code: ${response.code}, body: ${body.take(200)}")
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "editPlaylistDetails failed for playlist: $playlistId", e)
+            return@withContext false
+        }
+    }
+
+    suspend fun renamePlaylist(playlistId: String, newName: String): Boolean =
+        editPlaylistDetails(playlistId, newName, "")
+
+    suspend fun deletePlaylist(playlistId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isLoggedIn() || playlistId.isBlank()) return@withContext false
+        val cleanPlaylistId = playlistId.removePrefix("VL")
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("playlistId", cleanPlaylistId)
+        }
+        try {
+            val request = buildBaseRequest("playlist/delete", payload)
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Log.d(TAG, "deletePlaylist response code: ${response.code}, body: ${body.take(200)}")
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "deletePlaylist failed for playlist: $playlistId", e)
+            return@withContext false
+        }
+    }
+
+    suspend fun removeTrackFromPlaylist(playlistId: String, videoId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isLoggedIn() || playlistId.isBlank() || videoId.isBlank()) return@withContext false
+        val cleanPlaylistId = playlistId.removePrefix("VL")
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("playlistId", cleanPlaylistId)
+            put("actions", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("action", "ACTION_REMOVE_VIDEO_BY_VIDEO_ID")
+                    put("removedVideoId", videoId)
+                })
+            })
+        }
+        try {
+            val request = buildBaseRequest("browse/edit_playlist", payload)
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Log.d(TAG, "removeTrackFromPlaylist response code: ${response.code}, body: ${body.take(200)}")
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "removeTrackFromPlaylist failed for playlist: $playlistId, videoId: $videoId", e)
+            return@withContext false
         }
     }
 

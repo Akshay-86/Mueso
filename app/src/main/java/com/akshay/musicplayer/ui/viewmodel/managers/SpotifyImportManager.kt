@@ -42,7 +42,8 @@ class SpotifyImportManager(
     private val onlineRepo: OnlineMusicRepository,
     private val onlinePlaylistDao: OnlinePlaylistDao,
     private val coroutineScope: CoroutineScope,
-    private val markDirty: () -> Unit
+    private val markDirty: () -> Unit,
+    private val onYouTubeRefresh: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "MUESO_SPOTIFY_IMPORT"
@@ -62,6 +63,9 @@ class SpotifyImportManager(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _createdDestination = MutableStateFlow<String>("online")
+    val createdDestination: StateFlow<String> = _createdDestination.asStateFlow()
 
     private var importJob: Job? = null
     private var lastContext: Context? = null
@@ -198,6 +202,7 @@ class SpotifyImportManager(
 
         coroutineScope.launch(Dispatchers.IO) {
             _importState.value = SpotifyImportState.Creating
+            _createdDestination.value = "online"
 
             try {
                 val playlistId = onlinePlaylistDao.insertOnlinePlaylist(
@@ -227,11 +232,66 @@ class SpotifyImportManager(
 
                 markDirty()
                 _importState.value = SpotifyImportState.Done
-                Log.d(TAG, "Created playlist \"${playlistData.name}\" with $orderIndex tracks (ID: $playlistId)")
+                Log.d(TAG, "Created online playlist \"${playlistData.name}\" with $orderIndex tracks (ID: $playlistId)")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create playlist", e)
                 _errorMessage.value = "Failed to create playlist: ${e.message}"
                 _importState.value = SpotifyImportState.Error
+            }
+        }
+    }
+
+    fun createYouTubePlaylist(onComplete: (Boolean) -> Unit = {}) {
+        val playlistData = _spotifyPlaylistData.value ?: return
+        val matches = _matchResults.value
+
+        coroutineScope.launch(Dispatchers.IO) {
+            _importState.value = SpotifyImportState.Creating
+            _createdDestination.value = "youtube"
+
+            try {
+                if (!onlineRepo.innerTube.isLoggedIn()) {
+                    _errorMessage.value = "Please sign in to YouTube Music first"
+                    _importState.value = SpotifyImportState.Error
+                    onComplete(false)
+                    return@launch
+                }
+
+                val newPlaylistId = onlineRepo.innerTube.createPlaylist(
+                    title = playlistData.name,
+                    description = playlistData.description ?: "Imported from Spotify via Mueso"
+                )
+
+                if (newPlaylistId == null) {
+                    _errorMessage.value = "Failed to create playlist on YouTube Music"
+                    _importState.value = SpotifyImportState.Error
+                    onComplete(false)
+                    return@launch
+                }
+
+                var addedCount = 0
+                val matchedTracks = matches.mapNotNull { it.matchedTrack }
+                for (track in matchedTracks) {
+                    var videoId = onlineRepo.extractVideoId(track)
+                    if (videoId.isBlank()) {
+                        val search = onlineRepo.innerTube.search("${track.title} ${track.artist}", "Eg-KAQwIABAAGAEgASgB")
+                        videoId = search.firstOrNull()?.videoId ?: ""
+                    }
+                    if (videoId.isNotBlank()) {
+                        val ok = onlineRepo.innerTube.addTrackToPlaylist(newPlaylistId, videoId)
+                        if (ok) addedCount++
+                    }
+                }
+
+                onYouTubeRefresh?.invoke()
+                _importState.value = SpotifyImportState.Done
+                Log.d(TAG, "Created YouTube Music playlist \"${playlistData.name}\" ($newPlaylistId) with $addedCount tracks")
+                onComplete(true)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create YouTube Music playlist", e)
+                _errorMessage.value = "Failed to create YouTube playlist: ${e.message}"
+                _importState.value = SpotifyImportState.Error
+                onComplete(false)
             }
         }
     }

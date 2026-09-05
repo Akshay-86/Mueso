@@ -378,5 +378,55 @@ class YouTubeAuthManager(
             }
         }
     }
+
+    fun editYouTubePlaylistDetails(playlistId: String, newName: String, newDescription: String = "", onResult: (Boolean) -> Unit = {}) {
+        if (!_isLoggedIn.value) {
+            onResult(false)
+            return
+        }
+        coroutineScope.launch(Dispatchers.IO) {
+            val success = onlineRepo.innerTube.editPlaylistDetails(playlistId, newName, newDescription)
+            if (success) {
+                val updated = onlineRepo.innerTube.getUserPlaylists()
+                _userPlaylists.value = updated
+            }
+            withContext(Dispatchers.Main) {
+                onResult(success)
+            }
+        }
+    }
+
+    fun renameYouTubePlaylist(playlistId: String, newName: String, onResult: (Boolean) -> Unit = {}) =
+        editYouTubePlaylistDetails(playlistId, newName, "", onResult)
+
+    fun deleteYouTubePlaylist(playlistId: String, onResult: (Boolean) -> Unit = {}) {
+        if (!_isLoggedIn.value) {
+            onResult(false)
+            return
+        }
+        coroutineScope.launch(Dispatchers.IO) {
+            val success = onlineRepo.innerTube.deletePlaylist(playlistId)
+            if (success) {
+                val updated = onlineRepo.innerTube.getUserPlaylists()
+                _userPlaylists.value = updated
+            }
+            withContext(Dispatchers.Main) {
+                onResult(success)
+            }
+        }
+    }
+
+    fun removeTrackFromYouTubePlaylist(playlistId: String, videoId: String, onResult: (Boolean) -> Unit = {}) {
+        if (!_isLoggedIn.value) {
+            onResult(false)
+            return
+        }
+        coroutineScope.launch(Dispatchers.IO) {
+            val success = onlineRepo.innerTube.removeTrackFromPlaylist(playlistId, videoId)
+            withContext(Dispatchers.Main) {
+                onResult(success)
+            }
+        }
+    }
 }
 

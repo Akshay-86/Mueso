@@ -346,6 +346,94 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private var fallbackJob: Job? = null
+    private val failedVideoIdsMap = java.util.concurrent.ConcurrentHashMap<Long, MutableSet<String>>()
+
+    private fun handleOnlineTrackError(errorName: String) {
+        val track = currentOnlineTrack ?: return
+        val currentVid = ytPlayerManager.currentVideoId ?: track.filePath.removePrefix("online:")
+        if (currentVid.isBlank()) return
+
+        fallbackJob?.cancel()
+        fallbackJob = scope.launch(Dispatchers.IO) {
+            Log.w("MUESO_SYNC", "Handling YouTube error '$errorName' for track '${track.title}' (videoId: $currentVid).")
+
+            // 1. Try direct stream extraction on the exact currentVid (headless/botguard decrypts streams bypassing embed restrictions)
+            val directStream = try {
+                onlineRepo.getStreamUrl(currentVid, context, forceRefresh = true)
+            } catch (e: Exception) {
+                Log.w("MUESO_SYNC", "Direct stream extraction failed for $currentVid: ${e.message}")
+                ""
+            }
+
+            if (directStream.isNotBlank() && directStream.startsWith("http")) {
+                Log.d("MUESO_SYNC", "Successfully resolved direct audio stream for '${track.title}' ($currentVid)... Switching to ExoPlayer")
+                withContext(Dispatchers.Main) {
+                    switchToExoPlayerDirectStream(track, directStream)
+                }
+                return@launch
+            }
+
+            // 2. Exact track is unavailable / restricted -> Notify user and auto-skip to next track
+            Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) is unavailable on YouTube. Skipping to next track.")
+            withContext(Dispatchers.Main) {
+                try {
+                    android.widget.Toast.makeText(
+                        context,
+                        "\"${track.title}\" is unavailable on YouTube and was skipped",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } catch (_: Exception) {}
+                _mediaEvents.emit(PlayerEvent.TrackEnded)
+            }
+        }
+    }
+
+    private fun switchToExoPlayerDirectStream(track: TrackEntity, streamUrl: String) {
+        isPlayingOnline = false
+        currentOnlineTrack = null
+        ytPlayerManager.pause()
+        mediaController?.volume = 1f
+
+        val updatedTrack = track.copy(filePath = streamUrl)
+        updateTrackInQueue(currentQueueIndex, updatedTrack)
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(updatedTrack.title)
+            .setArtist(updatedTrack.artist)
+            .setAlbumTitle(updatedTrack.album.ifBlank { "YouTube Music" })
+            .setArtworkUri(getBestArtworkUri(updatedTrack))
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .build()
+
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(updatedTrack.id.toString())
+            .setUri(streamUrl)
+            .setMediaMetadata(metadata)
+            .build()
+
+        mediaController?.let { controller ->
+            if (currentQueueIndex in 0 until controller.mediaItemCount) {
+                controller.replaceMediaItem(currentQueueIndex, mediaItem)
+                controller.seekToDefaultPosition(currentQueueIndex)
+            } else {
+                controller.setMediaItem(mediaItem)
+            }
+            controller.prepare()
+            controller.play()
+
+            _playbackState.value = PlaybackState(
+                isPlaying = true,
+                currentTrackId = updatedTrack.id,
+                currentPositionMs = 0L,
+                durationMs = controller.duration.coerceAtLeast(0L)
+            )
+
+            updateArtworkForCurrentTrack(updatedTrack)
+        }
+    }
+
     init {
         // Initialize the online YouTube player
         ytPlayerManager.initialize()
@@ -392,6 +480,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         ytPlayerManager.onError = { errName ->
             if (isPlayingOnline) {
                 Log.w("MUESO_SYNC", "YouTubePlayer onError: $errName")
+                handleOnlineTrackError(errName)
             }
         }
 
@@ -436,6 +525,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun setPlaylistAndPlay(tracks: List<TrackEntity>, startIndex: Int) {
         if (tracks.isEmpty()) return
+        fallbackJob?.cancel()
         val safeIndex = startIndex.coerceIn(0, tracks.size - 1)
         tracksQueue = tracks
         currentQueueIndex = safeIndex
@@ -671,6 +761,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun seekToIndex(index: Int) {
         Log.d("MUESO_SYNC", "seekToIndex: index=$index")
+        fallbackJob?.cancel()
         currentQueueIndex = index
         val track = tracksQueue.getOrNull(index)
         if (track != null && track.filePath.startsWith("online:")) {

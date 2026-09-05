@@ -76,13 +76,20 @@ class PlayerViewModel(
         coroutineScope = viewModelScope
     )
     val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
-    val spotifyImportManager = SpotifyImportManager(SpotifyImportRepository(), onlineRepository, onlinePlaylistDao, viewModelScope, { backupManager.markDirty() })
-    val updateManager = com.akshay.musicplayer.ui.viewmodel.managers.UpdateManager(viewModelScope)
     val youtubeAuthManager = com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAuthManager(
         context = com.akshay.musicplayer.AppContainer.getContext(),
         onlineRepo = onlineRepository,
         coroutineScope = viewModelScope
     )
+    val spotifyImportManager = SpotifyImportManager(
+        spotifyRepo = SpotifyImportRepository(),
+        onlineRepo = onlineRepository,
+        onlinePlaylistDao = onlinePlaylistDao,
+        coroutineScope = viewModelScope,
+        markDirty = { backupManager.markDirty() },
+        onYouTubeRefresh = { youtubeAuthManager.refreshLibrary() }
+    )
+    val updateManager = com.akshay.musicplayer.ui.viewmodel.managers.UpdateManager(viewModelScope)
 
     val isYouTubeLoggedIn = youtubeAuthManager.isLoggedIn
     val youtubeUserName = youtubeAuthManager.userName
@@ -115,15 +122,19 @@ class PlayerViewModel(
     fun selectMoodCategory(mood: String) {
         if (_selectedMoodCategory.value == mood) return
         _selectedMoodCategory.value = mood
-        loadExploreAndCharts(mood)
+        loadExploreAndCharts(mood = mood, force = true)
     }
 
-    fun loadExploreAndCharts(mood: String = _selectedMoodCategory.value) {
+    fun loadExploreAndCharts(mood: String = _selectedMoodCategory.value, force: Boolean = false) {
+        if (!force && _exploreShelves.value.isNotEmpty() && _selectedMoodCategory.value == mood) {
+            Log.d("MUESO_EXPLORE", "loadExploreAndCharts skipped (already loaded for $mood)")
+            return
+        }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isExploreLoading.value = true
             try {
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
-                Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed)")
+                Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed, force: $force)")
                 val explore = if (mood == "All") {
                     if (isAuthed) {
                         onlineRepository.innerTube.getHomeFeedShelves()
@@ -264,6 +275,7 @@ class PlayerViewModel(
     fun deletePlaylist(playlistId: Long) = playlistManager.deletePlaylist(playlistId)
     fun renamePlaylist(playlistId: Long, newName: String) = playlistManager.renamePlaylist(playlistId, newName)
     fun addTrackToPlaylist(playlistId: Long, trackId: Long) = playlistManager.addTrackToPlaylist(playlistId, trackId)
+    fun addTracksToPlaylist(playlistId: Long, trackIds: List<Long>) = playlistManager.addTracksToPlaylist(playlistId, trackIds)
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long) = playlistManager.removeTrackFromPlaylist(playlistId, trackId)
     fun moveTrackInPlaylist(playlistId: Long, fromIndex: Int, toIndex: Int) = playlistManager.moveTrackInPlaylist(playlistId, fromIndex, toIndex)
     fun getPlaylistTracks(playlistId: Long) = playlistManager.getPlaylistTracks(playlistId)
@@ -273,10 +285,13 @@ class PlayerViewModel(
     fun deleteOnlinePlaylist(playlistId: Long) = playlistManager.deleteOnlinePlaylist(playlistId)
     fun renameOnlinePlaylist(playlistId: Long, newName: String) = playlistManager.renameOnlinePlaylist(playlistId, newName)
     fun addTrackToOnlinePlaylist(playlistId: Long, track: com.akshay.musicplayer.domain.models.TrackEntity) = playlistManager.addTrackToOnlinePlaylist(playlistId, track)
+    fun addTracksToOnlinePlaylist(playlistId: Long, tracks: List<com.akshay.musicplayer.domain.models.TrackEntity>) = playlistManager.addTracksToOnlinePlaylist(playlistId, tracks)
     fun removeTrackFromOnlinePlaylist(playlistId: Long, trackId: Long) = playlistManager.removeTrackFromOnlinePlaylist(playlistId, trackId)
     fun moveTrackInOnlinePlaylist(playlistId: Long, fromIndex: Int, toIndex: Int) = playlistManager.moveTrackInOnlinePlaylist(playlistId, fromIndex, toIndex)
     fun getOnlinePlaylistTracks(playlistId: Long) = playlistManager.getOnlinePlaylistTracks(playlistId)
     suspend fun getCuratedPlaylistTracks(query: String) = playlistManager.getCuratedPlaylistTracks(query)
+    fun getPlaylistDescription(playlistId: String): String? = onlineRepository.getPlaylistDescription(playlistId)
+    suspend fun fetchPlaylistDescription(playlistId: String): String? = onlineRepository.fetchPlaylistDescription(playlistId)
     fun updateOnlinePlaylistDetails(playlistId: Long, name: String, description: String) = playlistManager.updateOnlinePlaylistDetails(playlistId, name, description)
     fun refreshAllPlaylistArtworks() = playlistManager.refreshAllPlaylistArtworks()
     suspend fun exportPlaylistsToJson(context: android.content.Context) = playlistManager.exportPlaylistsToJson(context)
@@ -285,6 +300,14 @@ class PlayerViewModel(
         youtubeAuthManager.addTrackToYouTubePlaylist(playlist, track, onResult)
     fun createYouTubePlaylist(title: String, description: String = "", onResult: (String?) -> Unit = {}) =
         youtubeAuthManager.createYouTubePlaylist(title, description, onResult)
+    fun editYouTubePlaylistDetails(playlistId: String, newName: String, newDescription: String = "", onResult: (Boolean) -> Unit = {}) =
+        youtubeAuthManager.editYouTubePlaylistDetails(playlistId, newName, newDescription, onResult)
+    fun renameYouTubePlaylist(playlistId: String, newName: String, onResult: (Boolean) -> Unit = {}) =
+        youtubeAuthManager.renameYouTubePlaylist(playlistId, newName, onResult)
+    fun deleteYouTubePlaylist(playlistId: String, onResult: (Boolean) -> Unit = {}) =
+        youtubeAuthManager.deleteYouTubePlaylist(playlistId, onResult)
+    fun removeTrackFromYouTubePlaylist(playlistId: String, videoId: String, onResult: (Boolean) -> Unit = {}) =
+        youtubeAuthManager.removeTrackFromYouTubePlaylist(playlistId, videoId, onResult)
 
     // Spotify Import delegates
 
@@ -293,11 +316,13 @@ class PlayerViewModel(
     val spotifyMatchResults = spotifyImportManager.matchResults
     val spotifyMatchProgress = spotifyImportManager.matchProgress
     val spotifyErrorMessage = spotifyImportManager.errorMessage
+    val spotifyCreatedDestination = spotifyImportManager.createdDestination
     fun fetchSpotifyPlaylist(context: android.content.Context, url: String) = spotifyImportManager.fetchAndMatch(context, url)
     fun retrySpotifyMatch(index: Int, query: String) = spotifyImportManager.retryMatch(index, query)
     fun selectSpotifyMatch(index: Int, track: com.akshay.musicplayer.domain.models.TrackEntity) = spotifyImportManager.selectMatch(index, track)
     fun toggleSpotifyAlternatives(index: Int) = spotifyImportManager.toggleAlternatives(index)
     fun createSpotifyPlaylist() = spotifyImportManager.createPlaylist()
+    fun createSpotifyYouTubePlaylist(onComplete: (Boolean) -> Unit = {}) = spotifyImportManager.createYouTubePlaylist(onComplete)
     fun resetSpotifyImport() {
         stopSpotifyPreview()
         spotifyImportManager.reset()
@@ -602,19 +627,16 @@ class PlayerViewModel(
     }
 
     private suspend fun reResolveTrackStream(track: TrackEntity): TrackEntity {
-        val videoId = if (track.filePath.startsWith("online:")) {
+        val originalVideoId = if (track.filePath.startsWith("online:")) {
             track.filePath.removePrefix("online:")
         } else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
             track.artworkUrl.substringAfter("/vi/").substringBefore("/")
-        } else {
-            val searchResults = onlineRepository.searchOnlineTracks("${track.title} ${track.artist}")
-            searchResults.firstOrNull()?.filePath?.removePrefix("online:") ?: ""
-        }
+        } else ""
 
-        if (videoId.isNotBlank()) {
-            val freshStreamUrl = onlineRepository.getStreamUrl(videoId)
+        if (originalVideoId.isNotBlank()) {
+            val freshStreamUrl = onlineRepository.getStreamUrl(originalVideoId, forceRefresh = true)
             if (freshStreamUrl.isNotBlank() && freshStreamUrl.startsWith("http")) {
-                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$originalVideoId/hq720.jpg"
                 return track.copy(filePath = freshStreamUrl, artworkUrl = artwork)
             }
         }
@@ -1794,20 +1816,60 @@ class PlayerViewModel(
     }
 
     fun playNext(track: TrackEntity) {
+        playNextTracks(listOf(track))
+    }
+
+    fun playNextTracks(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
         val currentIdx = currentTrackIndexState.value.coerceAtLeast(0)
         val insertIndex = (currentIdx + 1).coerceAtMost(currentTracks.size)
         val updated = currentTracks.toMutableList()
-        updated.add(insertIndex, track)
+        updated.addAll(insertIndex, tracks)
         currentTracks = updated
 
         if (_isPlaylistContext.value) {
-            _playlistTrackCount.value += 1
+            _playlistTrackCount.value += tracks.size
         } else {
-            _playlistTrackCount.value = 1 + 1
+            _playlistTrackCount.value = 1 + tracks.size
             _isPlaylistContext.value = true
         }
 
-        mediaPlayerController.insertTracksToQueue(insertIndex, listOf(track))
+        mediaPlayerController.insertTracksToQueue(insertIndex, tracks)
+    }
+
+    fun playShuffle(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        val shuffled = tracks.shuffled()
+        playQueue(shuffled, 0)
+    }
+
+    fun playOnlineShuffle(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        val shuffled = tracks.shuffled()
+        playOnlinePlaylist(shuffled, 0)
+    }
+
+    fun startMix(tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val seed = tracks.randomOrNull() ?: tracks.first()
+            val recommendations = try {
+                onlineRepository.getRelatedRecommendations(seed)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val initialMix = if (recommendations.isNotEmpty()) {
+                val uniqueRecs = recommendations.filter { it.id != seed.id }
+                listOf(seed) + uniqueRecs
+            } else {
+                tracks.shuffled()
+            }
+            withContext(Dispatchers.Main) {
+                _isPlaylistContext.value = false
+                _playlistTrackCount.value = 0
+                playQueue(initialMix, 0)
+            }
+        }
     }
 
     fun addToQueue(track: TrackEntity) {

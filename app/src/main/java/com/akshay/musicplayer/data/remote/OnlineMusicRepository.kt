@@ -203,6 +203,9 @@ class OnlineMusicRepository {
         return@withContext searchOnlineTracks("top 50 global songs")
     }
 
+    fun getPlaylistDescription(playlistId: String): String? = innerTube.getCachedPlaylistDescription(playlistId)
+    suspend fun fetchPlaylistDescription(playlistId: String): String? = innerTube.fetchPlaylistDescription(playlistId)
+
     // ==========================================
     // 2. SEARCH & STREAM RESOLUTION
     // ==========================================

@@ -44,16 +44,20 @@ fun SpotifyImportScreen(
     onBackClick: () -> Unit
 ) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val isYouTubeLoggedIn by viewModel.isYouTubeLoggedIn.collectAsState()
+    val youtubeUserName by viewModel.youtubeUserName.collectAsState()
     val importState by viewModel.spotifyImportState.collectAsState()
     val playlistData by viewModel.spotifyPlaylistData.collectAsState()
     val matchResults by viewModel.spotifyMatchResults.collectAsState()
     val matchProgress by viewModel.spotifyMatchProgress.collectAsState()
     val errorMessage by viewModel.spotifyErrorMessage.collectAsState()
+    val spotifyCreatedDestination by viewModel.spotifyCreatedDestination.collectAsState()
     val previewingTrackId by viewModel.previewingTrackId.collectAsState()
     val isPreviewLoading by viewModel.isPreviewLoading.collectAsState()
     val isPreviewPlaying by viewModel.isPreviewPlaying.collectAsState()
 
     var spotifyUrl by remember { mutableStateOf("") }
+    var showDestinationDialog by remember { mutableStateOf(false) }
 
     val bgColor = if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
     val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
@@ -69,6 +73,145 @@ fun SpotifyImportScreen(
     }
 
     androidx.activity.compose.BackHandler(onBack = { handleBack() })
+
+    if (showDestinationDialog) {
+        AlertDialog(
+            onDismissRequest = { showDestinationDialog = false },
+            containerColor = cardBg,
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Text(
+                    text = "Save Playlist To",
+                    color = textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Choose where to create \"${playlistData?.name ?: "this playlist"}\":",
+                        color = textSub,
+                        fontSize = 13.sp
+                    )
+
+                    // Option 1: Mueso Online Playlist
+                    Surface(
+                        onClick = {
+                            showDestinationDialog = false
+                            viewModel.createSpotifyPlaylist()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(AccentOrange),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color.White)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Mueso Online Playlist",
+                                    color = textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Custom playlist with cloud backup",
+                                    color = textSub,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Option 2: YouTube Music Account Playlist
+                    Surface(
+                        onClick = {
+                            if (!isYouTubeLoggedIn) {
+                                android.widget.Toast.makeText(context, "Please sign in to YouTube Music in the Online tab first", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                showDestinationDialog = false
+                                viewModel.createSpotifyYouTubePlaylist()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFF0000)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "YouTube Music Playlist",
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (isYouTubeLoggedIn) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF34C759).copy(alpha = 0.15f))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = "Connected",
+                                                color = Color(0xFF34C759),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = if (isYouTubeLoggedIn) "Syncs directly to your YouTube account (${youtubeUserName ?: "Signed In"})"
+                                    else "Sign in to YouTube to sync directly",
+                                    color = textSub,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDestinationDialog = false }) {
+                    Text("Cancel", color = textSub)
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -88,7 +231,7 @@ fun SpotifyImportScreen(
                 val matched = matchResults.count { it.matchedTrack != null }
                 if (matched > 0) {
                     ExtendedFloatingActionButton(
-                        onClick = { viewModel.createSpotifyPlaylist() },
+                        onClick = { showDestinationDialog = true },
                         containerColor = AccentOrange,
                         contentColor = Color.White,
                         shape = RoundedCornerShape(20.dp),
@@ -386,21 +529,30 @@ fun SpotifyImportScreen(
             // ─── Success State ───
             if (importState == SpotifyImportState.Done) {
                 item {
+                    val isYt = spotifyCreatedDestination == "youtube"
+                    val successTint = if (isYt) Color(0xFFFF0000) else SpotifyGreen
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(SpotifyGreen.copy(alpha = 0.12f))
+                            .background(successTint.copy(alpha = 0.12f))
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(48.dp))
-                        Text("Playlist Created!", color = textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = successTint, modifier = Modifier.size(48.dp))
                         Text(
-                            "\"${playlistData?.name}\" has been added to your Online Playlists",
+                            if (isYt) "Created in YouTube Music!" else "Playlist Created in Mueso!",
+                            color = textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            if (isYt) "\"${playlistData?.name}\" has been synced directly to your YouTube Music account."
+                            else "\"${playlistData?.name}\" has been saved to your Mueso Online Playlists.",
                             color = textSub,
                             fontSize = 13.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
@@ -408,7 +560,7 @@ fun SpotifyImportScreen(
                             onClick = onBackClick,
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Back to Settings", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                            Text("Done", color = textPrimary, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }

@@ -107,6 +107,18 @@ class PlaylistManager(
         }
     }
 
+    fun addTracksToPlaylist(playlistId: Long, trackIds: List<Long>) {
+        coroutineScope.launch(Dispatchers.IO) {
+            var maxIndex = playlistDao.getMaxOrderIndex(playlistId)
+            trackIds.forEach { trackId ->
+                maxIndex++
+                playlistDao.insertTrackIntoPlaylist(
+                    PlaylistTrackCrossRef(playlistId, trackId, maxIndex)
+                )
+            }
+        }
+    }
+
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
             playlistDao.removeTrackFromPlaylist(playlistId, trackId)
@@ -196,6 +208,29 @@ class PlaylistManager(
                     orderIndex = nextOrder
                 )
             )
+            updateCachedPlaylistArtwork(playlistId)
+            markDirty()
+        }
+    }
+
+    fun addTracksToOnlinePlaylist(playlistId: Long, tracks: List<TrackEntity>) {
+        coroutineScope.launch(Dispatchers.IO) {
+            val existing = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
+            var nextOrder = existing.size
+            tracks.forEach { track ->
+                onlinePlaylistDao.insertOnlineTrack(
+                    OnlinePlaylistTrackEntity(
+                        onlinePlaylistId = playlistId,
+                        trackId = track.id,
+                        title = track.title,
+                        artist = track.artist,
+                        artworkUrl = track.artworkUrl,
+                        filePath = track.filePath,
+                        duration = track.duration,
+                        orderIndex = nextOrder++
+                    )
+                )
+            }
             updateCachedPlaylistArtwork(playlistId)
             markDirty()
         }

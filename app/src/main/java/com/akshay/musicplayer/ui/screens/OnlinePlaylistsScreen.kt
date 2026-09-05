@@ -59,8 +59,10 @@ data class SelectedOnlinePlaylist(
     val id: String,
     val title: String,
     val subtitle: String,
+    val description: String? = null,
     val artworkUrl: String? = null,
-    val gradientColors: List<Long> = listOf(0xFF8E2DE2, 0xFF4A00E0)
+    val gradientColors: List<Long> = listOf(0xFF8E2DE2, 0xFF4A00E0),
+    val isYouTubeUserPlaylist: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,7 +114,9 @@ fun OnlinePlaylistsScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.loadExploreAndCharts()
+        if (exploreShelves.isEmpty()) {
+            viewModel.loadExploreAndCharts()
+        }
     }
 
     val mainListState = rememberLazyListState()
@@ -151,15 +155,35 @@ fun OnlinePlaylistsScreen(
                         )
                     }
 
-                    // Create Custom Playlist Button
-                    IconButton(
-                        onClick = { showCreateDialog = true },
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(OrangeAccent)
-                            .size(40.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Create Online Playlist", tint = Color.White)
+                        // Refresh Charts & Feed Button
+                        IconButton(
+                            onClick = {
+                                viewModel.loadExploreAndCharts(force = true)
+                                if (isYouTubeLoggedIn) viewModel.refreshYouTubeLibrary()
+                                android.widget.Toast.makeText(context, "Refreshing charts & playlists...", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                                .size(40.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh Charts & Feed", tint = textColor)
+                        }
+
+                        // Create Custom Playlist Button
+                        IconButton(
+                            onClick = { showCreateDialog = true },
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(OrangeAccent)
+                                .size(40.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Create Online Playlist", tint = Color.White)
+                        }
                     }
                 }
             }
@@ -283,7 +307,11 @@ fun OnlinePlaylistsScreen(
 
                             if (isYouTubeLoggedIn) {
                                 IconButton(
-                                    onClick = { viewModel.refreshYouTubeLibrary() },
+                                    onClick = {
+                                        viewModel.refreshYouTubeLibrary()
+                                        viewModel.loadExploreAndCharts(force = true)
+                                        android.widget.Toast.makeText(context, "Refreshing library & charts...", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
@@ -399,7 +427,8 @@ fun OnlinePlaylistsScreen(
                                             id = pl.id,
                                             title = pl.title,
                                             subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl
+                                            artworkUrl = pl.artworkUrl,
+                                            isYouTubeUserPlaylist = true
                                         )
                                     }
                                 )
@@ -443,7 +472,7 @@ fun OnlinePlaylistsScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { viewModel.loadExploreAndCharts(selectedMoodCategory) },
+                            onClick = { viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true) },
                             colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
                         ) {
                             Text("Refresh", color = Color.White)
@@ -826,16 +855,21 @@ fun OnlinePlaylistsScreen(
                     val query = if (pl.id == "LM") "browse:LM" else "browse:${pl.id}"
                     val fetched = viewModel.getCuratedPlaylistTracks(query)
                     playlistTracks = fetched
+                    val trueDesc = viewModel.fetchPlaylistDescription(pl.id) ?: viewModel.getPlaylistDescription(pl.id)
+                    if (!trueDesc.isNullOrBlank() && trueDesc != pl.description) {
+                        selectedPlaylist = pl.copy(description = trueDesc)
+                    }
                     isLoadingTracks = false
                 }
 
                 OnlinePlaylistDetailScreen(
                     title = pl.title,
                     subtitle = pl.subtitle,
+                    description = pl.description,
                     gradientColors = pl.gradientColors.map { Color(it) },
                     tracks = playlistTracks,
                     isLoading = isLoadingTracks,
-                    isCustomUserPlaylist = false,
+                    isCustomUserPlaylist = pl.isYouTubeUserPlaylist,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
                     onBackClick = { selectedPlaylist = null },
@@ -844,6 +878,19 @@ fun OnlinePlaylistsScreen(
                             viewModel.playOnlinePlaylist(playlistTracks, 0)
                             selectedPlaylist = null
                             onNavigateToPlayer()
+                        }
+                    },
+                    onShuffleClick = {
+                        if (playlistTracks.isNotEmpty()) {
+                            viewModel.playOnlineShuffle(playlistTracks)
+                            selectedPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onPlayNextClick = {
+                        if (playlistTracks.isNotEmpty()) {
+                            viewModel.playNextTracks(playlistTracks)
+                            Toast.makeText(context, "Playing ${playlistTracks.size} track(s) next", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onAddToQueueClick = {
@@ -856,7 +903,44 @@ fun OnlinePlaylistsScreen(
                         viewModel.playOnlinePlaylist(playlistTracks, index)
                         selectedPlaylist = null
                         onNavigateToPlayer()
-                    }
+                    },
+                    onRemoveTrack = if (pl.isYouTubeUserPlaylist) { track ->
+                        val vid = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:")
+                        else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) track.artworkUrl.substringAfter("/vi/").substringBefore("/")
+                        else ""
+                        if (vid.isNotBlank()) {
+                            viewModel.removeTrackFromYouTubePlaylist(pl.id, vid) { success ->
+                                if (success) {
+                                    playlistTracks = playlistTracks.filter { it.id != track.id }
+                                    Toast.makeText(context, "Removed from YouTube Playlist", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to remove from YouTube Playlist", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    } else null,
+                    onEditPlaylistDetails = if (pl.isYouTubeUserPlaylist) { newName, newDesc ->
+                        viewModel.editYouTubePlaylistDetails(pl.id, newName, newDesc) { success ->
+                            if (success) {
+                                selectedPlaylist = pl.copy(title = newName, description = newDesc)
+                                Toast.makeText(context, "Updated YouTube Playlist", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Failed to update YouTube Playlist", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else null,
+                    onDeletePlaylist = if (pl.isYouTubeUserPlaylist) {
+                        {
+                            viewModel.deleteYouTubePlaylist(pl.id) { success ->
+                                if (success) {
+                                    selectedPlaylist = null
+                                    Toast.makeText(context, "Deleted YouTube Playlist", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to delete YouTube Playlist", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    } else null
                 )
             }
         }
@@ -874,7 +958,8 @@ fun OnlinePlaylistsScreen(
 
                 OnlinePlaylistDetailScreen(
                     title = custom.name,
-                    subtitle = custom.description ?: "Custom Online Playlist",
+                    subtitle = "${tracks.size} tracks",
+                    description = custom.description,
                     gradientColors = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
                     tracks = tracks,
                     isLoading = false,
@@ -889,6 +974,19 @@ fun OnlinePlaylistsScreen(
                             onNavigateToPlayer()
                         }
                     },
+                    onShuffleClick = {
+                        if (tracks.isNotEmpty()) {
+                            viewModel.playOnlineShuffle(tracks)
+                            selectedCustomPlaylist = null
+                            onNavigateToPlayer()
+                        }
+                    },
+                    onPlayNextClick = {
+                        if (tracks.isNotEmpty()) {
+                            viewModel.playNextTracks(tracks)
+                            Toast.makeText(context, "Playing ${tracks.size} track(s) next", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onAddToQueueClick = {
                         if (tracks.isNotEmpty()) {
                             viewModel.addTracksToQueue(tracks)
@@ -900,8 +998,18 @@ fun OnlinePlaylistsScreen(
                         selectedCustomPlaylist = null
                         onNavigateToPlayer()
                     },
-                    onRemoveTrack = { trackId: Long ->
-                        viewModel.removeTrackFromOnlinePlaylist(custom.id, trackId)
+                    onRemoveTrack = { track: TrackEntity ->
+                        viewModel.removeTrackFromOnlinePlaylist(custom.id, track.id)
+                    },
+                    onMoveTrack = { fromIndex: Int, toIndex: Int ->
+                        viewModel.moveTrackInOnlinePlaylist(custom.id, fromIndex, toIndex)
+                    },
+                    onEditPlaylistDetails = { newName: String, newDesc: String ->
+                        viewModel.updateOnlinePlaylistDetails(custom.id, newName, newDesc)
+                    },
+                    onDeletePlaylist = {
+                        viewModel.deleteOnlinePlaylist(custom.id)
+                        selectedCustomPlaylist = null
                     }
                 )
             }
@@ -1220,139 +1328,7 @@ fun EditPlaylistDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun OnlinePlaylistDetailScreen(
-    title: String,
-    subtitle: String,
-    gradientColors: List<Color>,
-    tracks: List<TrackEntity>,
-    isLoading: Boolean,
-    isCustomUserPlaylist: Boolean,
-    isDarkMode: Boolean,
-    viewModel: PlayerViewModel,
-    onBackClick: () -> Unit,
-    onPlayAllClick: () -> Unit,
-    onAddToQueueClick: () -> Unit,
-    onTrackClick: (Int) -> Unit,
-    onRemoveTrack: ((Long) -> Unit)? = null
-) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Back", modifier = Modifier.size(24.dp))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = textPrimary,
-                    navigationIconContentColor = textPrimary
-                )
-            )
-        }
-    ) { padding ->
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = OrangeAccent)
-            }
-        } else if (tracks.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No tracks found in this playlist.", color = textSec)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = onPlayAllClick,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Play All (${tracks.size})")
-                        }
-
-                        OutlinedButton(
-                            onClick = onAddToQueueClick,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("+ Queue")
-                        }
-                    }
-                }
-
-                items(tracks.size) { index ->
-                    val track = tracks[index]
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.03f))
-                            .clickable { onTrackClick(index) }
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!track.artworkUrl.isNullOrBlank()) {
-                                com.akshay.musicplayer.ui.components.SmartArtworkImage(
-                                    artworkUrl = track.artworkUrl,
-                                    contentDescription = track.title,
-                                    modifier = Modifier.fillMaxSize(),
-                                    thumbnailQuality = "Low (Fast)"
-                                )
-                            } else {
-                                Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color.White)
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = track.title,
-                                color = textPrimary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = track.artist,
-                                color = textSec,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        if (isCustomUserPlaylist && onRemoveTrack != null) {
-                            IconButton(onClick = { onRemoveTrack(track.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Red.copy(alpha = 0.7f))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun AccountSwitcherDialog(
