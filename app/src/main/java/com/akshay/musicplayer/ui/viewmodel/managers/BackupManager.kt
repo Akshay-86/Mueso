@@ -43,7 +43,8 @@ class BackupManager(
             downloadQuality = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)",
             playButtonPosition = sharedPreferences.getString("play_button_position", "Left") ?: "Left",
             enableLyrics = sharedPreferences.getBoolean("enable_lyrics", true),
-            enableSponsorBlock = sharedPreferences.getBoolean("enable_sponsorblock", true),
+            embedLyricsInDownload = sharedPreferences.getBoolean("embed_lyrics_in_download", true),
+            enableSponsorBlock = sharedPreferences.getBoolean("enable_sponsorblock", false),
             skipSponsor = sharedPreferences.getBoolean("skip_sponsor", true),
             skipSelfPromo = sharedPreferences.getBoolean("skip_self_promo", true),
             skipInteraction = sharedPreferences.getBoolean("skip_interaction", true),
@@ -130,6 +131,7 @@ class BackupManager(
             .putString("download_quality", settings.downloadQuality)
             .putString("play_button_position", settings.playButtonPosition)
             .putBoolean("enable_lyrics", settings.enableLyrics)
+            .putBoolean("embed_lyrics_in_download", settings.embedLyricsInDownload)
             .putBoolean("enable_sponsorblock", settings.enableSponsorBlock)
             .putBoolean("skip_sponsor", settings.skipSponsor)
             .putBoolean("skip_self_promo", settings.skipSelfPromo)

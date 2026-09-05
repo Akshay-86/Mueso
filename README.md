@@ -18,10 +18,10 @@
 
 <br />
 
-**Mueso** is a next-generation, high-performance Android music player built with **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It seamlessly bridges local offline audio libraries with online streaming, ready-made curated top charts, smart SponsorBlock audio segment filtering, embedded ID3 metadata tagging, real-time LRCLIB synced lyrics search, and batch playlist downloads.
+**Mueso** is a next-generation, high-performance Android music player built with **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It seamlessly bridges local offline audio libraries with online streaming, native YouTube Music personalization, rich artist pages, mood & genre exploration, real-time LRCLIB synced lyrics, smart SponsorBlock segment filtering, native ID3/MP4 metadata tagging, and high-speed playlist downloads.
 
 > [!TIP]
-> **Creating or importing a playlist is recommended for the best experience!** Import your favorite Spotify playlists or create custom online playlists to enjoy seamless queue management and reels-style vertical playback.
+> **Creating or importing a playlist is recommended for the best experience!** Import your favorite Spotify playlists or sync your YouTube Music account to enjoy seamless queue management and reels-style vertical playback.
 
 ---
 
@@ -40,11 +40,11 @@
       </td>
       <td align="center" valign="top" width="25%">
         <img src="previews/searchScreen.jpg" alt="Online Search" width="100%" /><br />
-        <sub><b>Online Track Search</b></sub>
+        <sub><b>Online Multi-Category Search</b></sub>
       </td>
       <td align="center" valign="top" width="25%">
         <img src="previews/onlinePlaylistsScreen.jpg" alt="Online Playlists" width="100%" /><br />
-        <sub><b>Curated Playlists</b></sub>
+        <sub><b>Curated Playlists & Moods</b></sub>
       </td>
     </tr>
     <tr valign="top">
@@ -62,7 +62,7 @@
       </td>
       <td align="center" valign="top" width="25%">
         <img src="previews/settingsScreen.jpg" alt="App Settings" width="100%" /><br />
-        <sub><b>App Settings</b></sub>
+        <sub><b>App Settings & Account Sync</b></sub>
       </td>
     </tr>
   </table>
@@ -73,16 +73,18 @@
 ## ✨ Features
 
 - **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view.
-- **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position YouTube video thumbnails or album art. Customized positions are persisted and synced per playlist track across cloud backups!
-- **🎬 High-Speed Video Downloader (Up to 8K)**: Download videos directly to your device at resolutions up to **8K, 4K, 2K, 1080p, 720p, 480p, and 360p**. Powered by a concurrent multi-threaded chunk download engine with automatic retries and resume support.
-- **⚡ Native FFmpegKit Stream Muxing**: Direct lossless merging of separated high-res video (AV1, VP9, H.264) and high-bitrate audio (Opus, AAC) streams into standardized `.mp4` video files without slow re-encoding.
-- **🔍 Synced Lyrics & Manual Search**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, strict **Synced** / **Plain** tag classification, and an interactive manual lyrics search screen to look up and select alternate lyrics for any song.
-- **🟢 Spotify Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and manual alternative selection.
-- **🌐 Online Streaming & Curated Playlists**: Stream online tracks, browse curated top charts (YouTube & Spotify), create custom online playlists, and set custom Hero Banner playlists.
+- **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position album art. Customized positions are persisted and synced per playlist track.
+- **⚡ Native InnerTube Engine & YouTube Music Personalization**: Zero-overhead native Kotlin InnerTube client for ultra-fast streaming and account synchronization. Connect your YouTube Music account to stream your personalized library, custom playlists, and recommendations without third-party dependencies.
+- **🎤 Dedicated Artist Detail Pages**: Full-featured artist exploration screen featuring artist banner, subscriber count, bio, and organized sections for **Top Songs**, **Albums**, **Singles & EPs**, **Music Videos**, **Live Performances**, **Featured On**, and **Similar Artists**, plus instant **Radio** and **Shuffle** launch buttons.
+- **🔍 Multi-Category Search & LRU Caching**: Fast search across **All**, **Songs**, **Videos**, **Albums**, **Playlists**, and **Artists** with in-memory caching for instant tab switches without redundant network calls.
+- **🎭 Moods, Genres & Curated Shelves**: Explore dynamic categories (Chill, Focus, Workout, Party, Romance, Charts, and more) with customized row shelves and direct playlist playback.
+- **🎬 Song | Video Mode**: Clean toggle between synced audio/lyrics mode and video playback for music videos. Smart availability detection automatically hides the toggle when video content is not available.
+- **🎵 Synced Lyrics & Interactive Candidate Picker**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, manual timing offset adjusters (+/- 500ms), and an interactive search dialog to match alternate lyrics.
+- **🟢 Spotify-to-YouTube Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and alternative selection.
 - **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, and intros/outros in real-time during online streaming.
-- **📥 Batch Playlist Downloads**: Download full online playlists directly to your local device with embedded high-resolution album artwork and ID3 tags powered by Chaquopy Python & Mutagen.
+- **📥 Offline Library & Quality-Aware Downloads**: Download audio tracks directly in High / Medium / Low quality with natively embedded ID3v2.3 (MP3) and MP4 Box (M4A) metadata tags, high-res cover art, and companion `.lrc` lyrics files.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
-- **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers.
+- **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers (timer duration, after song, or end of playlist).
 - **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, track background adjustments, hero banners, and app preferences securely to Google Drive AppData.
 
 ---
@@ -108,11 +110,11 @@ Mueso follows modern **MVVM Clean Architecture** guidelines:
 | :--- | :--- |
 | **UI Framework** | Jetpack Compose (1.6+), Material 3 Design System |
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
-| **Media Muxing** | FFmpegKit (`ffmpeg-kit-min`) |
+| **Online Client** | Native Kotlin InnerTube Client (YouTube Music API) |
 | **State Management** | Kotlin Coroutines, StateFlow, ViewModel |
 | **Database** | Room Persistence Library |
 | **Networking & HTTP** | OkHttp 3, Moshi JSON |
-| **Python Runtime** | Chaquopy SDK (for Mutagen ID3 Tagging & yt-dlp metadata) |
+| **Metadata Tagging** | Native Kotlin ID3v2.3 & MP4 Box Audio Tagger |
 | **Lyrics API** | LRCLIB Synced Lyrics API |
 | **Cloud Backup** | Google Drive REST API & WorkManager Auto-Sync |
 | **Sponsor Filtering** | SponsorBlock Community API |
@@ -149,10 +151,8 @@ Mueso is built on top of amazing open-source technologies, tools, and community 
 - [AndroidX Media3 ExoPlayer](https://developer.android.com/media/media3)
 - [Jetpack Compose](https://developer.android.com/jetpack/compose)
 - [SponsorBlock API](https://sponsor.ajay.app/)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)
 - [LRCLIB](https://lrclib.net/)
-- [Chaquopy](https://chaquo.com/chaquopy/) & [Mutagen](https://mutagen.readthedocs.io/)
-- [Piped & Invidious APIs](https://piped.video)
 
 ---
 

@@ -37,6 +37,19 @@ import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet
+import com.akshay.musicplayer.ui.components.PlaylistCollageArt
+
 private val AccentOrange = Color(0xFFFF512F)
 private val SurfaceDark = Color(0xFF1A1A2E)
 
@@ -50,11 +63,53 @@ fun PlaylistDetailScreen(
     val tracks by viewModel.getPlaylistTracks(playlist.id).collectAsState(initial = emptyList<TrackEntity>())
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showAddToPlaylist by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
     val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+
+    // Drag state
+    var displayTracks by remember(tracks) { mutableStateOf(tracks) }
+    var initialDragIndex by remember { mutableStateOf<Int?>(null) }
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val itemHeightPx = with(LocalDensity.current) { 68.dp.toPx() }
+
+    val filteredTracks = remember(searchQuery, displayTracks) {
+        if (searchQuery.isBlank()) displayTracks
+        else {
+            val q = searchQuery.trim().lowercase()
+            displayTracks.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
+        }
+    }
+
+    val totalDurationMs = remember(tracks) { tracks.sumOf { it.duration } }
+    val durationFormatted = remember(totalDurationMs) {
+        val totalSec = totalDurationMs / 1000
+        val hours = totalSec / 3600
+        val mins = (totalSec % 3600) / 60
+        when {
+            hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
+            hours > 0 -> "${hours} hr"
+            mins > 0 -> "${mins} min"
+            else -> "${totalSec} sec"
+        }
+    }
+
+    if (showAddToPlaylist) {
+        AddToPlaylistBottomSheet(
+            tracks = displayTracks,
+            viewModel = viewModel,
+            isDarkMode = isDarkMode,
+            onDismiss = { showAddToPlaylist = false }
+        )
+    }
 
     if (showRenameDialog) {
         RenamePlaylistDialog(
@@ -63,18 +118,36 @@ fun PlaylistDetailScreen(
             onConfirm = { newName ->
                 viewModel.renamePlaylist(playlist.id, newName)
                 showRenameDialog = false
-                onBack()
             },
             onDismiss = { showRenameDialog = false }
         )
     }
 
-    // Drag state
-    var displayTracks by remember(tracks) { mutableStateOf(tracks) }
-    var initialDragIndex by remember { mutableStateOf<Int?>(null) }
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
-    val itemHeightPx = with(LocalDensity.current) { 68.dp.toPx() }
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete Playlist", color = textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete \"${playlist.name}\"?", color = textSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        viewModel.deletePlaylist(playlist.id)
+                        onBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A))
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel", color = textSecondary)
+                }
+            },
+            containerColor = dropdownBg
+        )
+    }
 
     androidx.activity.compose.BackHandler(onBack = onBack)
 
@@ -87,28 +160,39 @@ fun PlaylistDetailScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 16.dp, top = 48.dp, bottom = 8.dp),
+                .statusBarsPadding()
+                .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
                     color = textPrimary,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
+                    text = if (totalDurationMs > 0) "${tracks.size} track${if (tracks.size != 1) "s" else ""} • $durationFormatted" else "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
                     color = textSecondary,
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
             }
+
+            // Find in playlist button
+            IconButton(onClick = { showSearch = !showSearch }) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search in playlist",
+                    tint = if (showSearch || searchQuery.isNotEmpty()) AccentOrange else textPrimary
+                )
+            }
+
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
@@ -121,68 +205,254 @@ fun PlaylistDetailScreen(
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     containerColor = dropdownBg,
-                    shadowElevation = 8.dp
+                    shadowElevation = 16.dp
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Rename", color = textPrimary) },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
+                                Text("Edit playlist", color = textPrimary)
+                            }
+                        },
                         onClick = {
                             showMenu = false
                             showRenameDialog = true
                         }
                     )
+
                     DropdownMenuItem(
-                        text = { Text("Delete", color = Color(0xFFEF5350)) },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.Share, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
+                                Text("Share playlist", color = textPrimary)
+                            }
+                        },
                         onClick = {
                             showMenu = false
-                            viewModel.deletePlaylist(playlist.id)
-                            onBack()
+                            val shareText = buildString {
+                                append("Check out \"${playlist.name}\" on Mueso:\n")
+                                displayTracks.take(15).forEachIndexed { i, t ->
+                                    append("${i + 1}. ${t.title} - ${t.artist}\n")
+                                }
+                                if (displayTracks.size > 15) append("... and ${displayTracks.size - 15} more songs")
+                            }
+                            val sendIntent = android.content.Intent().apply {
+                                action = android.content.Intent.ACTION_SEND
+                                putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                                type = "text/plain"
+                            }
+                            context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Playlist"))
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(18.dp))
+                                Text("Delete playlist", color = Color(0xFFFF453A))
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            showDeleteConfirmDialog = true
                         }
                     )
                 }
             }
         }
 
-        // Play All & Add to Queue
-        if (tracks.isNotEmpty()) {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            Row(
+        // Search Bar (if toggled)
+        AnimatedVisibility(
+            visible = showSearch,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Find in playlist...", color = textSecondary, fontSize = 13.sp) },
+                singleLine = true,
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = textSecondary, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentOrange,
+                    unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.15f),
+                    focusedTextColor = textPrimary,
+                    unfocusedTextColor = textPrimary,
+                    focusedContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f),
+                    unfocusedContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.02f)
+                )
+            )
+        }
+
+        // Play All, Shuffle & 3-Dots Actions Bar
+        if (tracks.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Play All Button
                 Button(
                     onClick = {
                         viewModel.touchPlaylist(playlist.id)
-                        viewModel.playQueue(tracks)
+                        viewModel.playQueue(filteredTracks)
                         onNavigateToPlayer()
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Play All", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
 
+                // Shuffle Button
                 Button(
                     onClick = {
-                        viewModel.addTracksToQueue(tracks)
-                        android.widget.Toast.makeText(context, "Added ${tracks.size} track(s) to Queue", android.widget.Toast.LENGTH_SHORT).show()
+                        viewModel.touchPlaylist(playlist.id)
+                        viewModel.playShuffle(filteredTracks)
+                        onNavigateToPlayer()
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
                         contentColor = textPrimary
                     ),
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = textPrimary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Shuffle, null, tint = textPrimary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add to Queue", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Shuffle", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                }
+
+                // 3-Dots Action Menu Button
+                var showActionMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { showActionMenu = true },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = textPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showActionMenu,
+                        onDismissRequest = { showActionMenu = false },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = dropdownBg,
+                        shadowElevation = 16.dp
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                                    Text("Start mix", color = textPrimary)
+                                }
+                            },
+                            onClick = {
+                                showActionMenu = false
+                                if (tracks.isNotEmpty()) {
+                                    viewModel.startMix(filteredTracks)
+                                    onNavigateToPlayer()
+                                }
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
+                                    Text("Play next", color = textPrimary)
+                                }
+                            },
+                            onClick = {
+                                showActionMenu = false
+                                if (tracks.isNotEmpty()) {
+                                    viewModel.playNextTracks(filteredTracks)
+                                    android.widget.Toast.makeText(context, "Playing next after current song", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
+                                    Text("Add to queue", color = textPrimary)
+                                }
+                            },
+                            onClick = {
+                                showActionMenu = false
+                                if (tracks.isNotEmpty()) {
+                                    viewModel.addTracksToQueue(tracks)
+                                    android.widget.Toast.makeText(context, "Added ${tracks.size} track(s) to Queue", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                                    Text("Save to playlist", color = textPrimary)
+                                }
+                            },
+                            onClick = {
+                                showActionMenu = false
+                                showAddToPlaylist = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.Share, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
+                                    Text("Share", color = textPrimary)
+                                }
+                            },
+                            onClick = {
+                                showActionMenu = false
+                                val shareText = buildString {
+                                    append("Check out \"${playlist.name}\" on Mueso:\n")
+                                    displayTracks.take(15).forEachIndexed { i, t ->
+                                        append("${i + 1}. ${t.title} - ${t.artist}\n")
+                                    }
+                                    if (displayTracks.size > 15) append("... and ${displayTracks.size - 15} more songs")
+                                }
+                                val sendIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Playlist"))
+                            }
+                        )
+                    }
                 }
             }
         }

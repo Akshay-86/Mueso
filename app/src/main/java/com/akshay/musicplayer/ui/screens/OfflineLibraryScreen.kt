@@ -89,7 +89,8 @@ fun OfflineLibraryScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(top = 100.dp)
+            .statusBarsPadding()
+            .padding(top = 60.dp)
     ) {
         // Animated tab content
         AnimatedContent(
@@ -194,15 +195,10 @@ fun OfflineLibraryScreen(
 
         // Add to Playlist bottom sheet style dialog
         if (trackToAdd != null) {
-            AddToPlaylistDialog(
-                playlists = playlists,
-                trackToAdd = trackToAdd,
+            com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet(
+                track = trackToAdd!!,
                 viewModel = viewModel,
                 isDarkMode = isDarkMode,
-                onPlaylistSelected = { playlistId ->
-                    viewModel.addTrackToPlaylist(playlistId, trackToAdd!!.id)
-                    trackToAdd = null
-                },
                 onDismiss = { trackToAdd = null }
             )
         }
@@ -1021,7 +1017,7 @@ private fun RenamePlaylistDialog(
 // ─── Create Playlist Dialog ──────────────────────────────────
 
 @Composable
-private fun CreatePlaylistDialog(
+fun CreatePlaylistDialog(
     isDarkMode: Boolean = true,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit

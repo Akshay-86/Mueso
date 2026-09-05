@@ -339,7 +339,8 @@ private fun QueueTrackItem(
                 artworkUrl = artModel,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                thumbnailQuality = "Low (Fast)"
             )
         }
 

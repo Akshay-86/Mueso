@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.3.2"
-    id("com.chaquo.python")
 }
 
 fun getGitCommitSha(): String {
@@ -48,21 +47,6 @@ android {
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             isUniversalApk = true
-        }
-    }
-
-    chaquopy {
-        defaultConfig {
-            val localPython = file("/home/akshay/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/bin/python3.10")
-            if (localPython.exists()) {
-                buildPython(localPython.absolutePath)
-            } else {
-                buildPython("python3")
-            }
-            pip {
-                install("yt-dlp")
-                install("mutagen")
-            }
         }
     }
 
@@ -153,9 +137,6 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
-    // Constraints & Layout
-    implementation(libs.androidx.constraintlayout)
-    
     // Material Design
     implementation(libs.material)
 
@@ -172,10 +153,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
-    // Networking
-    val retrofit_version = "2.11.0"
-    implementation("com.squareup.retrofit2:retrofit:$retrofit_version")
-    implementation("com.squareup.retrofit2:converter-moshi:$retrofit_version")
+    // Networking & Serialization (Moshi for Google Drive backup, OkHttp for InnerTube)
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
@@ -183,6 +161,10 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // FFmpeg (for muxing video+audio streams)
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.7")
+    // Android YouTube Player (official IFrame wrapper, fixes Error 150/152)
+    implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
+
+    // Audio Tagging & Metadata embedding (pure Java, no native .so)
+    implementation("com.github.AdrienPoupa:jaudiotagger:2.2.3")
 }
+

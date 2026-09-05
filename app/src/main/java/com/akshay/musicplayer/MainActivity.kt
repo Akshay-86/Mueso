@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,11 +41,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Initialize Chaquopy Python runtime
-        if (!com.chaquo.python.Python.isStarted()) {
-            com.chaquo.python.Python.start(com.chaquo.python.android.AndroidPlatform(this))
-        }
+        AppContainer.initialize(applicationContext)
 
         // Setup ViewModel
         setupViewModel()
@@ -308,7 +310,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        playerViewModel.saveCurrentPlaybackPosition()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        playerViewModel.saveCurrentPlaybackPosition()
+    }
+
     override fun onDestroy() {
+        playerViewModel.saveCurrentPlaybackPosition()
         super.onDestroy()
         mediaPlayerController.release()
     }

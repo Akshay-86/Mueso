@@ -44,3 +44,12 @@ credentials.txt
 *.bak
 *.swp
 *~
+
+# Release & Built Binaries
+app/release/
+release/
+*.apk
+*.aab
+*.ap_
+*.dm
+

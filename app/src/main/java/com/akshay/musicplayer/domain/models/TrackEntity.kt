@@ -11,7 +11,8 @@ data class TrackEntity(
     val artworkUrl: String? = null,
     val lyrics: LyricsData? = null,
     val socialMetrics: SocialMetrics? = null,
-    val dateModified: Long = 0L
+    val dateModified: Long = 0L,
+    val isVideo: Boolean = false
 )
 
 data class LyricsData(
@@ -37,6 +38,21 @@ data class LyricsData(
         val curr = lines[activeIdx].text.takeIf { !it.equals("null", ignoreCase = true) } ?: ""
         val next = if (activeIdx < lines.size - 1) lines[activeIdx + 1].text.takeIf { !it.equals("null", ignoreCase = true) } else null
         return Triple(prev, curr, next)
+    }
+
+    fun toLrcString(): String {
+        if (lines.isNotEmpty()) {
+            val sb = StringBuilder()
+            for (line in lines) {
+                val totalSeconds = line.timestampMs / 1000
+                val minutes = totalSeconds / 60
+                val seconds = totalSeconds % 60
+                val hundredths = (line.timestampMs % 1000) / 10
+                sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s\n", minutes, seconds, hundredths, line.text))
+            }
+            return sb.toString().trim()
+        }
+        return rawText?.trim() ?: ""
     }
 }
 

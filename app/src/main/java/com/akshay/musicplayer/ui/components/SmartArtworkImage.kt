@@ -20,12 +20,16 @@ fun SmartArtworkImage(
     modifier: Modifier = Modifier,
     alignment: Alignment = Alignment.Center,
     contentScale: ContentScale = ContentScale.Crop,
-    thumbnailQuality: String = "Highest (1080p Maxres)"
+    thumbnailQuality: String? = null
 ) {
     val context = LocalContext.current
+    val effectiveQuality = thumbnailQuality ?: remember(context) {
+        context.getSharedPreferences("music_player_prefs", android.content.Context.MODE_PRIVATE)
+            .getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
+    }
     val repo = remember { OnlineMusicRepository() }
-    val fallbackList = remember(artworkUrl, thumbnailQuality) {
-        repo.getYouTubeArtworkFallbackList(artworkUrl, thumbnailQuality)
+    val fallbackList = remember(artworkUrl, effectiveQuality) {
+        repo.getYouTubeArtworkFallbackList(artworkUrl, effectiveQuality)
     }
     var currentIndex by remember(artworkUrl) { mutableIntStateOf(0) }
 

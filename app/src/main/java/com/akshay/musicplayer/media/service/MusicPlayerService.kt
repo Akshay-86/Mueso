@@ -57,8 +57,8 @@ class MusicPlayerService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
-            .setAudioAttributes(audioAttributes, true)
-            .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(audioAttributes, false) // Do not request audio focus, so it does not revoke focus from Chromium WebView
+            .setHandleAudioBecomingNoisy(false)
             .build()
 
 
@@ -70,8 +70,12 @@ class MusicPlayerService : MediaSessionService() {
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        mediaSession = MediaSession.Builder(this, player)
+        val forwardingPlayer = MusicForwardingPlayer(player)
+        val bitmapLoader = CoilBitmapLoader(this)
+
+        mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
+            .setBitmapLoader(bitmapLoader)
             .setCallback(object : MediaSession.Callback {
                 override fun onPlayerCommandRequest(
                     session: MediaSession,
@@ -118,5 +122,85 @@ class MusicPlayerService : MediaSessionService() {
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "music_playback_channel"
         private const val NOTIFICATION_ID = 1
+    }
+}
+
+object MediaSessionBridge {
+    @Volatile var isOnlinePlaying: Boolean = false
+    @Volatile var onlineDurationMs: Long = 0L
+    @Volatile var onlinePositionMs: Long = 0L
+    var onSeekRequested: ((Long) -> Unit)? = null
+}
+
+class MusicForwardingPlayer(player: androidx.media3.common.Player) : androidx.media3.common.ForwardingPlayer(player) {
+    override fun getDuration(): Long {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            val d = MediaSessionBridge.onlineDurationMs
+            return if (d > 0L) d else androidx.media3.common.C.TIME_UNSET
+        }
+        return super.getDuration()
+    }
+
+    override fun getContentDuration(): Long {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            val d = MediaSessionBridge.onlineDurationMs
+            return if (d > 0L) d else androidx.media3.common.C.TIME_UNSET
+        }
+        return super.getContentDuration()
+    }
+
+    override fun getCurrentPosition(): Long {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            return MediaSessionBridge.onlinePositionMs
+        }
+        return super.getCurrentPosition()
+    }
+
+    override fun getContentPosition(): Long {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            return MediaSessionBridge.onlinePositionMs
+        }
+        return super.getContentPosition()
+    }
+
+    override fun getCurrentTimeline(): androidx.media3.common.Timeline {
+        val baseTimeline = super.getCurrentTimeline()
+        if (MediaSessionBridge.isOnlinePlaying && MediaSessionBridge.onlineDurationMs > 0L && !baseTimeline.isEmpty) {
+            return object : androidx.media3.common.Timeline() {
+                override fun getWindowCount(): Int = baseTimeline.windowCount
+                override fun getPeriodCount(): Int = baseTimeline.periodCount
+                override fun getIndexOfPeriod(uid: Any): Int = baseTimeline.getIndexOfPeriod(uid)
+                override fun getUidOfPeriod(periodIndex: Int): Any = baseTimeline.getUidOfPeriod(periodIndex)
+                override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period {
+                    val p = baseTimeline.getPeriod(periodIndex, period, setIds)
+                    p.durationUs = MediaSessionBridge.onlineDurationMs * 1000L
+                    return p
+                }
+                override fun getWindow(windowIndex: Int, window: Window, defaultPositionProjectionUs: Long): Window {
+                    val w = baseTimeline.getWindow(windowIndex, window, defaultPositionProjectionUs)
+                    w.durationUs = MediaSessionBridge.onlineDurationMs * 1000L
+                    return w
+                }
+            }
+        }
+        return baseTimeline
+    }
+
+    override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            MediaSessionBridge.onlinePositionMs = positionMs
+            MediaSessionBridge.onSeekRequested?.invoke(positionMs)
+            return
+        }
+        super.seekTo(mediaItemIndex, positionMs)
+    }
+
+    override fun seekTo(positionMs: Long) {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            MediaSessionBridge.onlinePositionMs = positionMs
+            MediaSessionBridge.onSeekRequested?.invoke(positionMs)
+            return
+        }
+        super.seekTo(positionMs)
     }
 }

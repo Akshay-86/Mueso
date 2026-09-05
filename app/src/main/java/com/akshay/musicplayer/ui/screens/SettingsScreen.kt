@@ -2,6 +2,9 @@
 package com.akshay.musicplayer.ui.screens
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -68,13 +71,11 @@ fun SettingsScreen(
     val showOnLockscreen by viewModel.showOnLockscreen.collectAsState()
     val highRefreshRate by viewModel.highRefreshRate.collectAsState()
     val audioQuality by viewModel.audioQuality.collectAsState()
-    val thumbnailQuality by viewModel.thumbnailQuality.collectAsState()
     val downloadQuality by viewModel.downloadQuality.collectAsState()
     val downloadFolder by viewModel.downloadFolder.collectAsState()
-    val downloadType by viewModel.downloadType.collectAsState()
-    val videoDownloadResolution by viewModel.videoDownloadResolution.collectAsState()
-    val videoDownloadFolder by viewModel.videoDownloadFolder.collectAsState()
+    val embedLyricsInDownload by viewModel.embedLyricsInDownload.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
+    val enableVideoMode by viewModel.enableVideoMode.collectAsState()
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
     val playButtonPosition by viewModel.playButtonPosition.collectAsState()
@@ -538,16 +539,6 @@ fun SettingsScreen(
                         onSelect = { viewModel.setAudioQuality(it) }
                     )
                     HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
-                        title = "Thumbnail Resolution",
-                        subtitle = "Cover artwork resolution",
-                        icon = Icons.Default.Image,
-                        currentValue = thumbnailQuality,
-                        options = listOf("Highest (1080p Maxres)", "High (720p)", "Medium (480p)", "Low (Fast)"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setThumbnailQuality(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
                     SettingsToggleItem(
                         title = "Show Synchronized Lyrics",
                         subtitle = "Display live karaoke lyrics in player",
@@ -555,6 +546,16 @@ fun SettingsScreen(
                         checked = enableLyrics,
                         isDarkMode = isDarkMode,
                         onCheckedChange = { viewModel.setEnableLyrics(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Enable Video Mode",
+                        subtitle = "Show Song/Video switcher in player for tracks with music videos",
+                        icon = Icons.Default.Videocam,
+                        checked = enableVideoMode,
+                        isDarkMode = isDarkMode,
+                        badge = "BETA",
+                        onCheckedChange = { viewModel.setEnableVideoMode(it) }
                     )
                 }
             }
@@ -578,16 +579,6 @@ fun SettingsScreen(
                         .padding(vertical = 4.dp)
                 ) {
                     SettingsSelectorItem(
-                        title = "Default Download Action",
-                        subtitle = "Action triggered on download button tap",
-                        icon = Icons.Default.Download,
-                        currentValue = downloadType,
-                        options = listOf("Audio (Song)", "Video"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setDownloadType(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
                         title = "Download Audio Quality",
                         subtitle = "Bit rate for offline audio tracks",
                         icon = Icons.Default.MusicNote,
@@ -599,28 +590,20 @@ fun SettingsScreen(
                     HorizontalDivider(color = dividerColor)
                     SettingsFolderSelectorItem(
                         title = "Audio Download Location",
-                        subtitle = "Folder where MP3 audio files save",
+                        subtitle = "Folder where downloaded audio files save",
                         icon = Icons.Default.Folder,
                         currentFolder = downloadFolder,
-                        presetFolders = listOf("Music/Mueso", "Downloads", "Internal App Storage"),
                         isDarkMode = isDarkMode,
                         onFolderSelect = { viewModel.setDownloadFolder(it) }
                     )
                     HorizontalDivider(color = dividerColor)
-                    SettingsVideoResolutionItem(
-                        currentValue = videoDownloadResolution,
+                    SettingsToggleItem(
+                        title = "Embed Lyrics in Downloads",
+                        subtitle = "Embed lyrics metadata & save .lrc companion",
+                        icon = Icons.Default.Lyrics,
+                        checked = embedLyricsInDownload,
                         isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setVideoDownloadResolution(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsFolderSelectorItem(
-                        title = "Video Download Location",
-                        subtitle = "Folder where MP4 video files save",
-                        icon = Icons.Default.VideoLibrary,
-                        currentFolder = videoDownloadFolder,
-                        presetFolders = listOf("Movies/Mueso", "DCIM/Mueso", "Downloads", "Internal App Storage"),
-                        isDarkMode = isDarkMode,
-                        onFolderSelect = { viewModel.setVideoDownloadFolder(it) }
+                        onCheckedChange = { viewModel.setEmbedLyricsInDownload(it) }
                     )
                 }
             }
@@ -933,6 +916,7 @@ private fun SettingsToggleItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     checked: Boolean,
     isDarkMode: Boolean,
+    badge: String? = null,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
@@ -958,8 +942,29 @@ private fun SettingsToggleItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-            Column {
-                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    if (badge != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentOrange.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = AccentOrange,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                }
                 Text(subtitle, color = textSub, fontSize = 12.sp)
             }
         }
@@ -1094,18 +1099,56 @@ private fun SettingsSelectorItem(
 
 @Composable
 private fun SettingsFolderSelectorItem(
-    title: String = "Target Download Location",
-    subtitle: String = "Folder where MP3 files save",
+    title: String = "Audio Download Location",
+    subtitle: String = "Folder where downloaded audio files save",
     icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Folder,
     currentFolder: String,
-    presetFolders: List<String> = listOf("Music/Mueso", "Downloads", "Internal App Storage"),
     isDarkMode: Boolean,
     onFolderSelect: (String) -> Unit
 ) {
-    var showCustomDialog by remember { mutableStateOf(false) }
-    var customInput by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(false) }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+
+            val docId = try {
+                DocumentsContract.getTreeDocumentId(uri)
+            } catch (_: Exception) { null }
+
+            val displayPath = when {
+                docId != null && docId.startsWith("primary:") -> docId.removePrefix("primary:")
+                docId != null -> docId
+                else -> uri.lastPathSegment ?: "Custom Folder"
+            }
+            onFolderSelect(displayPath.ifBlank { "Music" })
+            showDialog = false
+        }
+    }
+
+    val displayFolder = when {
+        currentFolder == "Internal App Storage" -> "Internal App Storage"
+        currentFolder.startsWith("content://") -> {
+            try {
+                val uri = Uri.parse(currentFolder)
+                val docId = DocumentsContract.getTreeDocumentId(uri)
+                if (docId.startsWith("primary:")) docId.removePrefix("primary:") else docId
+            } catch (_: Exception) {
+                currentFolder
+            }
+        }
+        else -> currentFolder
+    }
 
     Column(
         modifier = Modifier
@@ -1113,7 +1156,9 @@ private fun SettingsFolderSelectorItem(
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDialog = true },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1128,120 +1173,11 @@ private fun SettingsFolderSelectorItem(
                     Text(subtitle, color = textSub, fontSize = 12.sp)
                 }
             }
-            TextButton(onClick = { showCustomDialog = true }) {
-                Text(currentFolder, color = AccentOrange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        if (showCustomDialog) {
-            AlertDialog(
-                onDismissRequest = { showCustomDialog = false },
-                title = { Text("Choose Download Folder", color = textPrimary) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        presetFolders.forEach { folder ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onFolderSelect(folder)
-                                        showCustomDialog = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(folder, color = textPrimary)
-                                if (folder == currentFolder) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = AccentOrange)
-                                }
-                            }
-                        }
-                        OutlinedTextField(
-                            value = customInput,
-                            onValueChange = { customInput = it },
-                            placeholder = { Text("Or custom path e.g. /sdcard/Movies", fontSize = 12.sp) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        if (customInput.isNotBlank()) {
-                            onFolderSelect(customInput.trim())
-                        }
-                        showCustomDialog = false
-                    }) {
-                        Text("Save Custom", color = AccentOrange)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCustomDialog = false }) {
-                        Text("Cancel", color = textSub)
-                    }
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsVideoResolutionItem(
-    currentValue: String,
-    isDarkMode: Boolean,
-    onSelect: (String) -> Unit
-) {
-    var showChooseDialog by remember { mutableStateOf(false) }
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
-
-    val customResolutions = listOf(
-        "8K (4320p Ultra HD)",
-        "4K (2160p UHD)",
-        "2K (1440p QHD)",
-        "1080p (Full HD)",
-        "720p (HD)",
-        "480p (SD)",
-        "360p (Medium)",
-        "240p (Low)",
-        "144p (Data Saver)"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.Videocam, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("Default Video Resolution", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Auto-fallbacks if video is lower resolution", color = textSub, fontSize = 12.sp)
-                }
-            }
-
-            AnimatedContent(
-                targetState = currentValue,
-                transitionSpec = {
-                    (fadeIn(tween(200))).togetherWith(fadeOut(tween(150)))
-                },
-                label = "VideoResTextAnimation"
-            ) { targetText ->
+            TextButton(onClick = { showDialog = true }) {
                 Text(
-                    text = targetText,
+                    text = displayFolder,
                     color = AccentOrange,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1249,109 +1185,74 @@ private fun SettingsVideoResolutionItem(
             }
         }
 
-        // 4 Segmented Pills: Max, Default, Low, Choose
-        val pills = listOf("Max", "Default", "Low", "Choose")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            pills.forEach { pill ->
-                val isSelected = when (pill) {
-                    "Max" -> currentValue.contains("Maximum") || currentValue.contains("Max")
-                    "Default" -> currentValue.contains("Default") || (currentValue.contains("1080p") && !currentValue.contains("Full HD"))
-                    "Low" -> currentValue.contains("Low") && !currentValue.contains("240p")
-                    "Choose" -> !currentValue.contains("Maximum") && !currentValue.contains("Default") && !(currentValue.contains("Low") && !currentValue.contains("240p"))
-                    else -> false
-                }
-
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) AccentOrange else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "pillBgColor"
-                )
-
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "pillTextColor"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(bgColor)
-                        .clickable {
-                            when (pill) {
-                                "Max" -> onSelect("Maximum (Highest Quality)")
-                                "Default" -> onSelect("Default (1080p FHD)")
-                                "Low" -> onSelect("Low (480p SD)")
-                                "Choose" -> showChooseDialog = true
-                            }
-                        }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = pill,
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
-
-    if (showChooseDialog) {
-        AlertDialog(
-            onDismissRequest = { showChooseDialog = false },
-            title = { Text("Choose Video Resolution", color = textPrimary, fontWeight = FontWeight.Bold) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(customResolutions) { resOption ->
-                        val isPicked = currentValue == resOption
+        if (showDialog) {
+            AlertDialog(
+                onDismissRequest = { showDialog = false },
+                title = { Text("Choose Download Location", color = textPrimary, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // 1. Default Public Music Folder (Music/Mueso)
+                        val isPublicDefault = currentFolder == "Music/Mueso" || currentFolder == "Music"
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isPicked) AccentOrange.copy(alpha = 0.15f) else Color.Transparent)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isPublicDefault) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
                                 .clickable {
-                                    onSelect(resOption)
-                                    showChooseDialog = false
+                                    onFolderSelect("Music/Mueso")
+                                    showDialog = false
                                 }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text(
-                                text = resOption,
-                                color = if (isPicked) AccentOrange else textPrimary,
-                                fontWeight = if (isPicked) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp
-                            )
-                            if (isPicked) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = if (isPublicDefault) AccentOrange else textSub)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Public Music Folder (Music/Mueso)", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("Visible in all music apps & indexed by MediaStore", color = textSub, fontSize = 12.sp)
+                            }
+                            if (isPublicDefault) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                            }
+                        }
+
+                        // 2. Android Native Folder Picker
+                        val isCustom = !isPublicDefault
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isCustom) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                                .clickable {
+                                    folderPickerLauncher.launch(null)
+                                }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = if (isCustom) AccentOrange else textSub)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Choose Custom Folder", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(
+                                    if (isCustom) "Selected: $displayFolder" else "Pick with Android file manager",
+                                    color = textSub,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (isCustom) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDialog = false }) {
+                        Text("Close", color = textSub)
+                    }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showChooseDialog = false }) {
-                    Text("Close", color = AccentOrange)
-                }
-            }
-        )
+            )
+        }
     }
 }
