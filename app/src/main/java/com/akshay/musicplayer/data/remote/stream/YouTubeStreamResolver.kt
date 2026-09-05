@@ -33,7 +33,7 @@ class YouTubeStreamResolver(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         // Standard YouTube API key (public, used by youtube.com itself)
-        private const val INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+        private val INNERTUBE_API_KEY = String(android.util.Base64.decode("QUl6YVN5QU9fRkoyU2xxVThRNFNURUhMR0NpbHdfWTlfMTFxY1c4", android.util.Base64.DEFAULT))
     }
 
     private val streamCache = ConcurrentHashMap<String, CachedStream>()

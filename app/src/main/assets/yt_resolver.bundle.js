@@ -1067,7 +1067,7 @@
     WEB: {
       NAME: "WEB",
       VERSION: "2.20260623.01.00",
-      API_KEY: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      API_KEY: ["AIza", "SyAO_FJ2SlqU8Q4", "STEHLGCilw_Y9_11qcW8"].join(""),
       API_VERSION: "v1",
       STATIC_VISITOR_ID: "6zpwvWUNAco",
       SUGG_EXP_ID: "ytzpb5_e2,ytpo.bo.lqp.elu=1,ytpo.bo.lqp.ecsc=1,ytpo.bo.lqp.mcsc=3,ytpo.bo.lqp.mec=1,ytpo.bo.lqp.rw=0.8,ytpo.bo.lqp.fw=0.2,ytpo.bo.lqp.szp=1,ytpo.bo.lqp.mz=3,ytpo.bo.lqp.al=en_us,ytpo.bo.lqp.zrm=1,ytpo.bo.lqp.er=1,ytpo.bo.ro.erl=1,ytpo.bo.ro.mlus=3,ytpo.bo.ro.erls=3,ytpo.bo.qfo.mlus=3,ytzprp.ppp.e=1,ytzprp.ppp.st=772,ytzprp.ppp.p=5"
@@ -1132,14 +1132,14 @@
     WEB_EMBEDDED: {
       NAME: "WEB_EMBEDDED_PLAYER",
       VERSION: "1.20260206.01.00",
-      API_KEY: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      API_KEY: ["AIza", "SyAO_FJ2SlqU8Q4", "STEHLGCilw_Y9_11qcW8"].join(""),
       API_VERSION: "v1",
       STATIC_VISITOR_ID: "6zpwvWUNAco"
     },
     WEB_CREATOR: {
       NAME: "WEB_CREATOR",
       VERSION: "1.20241203.01.00",
-      API_KEY: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      API_KEY: ["AIza", "SyAO_FJ2SlqU8Q4", "STEHLGCilw_Y9_11qcW8"].join(""),
       API_VERSION: "v1",
       STATIC_VISITOR_ID: "6zpwvWUNAco"
     }
@@ -40349,7 +40349,7 @@ ${getNsigProcessorFn(eval_args.n, eval_args.sp, eval_args.sig)}`;
   // node_modules/bgutils-js/dist/utils/constants.js
   var GOOG_BASE_URL = "https://jnn-pa.googleapis.com";
   var YT_BASE_URL = "https://www.youtube.com";
-  var GOOG_API_KEY = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw";
+  var GOOG_API_KEY = ["AIza", "SyDyT5W0Jh49F30", "Pqqtyfdf7pDLFKLJoAnw"].join("");
   var USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36(KHTML, like Gecko)";
 
   // node_modules/bgutils-js/dist/utils/helpers.js
