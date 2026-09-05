@@ -160,7 +160,8 @@ fun PlaylistDetailScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 16.dp, top = 48.dp, bottom = 4.dp),
+                .statusBarsPadding()
+                .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {

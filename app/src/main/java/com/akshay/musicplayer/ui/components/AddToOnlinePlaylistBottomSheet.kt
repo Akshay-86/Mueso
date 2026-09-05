@@ -120,97 +120,14 @@ fun AddToPlaylistBottomSheet(
 
     // Choice Dialog to pick playlist type if clicking "Create New"
     if (showCreateChoiceDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateChoiceDialog = false },
-            containerColor = sheetBg,
-            title = {
-                Text(
-                    text = "Create New Playlist",
-                    color = textPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
+        CreatePlaylistChoiceDialog(
+            isYouTubeLoggedIn = isYouTubeLoggedIn,
+            isDarkMode = isDarkMode,
+            onSelectType = { type ->
+                showCreateChoiceDialog = false
+                showCreateDialogType = type
             },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (isYouTubeLoggedIn) {
-                        Surface(
-                            onClick = {
-                                showCreateChoiceDialog = false
-                                showCreateDialogType = "youtube"
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = cardBg,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(Icons.Default.CloudQueue, contentDescription = null, tint = YouTubeRed)
-                                Column {
-                                    Text("YouTube Music Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Syncs with your YouTube account", color = textSecondary, fontSize = 11.sp)
-                                }
-                            }
-                        }
-                    }
-
-                    Surface(
-                        onClick = {
-                            showCreateChoiceDialog = false
-                            showCreateDialogType = "online"
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = cardBg,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.Stream, contentDescription = null, tint = AccentOrange)
-                            Column {
-                                Text("Custom Online Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Online streaming playlist with cloud backup", color = textSecondary, fontSize = 11.sp)
-                            }
-                        }
-                    }
-
-                    Surface(
-                        onClick = {
-                            showCreateChoiceDialog = false
-                            showCreateDialogType = "local"
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = cardBg,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFF34C759))
-                            Column {
-                                Text("Device Local Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Stored locally on your phone", color = textSecondary, fontSize = 11.sp)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showCreateChoiceDialog = false }) {
-                    Text("Cancel", color = textSecondary)
-                }
-            }
+            onDismiss = { showCreateChoiceDialog = false }
         )
     }
 
@@ -818,22 +735,100 @@ private fun LocalPlaylistItemRow(
 }
 
 
-/**
- * Backward compatibility overload for legacy usages
- */
 @Composable
-fun AddToOnlinePlaylistBottomSheet(
-    track: TrackEntity,
-    viewModel: PlayerViewModel,
-    onlinePlaylists: List<OnlinePlaylistEntity> = emptyList(),
-    onSelectPlaylist: (OnlinePlaylistEntity) -> Unit = {},
+fun CreatePlaylistChoiceDialog(
+    isYouTubeLoggedIn: Boolean,
     isDarkMode: Boolean = true,
+    onSelectType: (type: String) -> Unit, // "youtube", "online", "local"
     onDismiss: () -> Unit
 ) {
-    AddToPlaylistBottomSheet(
-        track = track,
-        viewModel = viewModel,
-        isDarkMode = isDarkMode,
-        onDismiss = onDismiss
+    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val cardBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = sheetBg,
+        title = {
+            Text(
+                text = "Create New Playlist",
+                color = textPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isYouTubeLoggedIn) {
+                    Surface(
+                        onClick = { onSelectType("youtube") },
+                        shape = RoundedCornerShape(12.dp),
+                        color = cardBg,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudQueue, contentDescription = null, tint = YouTubeRed)
+                            Column {
+                                Text("YouTube Music Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("Syncs with your YouTube account", color = textSecondary, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    onClick = { onSelectType("online") },
+                    shape = RoundedCornerShape(12.dp),
+                    color = cardBg,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Stream, contentDescription = null, tint = AccentOrange)
+                        Column {
+                            Text("Custom Online Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Online streaming playlist with cloud backup", color = textSecondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                Surface(
+                    onClick = { onSelectType("local") },
+                    shape = RoundedCornerShape(12.dp),
+                    color = cardBg,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFF34C759))
+                        Column {
+                            Text("Device Local Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Stored locally on your phone", color = textSecondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textSecondary)
+            }
+        }
     )
 }
+

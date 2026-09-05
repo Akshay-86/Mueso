@@ -227,6 +227,22 @@ class OnlineMusicRepository {
         return@withContext emptyList()
     }
 
+    suspend fun searchArtists(query: String): List<com.akshay.musicplayer.data.remote.innertube.InnerTubeArtist> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        return@withContext innerTube.searchArtists(query)
+    }
+
+    suspend fun searchPlaylists(query: String, filter: String? = null): List<com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        return@withContext innerTube.searchPlaylists(query, filter)
+    }
+
+    suspend fun fetchArtistPage(browseId: String): com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage? = withContext(Dispatchers.IO) {
+        if (browseId.isBlank()) return@withContext null
+        return@withContext innerTube.getArtistPage(browseId)
+    }
+
+
     suspend fun getStreamUrl(
         videoId: String,
         context: android.content.Context? = null,

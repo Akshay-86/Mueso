@@ -89,7 +89,8 @@ fun OfflineLibraryScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(top = 100.dp)
+            .statusBarsPadding()
+            .padding(top = 60.dp)
     ) {
         // Animated tab content
         AnimatedContent(

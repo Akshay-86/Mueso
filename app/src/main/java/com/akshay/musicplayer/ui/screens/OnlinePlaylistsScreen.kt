@@ -100,7 +100,8 @@ fun OnlinePlaylistsScreen(
     var showAccountSwitcherDialog by remember { mutableStateOf(false) }
     var selectedPlaylist by remember { mutableStateOf<SelectedOnlinePlaylist?>(null) }
     var selectedCustomPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
-    var showCreateDialog by remember { mutableStateOf(false) }
+    var showCreateChoiceDialog by remember { mutableStateOf(false) }
+    var showCreateDialogType by remember { mutableStateOf<String?>(null) } // "youtube", "online", "local"
     var editingPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
 
     val isDetailOpen = selectedPlaylist != null || selectedCustomPlaylist != null
@@ -133,7 +134,11 @@ fun OnlinePlaylistsScreen(
         ) {
             // Top Spacing & Header
             item {
-                Spacer(modifier = Modifier.height(100.dp))
+                Spacer(
+                    modifier = Modifier
+                        .statusBarsPadding()
+                        .height(60.dp)
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -155,35 +160,15 @@ fun OnlinePlaylistsScreen(
                         )
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Create Playlist Button
+                    IconButton(
+                        onClick = { showCreateChoiceDialog = true },
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(OrangeAccent)
+                            .size(40.dp)
                     ) {
-                        // Refresh Charts & Feed Button
-                        IconButton(
-                            onClick = {
-                                viewModel.loadExploreAndCharts(force = true)
-                                if (isYouTubeLoggedIn) viewModel.refreshYouTubeLibrary()
-                                android.widget.Toast.makeText(context, "Refreshing charts & playlists...", android.widget.Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
-                                .size(40.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh Charts & Feed", tint = textColor)
-                        }
-
-                        // Create Custom Playlist Button
-                        IconButton(
-                            onClick = { showCreateDialog = true },
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(OrangeAccent)
-                                .size(40.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Create Online Playlist", tint = Color.White)
-                        }
+                        Icon(Icons.Default.Add, contentDescription = "Create Playlist", tint = Color.White)
                     }
                 }
             }
@@ -814,14 +799,61 @@ fun OnlinePlaylistsScreen(
             )
         }
 
-        // Create Online Playlist Dialog
-        if (showCreateDialog) {
+        // Choice Dialog to pick playlist type if clicking "+"
+        if (showCreateChoiceDialog) {
+            com.akshay.musicplayer.ui.components.CreatePlaylistChoiceDialog(
+                isYouTubeLoggedIn = isYouTubeLoggedIn,
+                isDarkMode = isDarkMode,
+                onSelectType = { type ->
+                    showCreateChoiceDialog = false
+                    showCreateDialogType = type
+                },
+                onDismiss = { showCreateChoiceDialog = false }
+            )
+        }
+
+        // Dialog for creating YouTube playlist
+        if (showCreateDialogType == "youtube") {
             CreateOnlinePlaylistDialog(
-                onDismiss = { showCreateDialog = false },
+                onDismiss = { showCreateDialogType = null },
+                onCreate = { name, desc ->
+                    viewModel.createYouTubePlaylist(name, desc ?: "") { id ->
+                        if (id != null) {
+                            Toast.makeText(context, "Created YouTube Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                            viewModel.refreshYouTubeLibrary()
+                        } else {
+                            Toast.makeText(context, "Failed to create YouTube Playlist", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    showCreateDialogType = null
+                },
+                isDarkMode = isDarkMode
+            )
+        }
+
+        // Dialog for creating Custom Online Playlist
+        if (showCreateDialogType == "online") {
+            CreateOnlinePlaylistDialog(
+                onDismiss = { showCreateDialogType = null },
                 onCreate = { name, desc ->
                     viewModel.createOnlinePlaylist(name, desc)
-                    showCreateDialog = false
-                }
+                    showCreateDialogType = null
+                    Toast.makeText(context, "Created Online Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                },
+                isDarkMode = isDarkMode
+            )
+        }
+
+        // Dialog for creating Local Playlist
+        if (showCreateDialogType == "local") {
+            CreatePlaylistDialog(
+                isDarkMode = isDarkMode,
+                onConfirm = { name ->
+                    viewModel.createPlaylist(name)
+                    showCreateDialogType = null
+                    Toast.makeText(context, "Created Local Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { showCreateDialogType = null }
             )
         }
 

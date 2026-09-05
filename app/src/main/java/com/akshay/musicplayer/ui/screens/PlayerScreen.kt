@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
@@ -342,8 +343,12 @@ fun PlayerPageContent(
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Space for future top header
-            Spacer(modifier = Modifier.height(100.dp))
+            // Space for top navigation bar
+            Spacer(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .height(60.dp)
+            )
 
             val enableLyrics by viewModel.enableLyrics.collectAsState()
             val isDarkMode by viewModel.isDarkMode.collectAsState()

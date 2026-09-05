@@ -215,9 +215,80 @@ class PlayerViewModel(
     val searchCategory = searchManager.searchCategory
     val isSearchingOnline = searchManager.isSearchingOnline
     val searchResults = searchManager.searchResults
+    val artistResults = searchManager.artistResults
+    val playlistResults = searchManager.playlistResults
     fun setSearchQuery(query: String) = searchManager.setSearchQuery(query)
     fun setSearchCategory(category: String) = searchManager.setSearchCategory(category)
     fun getSearchResults() = searchManager.getSearchResults()
+
+    private val _selectedArtistPage = MutableStateFlow<com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage?>(null)
+    val selectedArtistPage: StateFlow<com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage?> = _selectedArtistPage.asStateFlow()
+
+    private val _isLoadingArtistPage = MutableStateFlow(false)
+    val isLoadingArtistPage: StateFlow<Boolean> = _isLoadingArtistPage.asStateFlow()
+
+    private var loadArtistJob: Job? = null
+
+    fun openArtist(browseId: String, initialName: String? = null, initialThumb: String? = null) {
+        loadArtistJob?.cancel()
+        _isLoadingArtistPage.value = true
+        _selectedArtistPage.value = com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage(
+            id = browseId,
+            name = initialName ?: "Loading...",
+            thumbnailUrl = initialThumb,
+            bannerUrl = initialThumb
+        )
+        loadArtistJob = viewModelScope.launch {
+            try {
+                val page = onlineRepository.fetchArtistPage(browseId)
+                if (page != null) {
+                    _selectedArtistPage.value = page
+                }
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Error loading artist $browseId", e)
+            } finally {
+                _isLoadingArtistPage.value = false
+            }
+        }
+    }
+
+    fun closeArtist() {
+        loadArtistJob?.cancel()
+        _selectedArtistPage.value = null
+        _isLoadingArtistPage.value = false
+    }
+
+    fun playArtistRadio(artistPage: com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage) {
+        viewModelScope.launch {
+            if (!artistPage.radioVideoId.isNullOrBlank()) {
+                val track = TrackEntity(
+                    id = artistPage.radioVideoId.hashCode().toLong(),
+                    title = "${artistPage.name} Radio",
+                    artist = artistPage.name,
+                    album = "YouTube Music",
+                    duration = 0L,
+                    albumId = 0L,
+                    filePath = "online:${artistPage.radioVideoId}",
+                    artworkUrl = artistPage.thumbnailUrl
+                )
+                playTrack(track)
+            } else if (artistPage.topSongs.isNotEmpty()) {
+                playOnlinePlaylist(artistPage.topSongs.map { it.toTrackEntity() }.shuffled(), 0)
+            }
+        }
+    }
+
+    fun playArtistTopSongs(songs: List<com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack>, startIndex: Int = 0, shuffle: Boolean = false) {
+        val entities = songs.map { it.toTrackEntity() }
+        if (entities.isNotEmpty()) {
+            if (shuffle) {
+                playOnlinePlaylist(entities.shuffled(), 0)
+            } else {
+                playOnlinePlaylist(entities, startIndex.coerceIn(0, entities.size - 1))
+            }
+        }
+    }
+
 
     val hasUnbackedUpChanges = backupManager.hasUnbackedUpChanges
     val lastBackupTimestamp = backupManager.lastBackupTimestamp

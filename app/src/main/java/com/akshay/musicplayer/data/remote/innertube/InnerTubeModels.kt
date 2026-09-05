@@ -62,3 +62,31 @@ data class InnerTubeAccountInfo(
     val handle: String?,
     val avatarUrl: String?
 )
+
+data class InnerTubeArtist(
+    val id: String,
+    val name: String,
+    val subscribers: String = "",
+    val thumbnailUrl: String? = null
+)
+
+data class InnerTubeArtistPage(
+    val id: String,
+    val name: String,
+    val subscribers: String = "",
+    val description: String = "",
+    val bannerUrl: String? = null,
+    val thumbnailUrl: String? = null,
+    val radioPlaylistId: String? = null,
+    val radioVideoId: String? = null,
+    val shufflePlaylistId: String? = null,
+    val topSongs: List<InnerTubeTrack> = emptyList(),
+    val albums: List<InnerTubePlaylist> = emptyList(),
+    val singlesAndEPs: List<InnerTubePlaylist> = emptyList(),
+    val videos: List<InnerTubeTrack> = emptyList(),
+    val livePerformances: List<InnerTubeTrack> = emptyList(),
+    val featuredOn: List<InnerTubePlaylist> = emptyList(),
+    val playlistsByArtist: List<InnerTubePlaylist> = emptyList(),
+    val similarArtists: List<InnerTubeArtist> = emptyList()
+)
+
