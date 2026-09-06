@@ -95,10 +95,10 @@ We publish automated signed builds via GitHub Actions with architecture-specific
 
 | Package | Target Architecture | Recommended For | Approximate Size |
 | :--- | :--- | :--- | :--- |
-| **`app-arm64-v8a-release.apk`** | 64-bit ARM | **Recommended for 95%+ of modern Android phones** | **~49 MB** |
-| **`app-armeabi-v7a-release.apk`** | 32-bit ARM | Older 32-bit Android phones | **~31 MB** |
-| **`app-x86_64-release.apk`** | 64-bit x86 | Android Emulators, ChromeOS, PC | **~52 MB** |
-| **`app-universal-release.apk`** | All ABIs | Universal fallback (contains all architectures) | **~90 MB** |
+| **`app-arm64-v8a-release.apk`** | 64-bit ARM | **Recommended for 95%+ of modern Android phones** | **~6.0 MB** |
+| **`app-armeabi-v7a-release.apk`** | 32-bit ARM | Older 32-bit Android phones | **~6.0 MB** |
+| **`app-x86_64-release.apk`** | 64-bit x86 | Android Emulators, ChromeOS, PC | **~6.0 MB** |
+| **`app-universal-release.apk`** | All ABIs | Universal fallback (contains all architectures) | **~6.1 MB** |
 
 ---
 

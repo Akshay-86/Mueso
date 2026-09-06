@@ -88,6 +88,7 @@ fun SettingsScreen(
     val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
 
     var showSpotifyImport by remember { mutableStateOf(false) }
+    var showAboutPage by remember { mutableStateOf(false) }
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -143,9 +144,12 @@ fun SettingsScreen(
         }
     }
 
-    // Handle Spotify Import sub-screen navigation
+    // Handle Spotify Import & About sub-screen navigation
     androidx.activity.compose.BackHandler(enabled = showSpotifyImport) {
         showSpotifyImport = false
+    }
+    androidx.activity.compose.BackHandler(enabled = showAboutPage) {
+        showAboutPage = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -832,7 +836,45 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 8. Force Refresh & Developer Pre-Builds ───
+            // ─── 8. About Mueso ───
+            item {
+                Text(
+                    text = "About",
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .clickable { showAboutPage = true }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(AccentOrange.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("About Mueso", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Version $appVersionName • Features, Credits & Specs", color = textSub, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // ─── 9. Force Refresh & Developer Pre-Builds ───
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -904,6 +946,13 @@ fun SettingsScreen(
         SpotifyImportScreen(
             viewModel = viewModel,
             onBackClick = { showSpotifyImport = false }
+        )
+    }
+
+    if (showAboutPage) {
+        AboutScreen(
+            isDarkMode = isDarkMode,
+            onBackClick = { showAboutPage = false }
         )
     }
 }

@@ -69,6 +69,18 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
     fun checkForUpdates(context: Context, showToastIfLatest: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
             _isChecking.value = true
+
+            if (!isNetworkAvailable(context)) {
+                _statusMessage.value = "No internet connection"
+                _isChecking.value = false
+                if (showToastIfLatest) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "No internet connection. Please check your network.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                return@launch
+            }
+
             _statusMessage.value = "Checking for updates..."
 
             try {
@@ -297,19 +309,20 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         return false
     }
 
-    private fun parseIso8601ToMillis(isoString: String): Long {
-        if (isoString.isBlank()) return 0L
+    private fun isNetworkAvailable(context: Context): Boolean {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                java.time.Instant.parse(isoString).toEpochMilli()
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                ?: return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = connectivityManager.activeNetwork ?: return false
+                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+                capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             } else {
-                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
-                    timeZone = java.util.TimeZone.getTimeZone("UTC")
-                }
-                sdf.parse(isoString)?.time ?: 0L
+                val networkInfo = connectivityManager.activeNetworkInfo
+                networkInfo != null && networkInfo.isConnected
             }
         } catch (e: Exception) {
-            0L
+            true
         }
     }
 
@@ -325,38 +338,37 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
 
     private fun isPreBuildNewer(
         releaseSha: String?,
-        publishedAtMillis: Long,
-        installedSha: String,
-        installedBuildTime: Long,
-        installedLastUpdateTime: Long
+        installedSha: String
     ): Boolean {
-        // 1. If we have commit hashes and installed app is not "dev", compare them
         if (!releaseSha.isNullOrBlank() && installedSha.isNotBlank() && installedSha != "dev") {
-            if (releaseSha.equals(installedSha, ignoreCase = true) ||
-                releaseSha.startsWith(installedSha, ignoreCase = true) ||
-                installedSha.startsWith(releaseSha, ignoreCase = true)
-            ) {
-                Log.d(TAG, "Pre-Build matching installed commit SHA: $installedSha. Not newer.")
+            val matches = releaseSha.equals(installedSha, ignoreCase = true) ||
+                    releaseSha.startsWith(installedSha, ignoreCase = true) ||
+                    installedSha.startsWith(releaseSha, ignoreCase = true)
+            if (matches) {
+                Log.d(TAG, "Pre-Build matches installed commit SHA: $installedSha. Up to date.")
                 return false
+            } else {
+                Log.d(TAG, "Pre-Build SHA ($releaseSha) != installed SHA ($installedSha). New update available.")
+                return true
             }
         }
-
-        // 2. If published time is available, compare with build and install times
-        if (publishedAtMillis > 0) {
-            val effectiveInstalledTime = maxOf(installedBuildTime, installedLastUpdateTime)
-            // Leeway of 120s for CI checkout vs release tag creation
-            if (publishedAtMillis <= effectiveInstalledTime + 120_000L) {
-                Log.d(TAG, "Pre-Build published at $publishedAtMillis <= installed time $effectiveInstalledTime. Not newer.")
-                return false
-            }
-        }
-
         return true
     }
 
     fun installPreBuildRelease(context: Context, forceDownload: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
             _isChecking.value = true
+
+            // 1. Check network connectivity
+            if (!isNetworkAvailable(context)) {
+                _statusMessage.value = "No internet connection"
+                _isChecking.value = false
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "No internet connection. Please check your network.", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
+
             _statusMessage.value = "Fetching Pre_Builds release from GitHub..."
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Checking GitHub tag: Pre_Builds...", Toast.LENGTH_SHORT).show()
@@ -386,8 +398,6 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val json = JSONObject(body)
                 val releaseName = json.optString("name", "Pre_Builds")
                 val releaseBody = json.optString("body", "")
-                val publishedAt = json.optString("published_at", json.optString("created_at", ""))
-                val publishedAtMillis = parseIso8601ToMillis(publishedAt)
                 val releaseSha = extractCommitSha(releaseBody, releaseName)
 
                 val assets = json.optJSONArray("assets")
@@ -403,18 +413,12 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     return@launch
                 }
 
-                // Retrieve current app version & build info
-                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                // Retrieve current app version & commit sha
                 val installedSha = com.akshay.musicplayer.BuildConfig.GIT_COMMIT_SHA
-                val installedBuildTime = com.akshay.musicplayer.BuildConfig.BUILD_TIME_MILLIS
-                val installedLastUpdateTime = packageInfo.lastUpdateTime
 
                 val isNew = if (forceDownload) true else isPreBuildNewer(
                     releaseSha = releaseSha,
-                    publishedAtMillis = publishedAtMillis,
-                    installedSha = installedSha,
-                    installedBuildTime = installedBuildTime,
-                    installedLastUpdateTime = installedLastUpdateTime
+                    installedSha = installedSha
                 )
 
                 val displayTag = if (!releaseSha.isNullOrBlank()) "Pre_Builds ($releaseSha)" else "Pre_Builds"
@@ -458,8 +462,11 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching Pre_Builds release", e)
+                val isNetworkIssue = e is java.net.UnknownHostException || e is java.io.IOException || !isNetworkAvailable(context)
+                val errorMsg = if (isNetworkIssue) "No internet connection or network error" else "Failed to fetch Pre_Builds: ${e.message}"
+                _statusMessage.value = errorMsg
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Failed to fetch Pre_Builds: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _isChecking.value = false
