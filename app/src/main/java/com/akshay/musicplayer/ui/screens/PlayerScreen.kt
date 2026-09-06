@@ -280,7 +280,14 @@ fun PlayerPageContent(
     val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
     val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
     val isResolvingTrack by viewModel.isResolvingTrack.collectAsState()
-    val albumArtUri = track.artworkUrl ?: "content://media/external/audio/albumart/${track.albumId}"
+    val albumArtUri = when {
+        !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
+        track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
+            "content://media/external/audio/media/${track.id}"
+        track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
+        track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
+        else -> null
+    }
 
 
     // Short label above icon

@@ -269,9 +269,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     } catch (_: Exception) {}
                 }
             }
-        } catch (e: Exception) {
-            Log.w("MUESO_ART", "Failed to load artwork bytes for track ${track.title}: ${e.message}")
-        }
+        } catch (_: Exception) {}
         return null
     }
 
@@ -593,19 +591,27 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .build()
         }
 
-        mediaController?.let { controller ->
-            controller.setMediaItems(mediaItems, safeIndex, 0L)
-            controller.prepare()
-            controller.play()
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                controller.setMediaItems(mediaItems, safeIndex, 0L)
+                controller.prepare()
+                controller.play()
 
-            _playbackState.value = PlaybackState(
-                isPlaying = true,
-                currentTrackId = tracks[safeIndex].id,
-                currentPositionMs = 0L,
-                durationMs = controller.duration.coerceAtLeast(0L)
-            )
+                _playbackState.value = PlaybackState(
+                    isPlaying = true,
+                    currentTrackId = tracks[safeIndex].id,
+                    currentPositionMs = 0L,
+                    durationMs = if (controller.duration > 0) controller.duration else tracks[safeIndex].duration.coerceAtLeast(0L)
+                )
 
-            updateArtworkForCurrentTrack(tracks[safeIndex])
+                updateArtworkForCurrentTrack(tracks[safeIndex])
+            }
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            pendingRestore = action
         }
     }
 
@@ -615,6 +621,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         currentQueueIndex = startIndex
         val track = tracks.getOrNull(startIndex) ?: return
         currentTrackId = track.id
+        Log.d("MUESO_RESTORE", "ExoPlayerController.restoreQueue called: totalTracks=${tracks.size}, startIndex=$startIndex, startPositionMs=${startPositionMs}ms, trackId=${track.id}, trackTitle='${track.title}', path='${track.filePath}'")
 
         if (track.filePath.startsWith("online:")) {
             // Online track preview restore
@@ -673,6 +680,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         val action: () -> Unit = {
             mediaController?.let { controller ->
                 isRestoring = true
+                Log.d("MUESO_RESTORE", "ExoPlayerController: applying ${mediaItems.size} items to mediaController at startIndex=$startIndex, pos=${startPositionMs}ms")
                 controller.setMediaItems(mediaItems, startIndex, startPositionMs)
                 controller.prepare()
 
@@ -680,7 +688,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     isPlaying = controller.isPlaying,
                     currentTrackId = track.id,
                     currentPositionMs = startPositionMs,
-                    durationMs = controller.duration.coerceAtLeast(0L)
+                    durationMs = if (controller.duration > 0) controller.duration else track.duration.coerceAtLeast(0L)
                 )
 
                 updateArtworkForCurrentTrack(track)
@@ -698,6 +706,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (mediaController != null) {
             action()
         } else {
+            Log.d("MUESO_RESTORE", "ExoPlayerController: mediaController is null, queuing pendingRestore")
             pendingRestore = action
         }
     }
@@ -706,8 +715,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (isPlayingOnline && currentQueueIndex + 1 in tracksQueue.indices) {
             seekToIndex(currentQueueIndex + 1)
         } else {
-            mediaController?.seekToNextMediaItem()
-            updatePlaybackState()
+            mediaController?.let { controller ->
+                if (controller.hasNextMediaItem()) {
+                    controller.seekToNextMediaItem()
+                    updatePlaybackState()
+                } else if (currentQueueIndex + 1 in tracksQueue.indices) {
+                    seekToIndex(currentQueueIndex + 1)
+                }
+            }
         }
     }
 
@@ -715,8 +730,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (isPlayingOnline && currentQueueIndex - 1 in tracksQueue.indices) {
             seekToIndex(currentQueueIndex - 1)
         } else {
-            mediaController?.seekToPreviousMediaItem()
-            updatePlaybackState()
+            mediaController?.let { controller ->
+                if (controller.hasPreviousMediaItem()) {
+                    controller.seekToPreviousMediaItem()
+                    updatePlaybackState()
+                } else if (currentQueueIndex - 1 in tracksQueue.indices) {
+                    seekToIndex(currentQueueIndex - 1)
+                }
+            }
         }
     }
 
@@ -728,7 +749,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 if (controller.isPlaying) {
                     controller.pause()
                 } else {
-                    controller.play()
+                    if (controller.mediaItemCount == 0 && tracksQueue.isNotEmpty()) {
+                        setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
+                    } else {
+                        controller.play()
+                    }
                 }
                 updatePlaybackState()
             }
@@ -818,10 +843,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaController?.volume = 1f
 
         mediaController?.let { controller ->
-            currentTrackId = controller.getMediaItemAt(index).mediaId.toLongOrNull() ?: currentTrackId
-            controller.seekToDefaultPosition(index)
-            controller.play()
-            updatePlaybackState()
+            if (index in 0 until controller.mediaItemCount) {
+                currentTrackId = controller.getMediaItemAt(index).mediaId.toLongOrNull() ?: (track?.id ?: currentTrackId)
+                controller.seekToDefaultPosition(index)
+                controller.play()
+                updatePlaybackState()
+            } else if (index in tracksQueue.indices) {
+                setPlaylistAndPlay(tracksQueue, index)
+            }
+        } ?: run {
+            if (index in tracksQueue.indices) {
+                setPlaylistAndPlay(tracksQueue, index)
+            }
         }
     }
 

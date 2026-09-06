@@ -47,25 +47,6 @@ fun AlbumArtBackground(
 
     var containerWidth by remember { mutableFloatStateOf(0f) }
 
-    val imageModel = remember(albumArtUri) {
-        val raw = albumArtUri ?: ""
-        val highRes = if (raw.contains("i.ytimg.com/vi/")) {
-            raw.replace("mqdefault.jpg", "hq720.jpg")
-                .replace("hqdefault.jpg", "hq720.jpg")
-                .replace("sddefault.jpg", "hq720.jpg")
-                .replace("default.jpg", "hq720.jpg")
-        } else raw
-
-        val fallback = if (highRes.contains("hq720.jpg")) {
-            highRes.replace("hq720.jpg", "hqdefault.jpg")
-        } else raw
-
-        ImageRequest.Builder(context)
-            .data(if (highRes.isNotBlank()) highRes else fallback)
-            .crossfade(true)
-            .build()
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()

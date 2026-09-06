@@ -13,6 +13,10 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.akshay.musicplayer.R
 
+import androidx.media3.common.Player
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+
 class MusicPlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
@@ -57,8 +61,8 @@ class MusicPlayerService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
-            .setAudioAttributes(audioAttributes, true)
-            .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(audioAttributes, false)
+            .setHandleAudioBecomingNoisy(false)
             .build()
 
 
@@ -70,22 +74,50 @@ class MusicPlayerService : MediaSessionService() {
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val forwardingPlayer = MusicForwardingPlayer(player)
+        val forwardingPlayer = MusicForwardingPlayer(player, audioAttributes)
         val bitmapLoader = CoilBitmapLoader(this)
 
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
             .setBitmapLoader(bitmapLoader)
             .setCallback(object : MediaSession.Callback {
-                override fun onPlayerCommandRequest(
+                override fun onConnect(
                     session: MediaSession,
-                    controller: MediaSession.ControllerInfo,
-                    playerCommand: Int
-                ): Int {
-                    if (playerCommand == androidx.media3.common.Player.COMMAND_PLAY_PAUSE) {
-                        session.player.playWhenReady = !session.player.playWhenReady
+                    controller: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().build()
+                    val playerCommands = session.player.availableCommands.buildUpon()
+                        .add(Player.COMMAND_PLAY_PAUSE)
+                        .add(Player.COMMAND_PREPARE)
+                        .add(Player.COMMAND_STOP)
+                        .add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                        .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
+                        .add(Player.COMMAND_SET_MEDIA_ITEM)
+                        .add(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+                        .build()
+                    return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)
+                }
+
+                override fun onPlaybackResumption(
+                    mediaSession: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                    val p = mediaSession.player
+                    val count = p.mediaItemCount
+                    return if (count > 0) {
+                        val items = (0 until count).map { p.getMediaItemAt(it) }
+                        val startIndex = p.currentMediaItemIndex.coerceIn(0, (count - 1).coerceAtLeast(0))
+                        val startPosition = p.currentPosition.coerceAtLeast(0L)
+                        Futures.immediateFuture(
+                            MediaSession.MediaItemsWithStartPosition(items, startIndex, startPosition)
+                        )
+                    } else {
+                        Futures.immediateFuture(
+                            MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+                        )
                     }
-                    return super.onPlayerCommandRequest(session, controller, playerCommand)
                 }
             })
             .build()
@@ -132,7 +164,31 @@ object MediaSessionBridge {
     var onSeekRequested: ((Long) -> Unit)? = null
 }
 
-class MusicForwardingPlayer(player: androidx.media3.common.Player) : androidx.media3.common.ForwardingPlayer(player) {
+class MusicForwardingPlayer(
+    private val exoPlayer: ExoPlayer,
+    private val audioAttributes: AudioAttributes
+) : androidx.media3.common.ForwardingPlayer(exoPlayer) {
+
+    private fun updateAudioFocus() {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            exoPlayer.setAudioAttributes(audioAttributes, false)
+        } else {
+            exoPlayer.setAudioAttributes(audioAttributes, true)
+        }
+    }
+
+    override fun play() {
+        updateAudioFocus()
+        super.play()
+    }
+
+    override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (playWhenReady) {
+            updateAudioFocus()
+        }
+        super.setPlayWhenReady(playWhenReady)
+    }
+
     override fun getDuration(): Long {
         if (MediaSessionBridge.isOnlinePlaying) {
             val d = MediaSessionBridge.onlineDurationMs

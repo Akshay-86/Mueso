@@ -509,7 +509,6 @@ class PlayerViewModel(
         if (currentTrackId != null) {
             val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 }
             if (index != null) {
-                Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: calculated index $index for track $currentTrackId")
                 return@combine index
             }
         }
@@ -518,13 +517,10 @@ class PlayerViewModel(
         if (requestedId != null) {
             val pendingIndex = queue.indexOfFirst { it.id == requestedId }.takeIf { it >= 0 }
             if (pendingIndex != null) {
-                Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: using pending requested index $pendingIndex for track $requestedId")
                 return@combine pendingIndex
             }
         }
-        val restoredIndex = getRestoredTrackIndex()
-        Log.d("MUESO_SYNC", "ViewModel currentTrackIndexState: fallback to restored index $restoredIndex")
-        restoredIndex
+        getRestoredTrackIndex()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), getRestoredTrackIndex())
 
     val upcomingTrackCountState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
@@ -584,6 +580,9 @@ class PlayerViewModel(
 
     private fun initRestoredTrackPreview() {
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
+        val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
+        val lastPosition = sharedPreferences.getLong("last_position", 0L)
+        Log.d("MUESO_RESTORE", "initRestoredTrackPreview: lastTrackId=$lastTrackId, isOnline=$isOnline, lastPosition=${lastPosition}ms")
         if (lastTrackId == -1L) return
 
         val isPlaylist = sharedPreferences.getBoolean("last_is_playlist_context", false)
@@ -614,6 +613,7 @@ class PlayerViewModel(
                     _isPlaylistContext.value = true
                     _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
                     currentTracks = restoredPlaylistTracks
+                    Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restored online playlist preview with ${restoredPlaylistTracks.size} tracks")
                     return
                 }
             } catch (e: Exception) {
@@ -623,27 +623,32 @@ class PlayerViewModel(
 
         val title = sharedPreferences.getString("last_track_title", "") ?: ""
         val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
+        val album = sharedPreferences.getString("last_track_album", "Last Played") ?: "Last Played"
         val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
         val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
         val duration = sharedPreferences.getLong("last_track_duration", 0L)
+        val albumId = sharedPreferences.getLong("last_track_album_id", 0L)
+        Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restoring single preview track: title='$title', artist='$artist', album='$album', albumId=$albumId, filePath='$filePath', artworkUrl='$artworkUrl', duration=${duration}ms")
         if (title.isNotBlank()) {
             val previewTrack = TrackEntity(
                 id = lastTrackId,
                 title = title,
                 artist = artist,
-                album = "Last Played",
+                album = album,
                 duration = duration,
-                albumId = 0L,
+                albumId = albumId,
                 filePath = filePath,
                 artworkUrl = artworkUrl
             )
             currentTracks = listOf(previewTrack)
+            Log.d("MUESO_RESTORE", "initRestoredTrackPreview: currentTracks initialized with 1 preview track [${previewTrack.title}]")
         }
     }
     
 
     init {
         initRestoredTrackPreview()
+        loadLocalTracks()
         observePlaybackState()
         observeMediaEvents()
         youtubeAuthManager.onSessionChanged = {
@@ -742,8 +747,10 @@ class PlayerViewModel(
             _uiState.value = PlayerUiState.Loading
             getLocalTracksUseCase().onSuccess { tracks ->
                 val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
-                if (!isOnline && tracks.isNotEmpty() && currentTracks.isEmpty()) {
+                Log.d("MUESO_RESTORE", "loadLocalTracks: Loaded ${tracks.size} local tracks. isOnline=$isOnline, isPlaylistContext=${_isPlaylistContext.value}, currentTracksSize=${currentTracks.size}")
+                if (!isOnline && tracks.isNotEmpty() && (!_isPlaylistContext.value || currentTracks.isEmpty() || currentTracks.size <= 1)) {
                     currentTracks = tracks
+                    Log.d("MUESO_RESTORE", "loadLocalTracks: currentTracks updated with ${tracks.size} local tracks")
                 }
 
                 if (tracks.isEmpty()) {
@@ -754,13 +761,19 @@ class PlayerViewModel(
                     if (!isOnline) {
                         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
                         val lastPosition = sharedPreferences.getLong("last_position", 0L)
-                        if (lastTrackId != -1L) {
-                            val index = tracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
-                            mediaPlayerController.restoreQueue(tracks, index, lastPosition)
+                        val index = if (lastTrackId != -1L) {
+                            tracks.indexOfFirst { it.id == lastTrackId }.takeIf { it >= 0 } ?: 0
+                        } else {
+                            0
                         }
+                        val pos = if (lastTrackId != -1L) lastPosition else 0L
+                        val restoredTrack = tracks[index]
+                        Log.d("MUESO_RESTORE", "loadLocalTracks: Restoring offline playback -> lastTrackId=$lastTrackId, index=$index, lastPosition=${pos}ms: '${restoredTrack.title}' (id=${restoredTrack.id}, albumId=${restoredTrack.albumId}, path=${restoredTrack.filePath})")
+                        mediaPlayerController.restoreQueue(tracks, index, pos)
                     }
                 }
             }.onFailure { exception ->
+                Log.e("MUESO_RESTORE", "loadLocalTracks: Failed to load local tracks", exception)
                 _uiState.value = PlayerUiState.Error(exception.message ?: "Unknown error")
             }
         }
@@ -959,6 +972,7 @@ class PlayerViewModel(
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
         val lastPosition = sharedPreferences.getLong("last_position", 0L)
         val hasNet = context?.let { isNetworkAvailable(it) } ?: true
+        Log.d("MUESO_RESTORE", "restoreLastPlaybackStateOrOffline called: isOnline=$isOnline, lastTrackId=$lastTrackId, lastPosition=${lastPosition}ms, hasNet=$hasNet")
 
         // Always load local device tracks into _uiState (Offline Library Tab)
         loadLocalTracks(forceReload = true)
@@ -1116,6 +1130,8 @@ class PlayerViewModel(
                             .putLong("last_track_id", curTrack.id)
                             .putString("last_track_title", curTrack.title)
                             .putString("last_track_artist", curTrack.artist)
+                            .putString("last_track_album", curTrack.album)
+                            .putLong("last_track_album_id", curTrack.albumId)
                             .putString("last_track_filepath", persistentFilePath)
                             .putString("last_track_artwork_url", curTrack.artworkUrl)
                             .putLong("last_track_duration", if (curTrack.duration > 0L) curTrack.duration else state.durationMs)
@@ -1124,12 +1140,12 @@ class PlayerViewModel(
                             .apply()
 
                         saveQueueToPreferences()
-                        fetchLyricsForTrack(curTrack)
-                        // Only prefetch on actual track transitions, not every position update
-                        if (oldTrackId != state.currentTrackId) {
+                        // Only fetch lyrics and prefetch on actual track transitions or initial start
+                        if (oldTrackId != state.currentTrackId || _lyricsFetchStatus.value[curTrack.id] == null) {
                             val newTrackId = state.currentTrackId
                             _lyricsOffsetMs.value = sharedPreferences.getLong("lyrics_offset_$newTrackId", 0L)
                             lastPrefetchedNextIndex = -1
+                            fetchLyricsForTrack(curTrack)
                             prefetchAndKeepQueueAlive(currentTrackIdx)
                         }
                         checkNearEndPrefetch(currentTrackIdx, state.currentPositionMs, state.durationMs)
@@ -1163,6 +1179,8 @@ class PlayerViewModel(
                 .putLong("last_track_id", curTrack.id)
                 .putString("last_track_title", curTrack.title)
                 .putString("last_track_artist", curTrack.artist)
+                .putString("last_track_album", curTrack.album)
+                .putLong("last_track_album_id", curTrack.albumId)
                 .putString("last_track_filepath", persistentFilePath)
                 .putString("last_track_artwork_url", curTrack.artworkUrl)
                 .putLong("last_track_duration", if (curTrack.duration > 0L) curTrack.duration else state.durationMs)
