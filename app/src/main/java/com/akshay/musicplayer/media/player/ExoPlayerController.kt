@@ -126,11 +126,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             if (isPlayingOnline) return
 
             val oldId = currentTrackId
-            currentTrackId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
+            val newId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
+            currentTrackId = newId
             Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: oldId=$oldId, newId=$currentTrackId, reason=$reason")
-            val currentTrack = tracksQueue.firstOrNull { it.id == currentTrackId }
-            if (currentTrack != null) {
-                updateArtworkForCurrentTrack(currentTrack)
+            if (oldId != newId) {
+                val currentTrack = tracksQueue.firstOrNull { it.id == currentTrackId }
+                if (currentTrack != null) {
+                    updateArtworkForCurrentTrack(currentTrack)
+                }
             }
             if (!isRestoring) {
                 updatePlaybackState()
@@ -271,10 +274,6 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 val updatedMetadata = item.mediaMetadata.buildUpon()
                     .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                     .build()
-                val updatedMediaItem = item.buildUpon()
-                    .setMediaMetadata(updatedMetadata)
-                    .build()
-                controller.replaceMediaItem(currentIndex, updatedMediaItem)
                 controller.setPlaylistMetadata(updatedMetadata)
             }
         }
@@ -321,9 +320,6 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     controller.setMediaItem(mediaItem, pos)
                     controller.prepare()
                 } else {
-                    if (controller.mediaItemCount > 0) {
-                        controller.replaceMediaItem(0, mediaItem)
-                    }
                     controller.setPlaylistMetadata(metadata)
                 }
 
