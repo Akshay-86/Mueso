@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SpotifyImportState {
     Idle,
@@ -253,7 +254,7 @@ class SpotifyImportManager(
                 if (!onlineRepo.innerTube.isLoggedIn()) {
                     _errorMessage.value = "Please sign in to YouTube Music first"
                     _importState.value = SpotifyImportState.Error
-                    onComplete(false)
+                    withContext(Dispatchers.Main) { onComplete(false) }
                     return@launch
                 }
 
@@ -265,7 +266,7 @@ class SpotifyImportManager(
                 if (newPlaylistId == null) {
                     _errorMessage.value = "Failed to create playlist on YouTube Music"
                     _importState.value = SpotifyImportState.Error
-                    onComplete(false)
+                    withContext(Dispatchers.Main) { onComplete(false) }
                     return@launch
                 }
 
@@ -286,12 +287,12 @@ class SpotifyImportManager(
                 onYouTubeRefresh?.invoke()
                 _importState.value = SpotifyImportState.Done
                 Log.d(TAG, "Created YouTube Music playlist \"${playlistData.name}\" ($newPlaylistId) with $addedCount tracks")
-                onComplete(true)
+                withContext(Dispatchers.Main) { onComplete(true) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create YouTube Music playlist", e)
                 _errorMessage.value = "Failed to create YouTube playlist: ${e.message}"
                 _importState.value = SpotifyImportState.Error
-                onComplete(false)
+                withContext(Dispatchers.Main) { onComplete(false) }
             }
         }
     }

@@ -1168,7 +1168,7 @@ class PlayerViewModel(
                 .putLong("last_track_duration", if (curTrack.duration > 0L) curTrack.duration else state.durationMs)
                 .putBoolean("last_track_is_online", isOnline)
                 .putLong("last_position", state.currentPositionMs)
-                .commit()
+                .apply()
             Log.d("MUESO_RESTORE", "Persisted track '${curTrack.title}' at position: ${state.currentPositionMs}ms")
         }
     }

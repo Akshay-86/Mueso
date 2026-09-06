@@ -57,8 +57,8 @@ class MusicPlayerService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
-            .setAudioAttributes(audioAttributes, false) // Do not request audio focus, so it does not revoke focus from Chromium WebView
-            .setHandleAudioBecomingNoisy(false)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
             .build()
 
 

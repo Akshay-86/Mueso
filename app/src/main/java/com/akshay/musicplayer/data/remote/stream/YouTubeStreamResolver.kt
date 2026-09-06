@@ -200,9 +200,10 @@ class YouTubeStreamResolver(
                 .header("X-YouTube-Client-Name", strategy.clientId.toString())
                 .header("X-YouTube-Client-Version", strategy.clientVersion)
 
-            if (strategy.label == "WEB" || strategy.label == "TVHTML5_EMBEDDED") {
-                requestBuilder.header("Origin", "https://www.youtube.com")
-                requestBuilder.header("Referer", "https://www.youtube.com/")
+            if (strategy.apiUrl.startsWith("https://www.youtube.com") || strategy.apiUrl.startsWith("https://music.youtube.com")) {
+                val origin = if (strategy.apiUrl.startsWith("https://music.youtube.com")) "https://music.youtube.com" else "https://www.youtube.com"
+                requestBuilder.header("Origin", origin)
+                requestBuilder.header("Referer", "$origin/")
             }
 
             if (strategy.requiresAuth) {

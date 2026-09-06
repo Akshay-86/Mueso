@@ -1175,12 +1175,7 @@ private fun SettingsFolderSelectorItem(
                 DocumentsContract.getTreeDocumentId(uri)
             } catch (_: Exception) { null }
 
-            val displayPath = when {
-                docId != null && docId.startsWith("primary:") -> docId.removePrefix("primary:")
-                docId != null -> docId
-                else -> uri.lastPathSegment ?: "Custom Folder"
-            }
-            onFolderSelect(displayPath.ifBlank { "Music" })
+            onFolderSelect(uri.toString())
             showDialog = false
         }
     }

@@ -2,6 +2,7 @@ package com.akshay.musicplayer.ui.viewmodel.managers
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
@@ -195,6 +196,63 @@ class DownloadManager(
                 Log.d("MUESO_DOWNLOAD", "Metadata embedded for '${track.title}' (success=$embedSuccess, lyrics=${!lrcContent.isNullOrBlank()})")
 
                 val folderSetting = getDownloadFolder()
+                if (folderSetting.startsWith("content://")) {
+                    val treeUri = Uri.parse(folderSetting)
+                    val docId = try {
+                        android.provider.DocumentsContract.getTreeDocumentId(treeUri)
+                    } catch (_: Exception) { null }
+                    val parentDocUri = if (docId != null) {
+                        android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                    } else treeUri
+
+                    val mimeType = if (ext.equals(".mp3", ignoreCase = true)) "audio/mpeg" else "audio/mp4"
+                    val createdAudioUri = android.provider.DocumentsContract.createDocument(
+                        context.contentResolver,
+                        parentDocUri,
+                        mimeType,
+                        "$sanitizedTitle$ext"
+                    )
+
+                    if (createdAudioUri != null) {
+                        context.contentResolver.openOutputStream(createdAudioUri)?.use { out ->
+                            fileToSave.inputStream().use { input ->
+                                input.copyTo(out)
+                            }
+                        }
+                    } else {
+                        throw IllegalStateException("Failed to create audio file in selected folder")
+                    }
+
+                    if (shouldEmbedLyrics && !lrcContent.isNullOrBlank()) {
+                        try {
+                            val createdLrcUri = android.provider.DocumentsContract.createDocument(
+                                context.contentResolver,
+                                parentDocUri,
+                                "text/plain",
+                                "$sanitizedTitle.lrc"
+                            )
+                            if (createdLrcUri != null) {
+                                context.contentResolver.openOutputStream(createdLrcUri)?.use { out ->
+                                    out.write(lrcContent.toByteArray(Charsets.UTF_8))
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MUESO_DOWNLOAD", "Failed to write companion LRC via SAF: ${e.message}")
+                        }
+                    }
+
+                    fileToSave.delete()
+                    activeTempFiles.remove(track.id)
+                    tempFile = null
+
+                    _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
+                    totalDownloadedInBatch++
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Saved \"${track.title}\"", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
                 val targetDir = when {
                     folderSetting == "Internal App Storage" -> context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
                     folderSetting == "Downloads" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)

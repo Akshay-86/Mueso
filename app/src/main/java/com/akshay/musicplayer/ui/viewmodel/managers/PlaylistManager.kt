@@ -38,14 +38,17 @@ class PlaylistManager(
     val onlinePlaylists: StateFlow<List<OnlinePlaylistEntity>> = _onlinePlaylists.asStateFlow()
 
     init {
-        // Clear any stale/corrupted curated cache
-        val allKeys = sharedPreferences.all.keys
-        val cacheKeys = allKeys.filter { it.startsWith("curated_cache_") }
-        if (cacheKeys.isNotEmpty()) {
-            val editor = sharedPreferences.edit()
+        // One-time migration to clear legacy corrupted curated cache entries if any
+        val isMigrated = sharedPreferences.getBoolean("curated_cache_v2_migrated", false)
+        if (!isMigrated) {
+            val allKeys = sharedPreferences.all.keys
+            val cacheKeys = allKeys.filter { it.startsWith("curated_cache_") }
+            val editor = sharedPreferences.edit().putBoolean("curated_cache_v2_migrated", true)
             cacheKeys.forEach { editor.remove(it) }
             editor.apply()
-            Log.d("MUESO_CACHE", "Purged ${cacheKeys.size} stale curated playlist cache entries")
+            if (cacheKeys.isNotEmpty()) {
+                Log.d("MUESO_CACHE", "Purged ${cacheKeys.size} stale legacy curated playlist cache entries")
+            }
         }
 
         loadPlaylists()

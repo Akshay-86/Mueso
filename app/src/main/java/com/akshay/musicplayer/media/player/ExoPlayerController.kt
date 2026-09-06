@@ -129,6 +129,16 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val newId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
             currentTrackId = newId
             Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: oldId=$oldId, newId=$currentTrackId, reason=$reason")
+            val newIndex = tracksQueue.indexOfFirst { it.id == newId }
+            if (newIndex >= 0) {
+                currentQueueIndex = newIndex
+                val currentTrack = tracksQueue[newIndex]
+                if (currentTrack.filePath.startsWith("online:")) {
+                    Log.d("MUESO_SYNC", "ExoPlayer transitioned into online track '${currentTrack.title}'. Handing off to online player.")
+                    seekToIndex(newIndex)
+                    return
+                }
+            }
             if (oldId != newId) {
                 val currentTrack = tracksQueue.firstOrNull { it.id == currentTrackId }
                 if (currentTrack != null) {
@@ -556,9 +566,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         // Local or direct HTTP track -> ExoPlayer
         isPlayingOnline = false
         currentOnlineTrack = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
         ytPlayerManager.pause()
         mediaController?.volume = 1f
 
+        val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
         val mediaItems = tracks.map { t ->
             val metadata = MediaMetadata.Builder()
                 .setTitle(t.title)
@@ -569,9 +584,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .build()
 
+            val uri = if (t.filePath.startsWith("online:")) silenceUri else Uri.parse(t.filePath)
+
             MediaItem.Builder()
                 .setMediaId(t.id.toString())
-                .setUri(t.filePath)
+                .setUri(uri)
                 .setMediaMetadata(metadata)
                 .build()
         }
@@ -626,9 +643,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         isPlayingOnline = false
         currentOnlineTrack = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
         ytPlayerManager.pause()
         mediaController?.volume = 1f
 
+        val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
         val mediaItems = tracks.map { t ->
             val metadata = MediaMetadata.Builder()
                 .setTitle(t.title)
@@ -639,9 +661,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 .setArtworkUri(getBestArtworkUri(t))
                 .build()
 
+            val uri = if (t.filePath.startsWith("online:")) silenceUri else Uri.parse(t.filePath)
+
             MediaItem.Builder()
                 .setMediaId(t.id.toString())
-                .setUri(t.filePath)
+                .setUri(uri)
                 .setMediaMetadata(metadata)
                 .build()
         }
@@ -786,6 +810,10 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         isPlayingOnline = false
         currentOnlineTrack = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
         ytPlayerManager.pause()
         mediaController?.volume = 1f
 

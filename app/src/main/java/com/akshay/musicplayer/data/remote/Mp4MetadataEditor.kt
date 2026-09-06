@@ -34,8 +34,9 @@ object Mp4MetadataEditor {
                 val fileLength = raf.length()
                 var moovOffset = -1L
                 var moovSize = -1L
+                var mdatOffset = -1L
 
-                // Scan top-level boxes for 'moov'
+                // Scan top-level boxes for 'moov' and 'mdat'
                 var offset = 0L
                 while (offset < fileLength - 8) {
                     raf.seek(offset)
@@ -63,7 +64,8 @@ object Mp4MetadataEditor {
                     if (boxType == "moov") {
                         moovOffset = offset
                         moovSize = actualSize
-                        break
+                    } else if (boxType == "mdat") {
+                        mdatOffset = offset
                     }
 
                     offset += actualSize
@@ -105,9 +107,9 @@ object Mp4MetadataEditor {
 
                 val deltaSize = newUdtaBox.size - oldUdtaSize
 
-                // If monolithic MP4 contains stco/co64 chunk tables, adjust them for the shift
+                // Only adjust chunk offsets if media data (mdat) appears AFTER the resized moov box
                 var cleanChildrenBytes = filteredMoovChildren.toByteArray()
-                if (deltaSize != 0) {
+                if (deltaSize != 0 && (mdatOffset > moovOffset || mdatOffset == -1L)) {
                     adjustChunkOffsets(cleanChildrenBytes, deltaSize)
                 }
 

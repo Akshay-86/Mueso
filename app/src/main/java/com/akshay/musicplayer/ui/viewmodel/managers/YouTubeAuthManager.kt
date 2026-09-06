@@ -75,6 +75,77 @@ class YouTubeAuthManager(
         loadSavedSession()
     }
 
+    private object KeystoreCrypto {
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val KEY_ALIAS = "mueso_ytm_auth_key"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val GCM_TAG_LENGTH = 128
+
+        private fun getOrCreateKey(): javax.crypto.SecretKey {
+            val keyStore = java.security.KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (!keyStore.containsAlias(KEY_ALIAS)) {
+                val keyGenerator = javax.crypto.KeyGenerator.getInstance(
+                    android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
+                    ANDROID_KEYSTORE
+                )
+                val spec = android.security.keystore.KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+                )
+                    .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .build()
+                keyGenerator.init(spec)
+                return keyGenerator.generateKey()
+            }
+            val entry = keyStore.getEntry(KEY_ALIAS, null) as java.security.KeyStore.SecretKeyEntry
+            return entry.secretKey
+        }
+
+        fun encrypt(plaintext: String): String {
+            if (plaintext.isBlank()) return ""
+            return try {
+                val cipher = javax.crypto.Cipher.getInstance(TRANSFORMATION)
+                cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, getOrCreateKey())
+                val iv = cipher.iv
+                val encrypted = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+                val combined = java.nio.ByteBuffer.allocate(1 + iv.size + encrypted.size)
+                    .put(iv.size.toByte())
+                    .put(iv)
+                    .put(encrypted)
+                    .array()
+                "enc:" + android.util.Base64.encodeToString(combined, android.util.Base64.NO_WRAP)
+            } catch (e: Exception) {
+                Log.w(TAG, "Encryption failed, storing as-is", e)
+                plaintext
+            }
+        }
+
+        fun decrypt(ciphertext: String): String {
+            if (ciphertext.isBlank()) return ""
+            if (!ciphertext.startsWith("enc:")) return ciphertext
+            return try {
+                val rawBase64 = ciphertext.removePrefix("enc:")
+                val combined = android.util.Base64.decode(rawBase64, android.util.Base64.NO_WRAP)
+                val buffer = java.nio.ByteBuffer.wrap(combined)
+                val ivLength = buffer.get().toInt()
+                val iv = ByteArray(ivLength)
+                buffer.get(iv)
+                val encrypted = ByteArray(buffer.remaining())
+                buffer.get(encrypted)
+                val cipher = javax.crypto.Cipher.getInstance(TRANSFORMATION)
+                val spec = javax.crypto.spec.GCMParameterSpec(GCM_TAG_LENGTH, iv)
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, getOrCreateKey(), spec)
+                val decrypted = cipher.doFinal(encrypted)
+                String(decrypted, Charsets.UTF_8)
+            } catch (e: Exception) {
+                Log.w(TAG, "Decryption failed", e)
+                ciphertext
+            }
+        }
+    }
+
     private fun loadAccountsFromPrefs(): List<YouTubeAccount> {
         val jsonStr = prefs.getString(KEY_SAVED_ACCOUNTS, null)
         if (!jsonStr.isNullOrBlank()) {
@@ -83,13 +154,14 @@ class YouTubeAuthManager(
                 val list = mutableListOf<YouTubeAccount>()
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val rawCookie = obj.getString("cookieString")
                     list.add(
                         YouTubeAccount(
                             id = obj.getString("id"),
                             name = obj.getString("name"),
                             handle = obj.optString("handle").takeIf { it.isNotBlank() },
                             avatarUrl = obj.optString("avatarUrl").takeIf { it.isNotBlank() },
-                            cookieString = obj.getString("cookieString")
+                            cookieString = KeystoreCrypto.decrypt(rawCookie)
                         )
                     )
                 }
@@ -109,7 +181,7 @@ class YouTubeAuthManager(
                     name = name,
                     handle = handle,
                     avatarUrl = avatar,
-                    cookieString = legacyCookie
+                    cookieString = KeystoreCrypto.decrypt(legacyCookie)
                 )
             )
         }
@@ -124,7 +196,7 @@ class YouTubeAuthManager(
             obj.put("name", acc.name)
             obj.put("handle", acc.handle ?: "")
             obj.put("avatarUrl", acc.avatarUrl ?: "")
-            obj.put("cookieString", acc.cookieString)
+            obj.put("cookieString", KeystoreCrypto.encrypt(acc.cookieString))
             arr.put(obj)
         }
         prefs.edit()
