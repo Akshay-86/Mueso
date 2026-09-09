@@ -90,17 +90,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlayingOnline) {
-                if (isSyncingToMediaSession) {
-                    return
-                }
-                if (isPlaying != ytPlayerManager.isPlaying) {
-                    Log.d("MUESO_SYNC", "Control Center requested isPlaying=$isPlaying for online track")
-                    if (isPlaying) {
-                        ytPlayerManager.play()
-                    } else {
-                        ytPlayerManager.pause()
-                    }
-                }
+                // Control Center play/pause is handled directly via MediaSessionBridge callbacks.
+                // Do not manipulate ytPlayerManager here.
                 return
             }
 
@@ -115,11 +106,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
-            if (isPlayingOnline && reason == Player.DISCONTINUITY_REASON_SEEK) {
-                val seekSec = newPosition.positionMs / 1000f
-                Log.d("MUESO_SYNC", "Control center seek to ${newPosition.positionMs}ms (${seekSec}s)")
-                ytPlayerManager.seekTo(seekSec)
-            }
+            // Seeking for online tracks is handled via MediaSessionBridge.onSeekRequested.
+            // Do not call ytPlayerManager.seekTo here to prevent loops with ExoPlayer internal seeks.
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -200,6 +188,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private fun cropToSquare(bm: Bitmap): Bitmap {
+        if (bm.width == bm.height) return bm
+        val size = minOf(bm.width, bm.height)
+        val x = (bm.width - size) / 2
+        val y = (bm.height - size) / 2
+        return Bitmap.createBitmap(bm, x, y, size, size)
+    }
+
     private suspend fun loadArtworkBytes(track: TrackEntity): ByteArray? {
         try {
             val artUri = getBestArtworkUri(track) ?: return null
@@ -219,8 +215,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         val result = loader.execute(request)
                         val bm = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                         if (bm != null) {
+                            val squareBm = cropToSquare(bm)
                             val stream = ByteArrayOutputStream()
-                            bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            squareBm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                             return stream.toByteArray()
                         }
                     } catch (_: Exception) {}
@@ -232,9 +229,12 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uriString.contains("audio/media")) {
                     try {
                         val bm = context.contentResolver.loadThumbnail(artUri, Size(1024, 1024), null)
-                        val stream = ByteArrayOutputStream()
-                        bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-                        return stream.toByteArray()
+                        if (bm != null) {
+                            val squareBm = cropToSquare(bm)
+                            val stream = ByteArrayOutputStream()
+                            squareBm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            return stream.toByteArray()
+                        }
                     } catch (_: Exception) {}
                 }
                 try {
@@ -242,7 +242,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     retriever.setDataSource(context, artUri)
                     val raw = retriever.embeddedPicture
                     retriever.release()
-                    if (raw != null) return raw
+                    if (raw != null) {
+                        try {
+                            val rawBm = BitmapFactory.decodeByteArray(raw, 0, raw.size)
+                            if (rawBm != null) {
+                                val squareBm = cropToSquare(rawBm)
+                                val stream = ByteArrayOutputStream()
+                                squareBm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                                return stream.toByteArray()
+                            }
+                        } catch (_: Exception) {}
+                        return raw
+                    }
                 } catch (_: Exception) {}
             }
 
@@ -256,14 +267,26 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         retriever.setDataSource(file.absolutePath)
                         val raw = retriever.embeddedPicture
                         retriever.release()
-                        if (raw != null) return raw
+                        if (raw != null) {
+                            try {
+                                val rawBm = BitmapFactory.decodeByteArray(raw, 0, raw.size)
+                                if (rawBm != null) {
+                                    val squareBm = cropToSquare(rawBm)
+                                    val stream = ByteArrayOutputStream()
+                                    squareBm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                                    return stream.toByteArray()
+                                }
+                            } catch (_: Exception) {}
+                            return raw
+                        }
                     } catch (_: Exception) {}
 
                     try {
                         val bm = BitmapFactory.decodeFile(file.absolutePath)
                         if (bm != null) {
+                            val squareBm = cropToSquare(bm)
                             val stream = ByteArrayOutputStream()
-                            bm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            squareBm.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                             return stream.toByteArray()
                         }
                     } catch (_: Exception) {}
@@ -282,7 +305,10 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 val updatedMetadata = item.mediaMetadata.buildUpon()
                     .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                     .build()
-                controller.setPlaylistMetadata(updatedMetadata)
+                val updatedItem = item.buildUpon()
+                    .setMediaMetadata(updatedMetadata)
+                    .build()
+                controller.replaceMediaItem(currentIndex, updatedItem)
             }
         }
     }
@@ -295,40 +321,34 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (positionMs >= 0L) {
             com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = positionMs
         }
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = { seekMs ->
-            seekTo(seekMs)
-        }
 
         mediaController?.let { controller ->
             isSyncingToMediaSession = true
+            com.akshay.musicplayer.media.service.MediaSessionBridge.isSyncing = true
             try {
                 controller.volume = 0f
 
-                val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
-                val artworkUri = getBestArtworkUri(track)
-                val metadata = MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album.ifBlank { "YouTube Music" })
-                    .setArtworkUri(artworkUri)
-                    .setIsPlayable(true)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .build()
-
-                val mediaItem = MediaItem.Builder()
-                    .setMediaId(track.id.toString())
-                    .setUri(silenceUri)
-                    .setMediaMetadata(metadata)
-                    .build()
-
                 val currentId = controller.currentMediaItem?.mediaId
                 if (currentId != track.id.toString()) {
-                    controller.repeatMode = Player.REPEAT_MODE_ONE
-                    val pos = if (positionMs >= 0) positionMs else 0L
-                    controller.setMediaItem(mediaItem, pos)
+                    val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
+                    val artworkUri = getBestArtworkUri(track)
+                    val metadata = MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album.ifBlank { "YouTube Music" })
+                        .setArtworkUri(artworkUri)
+                        .setIsPlayable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
+
+                    val mediaItem = MediaItem.Builder()
+                        .setMediaId(track.id.toString())
+                        .setUri(silenceUri)
+                        .setMediaMetadata(metadata)
+                        .build()
+
+                    controller.setMediaItem(mediaItem)
                     controller.prepare()
-                } else {
-                    controller.setPlaylistMetadata(metadata)
                 }
 
                 if (isPlaying) {
@@ -345,6 +365,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             } finally {
                 mainHandler.post {
                     isSyncingToMediaSession = false
+                    com.akshay.musicplayer.media.service.MediaSessionBridge.isSyncing = false
                 }
             }
         }
@@ -485,6 +506,48 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             if (isPlayingOnline) {
                 Log.w("MUESO_SYNC", "YouTubePlayer onError: $errName")
                 handleOnlineTrackError(errName)
+            }
+        }
+
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = {
+            mainHandler.post { seekToNext() }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPreviousRequested = {
+            mainHandler.post { seekToPrevious() }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPlayRequested = {
+            mainHandler.post {
+                if (isPlayingOnline) {
+                    ytPlayerManager.play()
+                }
+            }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPauseRequested = {
+            mainHandler.post {
+                if (isPlayingOnline) {
+                    ytPlayerManager.pause()
+                }
+            }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.hasNextItem = {
+            val mode = getRepeatMode()
+            if (mode == Player.REPEAT_MODE_ALL) {
+                tracksQueue.isNotEmpty()
+            } else {
+                currentQueueIndex < tracksQueue.size - 1
+            }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.hasPreviousItem = {
+            val mode = getRepeatMode()
+            if (mode == Player.REPEAT_MODE_ALL) {
+                tracksQueue.isNotEmpty()
+            } else {
+                currentQueueIndex > 0
+            }
+        }
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = { seekMs ->
+            mainHandler.post {
+                seekTo(seekMs)
             }
         }
 
@@ -712,32 +775,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun seekToNext() {
-        if (isPlayingOnline && currentQueueIndex + 1 in tracksQueue.indices) {
-            seekToIndex(currentQueueIndex + 1)
-        } else {
-            mediaController?.let { controller ->
-                if (controller.hasNextMediaItem()) {
-                    controller.seekToNextMediaItem()
-                    updatePlaybackState()
-                } else if (currentQueueIndex + 1 in tracksQueue.indices) {
-                    seekToIndex(currentQueueIndex + 1)
-                }
-            }
+        val nextIndex = currentQueueIndex + 1
+        if (nextIndex in tracksQueue.indices) {
+            seekToIndex(nextIndex)
+        } else if (getRepeatMode() == Player.REPEAT_MODE_ALL && tracksQueue.isNotEmpty()) {
+            seekToIndex(0)
         }
     }
 
     override fun seekToPrevious() {
-        if (isPlayingOnline && currentQueueIndex - 1 in tracksQueue.indices) {
-            seekToIndex(currentQueueIndex - 1)
-        } else {
-            mediaController?.let { controller ->
-                if (controller.hasPreviousMediaItem()) {
-                    controller.seekToPreviousMediaItem()
-                    updatePlaybackState()
-                } else if (currentQueueIndex - 1 in tracksQueue.indices) {
-                    seekToIndex(currentQueueIndex - 1)
-                }
-            }
+        val prevIndex = currentQueueIndex - 1
+        if (prevIndex in tracksQueue.indices) {
+            seekToIndex(prevIndex)
+        } else if (getRepeatMode() == Player.REPEAT_MODE_ALL && tracksQueue.isNotEmpty()) {
+            seekToIndex(tracksQueue.size - 1)
         }
     }
 
@@ -772,9 +823,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun seekTo(positionMs: Long) {
         if (isPlayingOnline) {
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = positionMs
             ytPlayerManager.seekTo(positionMs / 1000f)
             _playbackState.value = _playbackState.value.copy(currentPositionMs = positionMs)
-            mediaController?.seekTo(positionMs)
         } else {
             mediaController?.seekTo(positionMs)
             updatePlaybackState()
@@ -838,13 +889,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
         ytPlayerManager.pause()
         mediaController?.volume = 1f
 
         mediaController?.let { controller ->
-            if (index in 0 until controller.mediaItemCount) {
-                currentTrackId = controller.getMediaItemAt(index).mediaId.toLongOrNull() ?: (track?.id ?: currentTrackId)
+            val hasMatchingItem = index in 0 until controller.mediaItemCount &&
+                    controller.getMediaItemAt(index).mediaId == track?.id?.toString()
+            if (hasMatchingItem) {
+                currentTrackId = track?.id ?: currentTrackId
                 controller.seekToDefaultPosition(index)
                 controller.play()
                 updatePlaybackState()
@@ -993,6 +1045,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun release() {
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPreviousRequested = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPlayRequested = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onPauseRequested = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.hasNextItem = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.hasPreviousItem = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
+
         ytPlayerManager.release()
         positionUpdateJob?.cancel()
         try {
@@ -1009,6 +1069,4 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun playbackState(): StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
     override fun mediaEvents(): Flow<PlayerEvent> = _mediaEvents
-
-    override fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = ytPlayerManager.getPlayerView()
 }

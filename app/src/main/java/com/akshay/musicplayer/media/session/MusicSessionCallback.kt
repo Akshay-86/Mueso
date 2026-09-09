@@ -12,8 +12,13 @@ class MusicSessionCallback : MediaSession.Callback {
         val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
             .add(Player.COMMAND_PLAY_PAUSE)
             .add(Player.COMMAND_SEEK_TO_NEXT)
+            .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
             .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+            .add(Player.COMMAND_GET_TIMELINE)
+            .add(Player.COMMAND_GET_MEDIA_ITEMS_METADATA)
             .build()
             
         return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)

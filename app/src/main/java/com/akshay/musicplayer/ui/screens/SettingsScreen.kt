@@ -75,7 +75,6 @@ fun SettingsScreen(
     val downloadFolder by viewModel.downloadFolder.collectAsState()
     val embedLyricsInDownload by viewModel.embedLyricsInDownload.collectAsState()
     val enableLyrics by viewModel.enableLyrics.collectAsState()
-    val enableVideoMode by viewModel.enableVideoMode.collectAsState()
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
 
     val playButtonPosition by viewModel.playButtonPosition.collectAsState()
@@ -512,6 +511,8 @@ fun SettingsScreen(
                         isDarkMode = isDarkMode,
                         onSelect = { viewModel.setPlayButtonPosition(it) }
                     )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsBatteryItem(isDarkMode = isDarkMode)
                 }
             }
 
@@ -550,16 +551,6 @@ fun SettingsScreen(
                         checked = enableLyrics,
                         isDarkMode = isDarkMode,
                         onCheckedChange = { viewModel.setEnableLyrics(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Enable Video Mode",
-                        subtitle = "Show Song/Video switcher in player for tracks with music videos",
-                        icon = Icons.Default.Videocam,
-                        checked = enableVideoMode,
-                        isDarkMode = isDarkMode,
-                        badge = "BETA",
-                        onCheckedChange = { viewModel.setEnableVideoMode(it) }
                     )
                 }
             }
@@ -1296,6 +1287,79 @@ private fun SettingsFolderSelectorItem(
                         Text("Close", color = textSub)
                     }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsBatteryItem(
+    isDarkMode: Boolean
+) {
+    val context = LocalContext.current
+    var isIgnoring by remember {
+        mutableStateOf(com.akshay.musicplayer.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context))
+    }
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Bolt,
+                contentDescription = null,
+                tint = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Background Playback",
+                    color = textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isIgnoring) Color(0xFF4CAF50).copy(alpha = 0.15f) else AccentOrange.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (isIgnoring) "UNRESTRICTED" else "OPTIMIZED",
+                        color = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (isIgnoring) "Battery optimization disabled. Playback stays alive when screen is off." else "Battery restricted. Tap to allow unrestricted background playback.",
+                color = textSub,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
             )
         }
     }

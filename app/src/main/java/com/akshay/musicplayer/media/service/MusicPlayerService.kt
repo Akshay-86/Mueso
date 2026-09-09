@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
@@ -20,6 +21,33 @@ import com.google.common.util.concurrent.ListenableFuture
 class MusicPlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+    private fun acquireWakeLock() {
+        if (wakeLock == null) {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Mueso:PlaybackWakeLock")?.apply {
+                setReferenceCounted(false)
+            }
+        }
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+            }
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to acquire wakeLock", e)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to release wakeLock", e)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -63,7 +91,26 @@ class MusicPlayerService : MediaSessionService() {
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(audioAttributes, false)
             .setHandleAudioBecomingNoisy(false)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    acquireWakeLock()
+                } else if (!MediaSessionBridge.isOnlinePlaying) {
+                    releaseWakeLock()
+                }
+            }
+        })
+
+        MediaSessionBridge.onOnlinePlayingChanged = { isOnline ->
+            if (isOnline) {
+                acquireWakeLock()
+            } else if (!player.isPlaying) {
+                releaseWakeLock()
+            }
+        }
 
 
         val intent = android.content.Intent(this, com.akshay.musicplayer.MainActivity::class.java)
@@ -86,16 +133,21 @@ class MusicPlayerService : MediaSessionService() {
                     controller: MediaSession.ControllerInfo
                 ): MediaSession.ConnectionResult {
                     val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().build()
-                    val playerCommands = session.player.availableCommands.buildUpon()
+                    val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
                         .add(Player.COMMAND_PLAY_PAUSE)
                         .add(Player.COMMAND_PREPARE)
                         .add(Player.COMMAND_STOP)
                         .add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                         .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                         .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                         .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
                         .add(Player.COMMAND_SET_MEDIA_ITEM)
                         .add(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+                        .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+                        .add(Player.COMMAND_GET_TIMELINE)
+                        .add(Player.COMMAND_GET_MEDIA_ITEMS_METADATA)
                         .build()
                     return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)
                 }
@@ -132,6 +184,7 @@ class MusicPlayerService : MediaSessionService() {
             ).apply {
                 description = "Controls for the currently playing music"
                 setShowBadge(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -143,6 +196,8 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
+        MediaSessionBridge.onOnlinePlayingChanged = null
         mediaSession?.let {
             it.player.release()
             it.release()
@@ -159,9 +214,21 @@ class MusicPlayerService : MediaSessionService() {
 
 object MediaSessionBridge {
     @Volatile var isOnlinePlaying: Boolean = false
+        set(value) {
+            field = value
+            onOnlinePlayingChanged?.invoke(value)
+        }
+    @Volatile var isSyncing: Boolean = false
     @Volatile var onlineDurationMs: Long = 0L
     @Volatile var onlinePositionMs: Long = 0L
+    var onOnlinePlayingChanged: ((Boolean) -> Unit)? = null
     var onSeekRequested: ((Long) -> Unit)? = null
+    var onNextRequested: (() -> Unit)? = null
+    var onPreviousRequested: (() -> Unit)? = null
+    var onPlayRequested: (() -> Unit)? = null
+    var onPauseRequested: (() -> Unit)? = null
+    var hasNextItem: (() -> Boolean)? = null
+    var hasPreviousItem: (() -> Boolean)? = null
 }
 
 class MusicForwardingPlayer(
@@ -179,14 +246,103 @@ class MusicForwardingPlayer(
 
     override fun play() {
         updateAudioFocus()
+        if (MediaSessionBridge.isOnlinePlaying) {
+            if (!MediaSessionBridge.isSyncing) {
+                MediaSessionBridge.onPlayRequested?.invoke()
+            }
+            super.play()
+            return
+        }
         super.play()
+    }
+
+    override fun pause() {
+        if (MediaSessionBridge.isOnlinePlaying) {
+            if (!MediaSessionBridge.isSyncing) {
+                MediaSessionBridge.onPauseRequested?.invoke()
+            }
+            super.pause()
+            return
+        }
+        super.pause()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         if (playWhenReady) {
             updateAudioFocus()
         }
+        if (MediaSessionBridge.isOnlinePlaying) {
+            if (!MediaSessionBridge.isSyncing) {
+                if (playWhenReady) {
+                    MediaSessionBridge.onPlayRequested?.invoke()
+                } else {
+                    MediaSessionBridge.onPauseRequested?.invoke()
+                }
+            }
+            super.setPlayWhenReady(playWhenReady)
+            return
+        }
         super.setPlayWhenReady(playWhenReady)
+    }
+
+    override fun seekToNext() {
+        MediaSessionBridge.onNextRequested?.let {
+            it.invoke()
+            return
+        }
+        super.seekToNext()
+    }
+
+    override fun seekToNextMediaItem() {
+        MediaSessionBridge.onNextRequested?.let {
+            it.invoke()
+            return
+        }
+        super.seekToNextMediaItem()
+    }
+
+    override fun seekToPrevious() {
+        MediaSessionBridge.onPreviousRequested?.let {
+            it.invoke()
+            return
+        }
+        super.seekToPrevious()
+    }
+
+    override fun seekToPreviousMediaItem() {
+        MediaSessionBridge.onPreviousRequested?.let {
+            it.invoke()
+            return
+        }
+        super.seekToPreviousMediaItem()
+    }
+
+    override fun hasNextMediaItem(): Boolean {
+        MediaSessionBridge.hasNextItem?.let { return it.invoke() }
+        return super.hasNextMediaItem()
+    }
+
+    override fun hasPreviousMediaItem(): Boolean {
+        MediaSessionBridge.hasPreviousItem?.let { return it.invoke() }
+        return super.hasPreviousMediaItem()
+    }
+
+    override fun getAvailableCommands(): Player.Commands {
+        val baseCommands = super.getAvailableCommands().buildUpon()
+        if (MediaSessionBridge.hasNextItem?.invoke() == true) {
+            baseCommands.add(Player.COMMAND_SEEK_TO_NEXT)
+            baseCommands.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+        }
+        if (MediaSessionBridge.hasPreviousItem?.invoke() == true) {
+            baseCommands.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            baseCommands.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+        }
+        if (MediaSessionBridge.isOnlinePlaying) {
+            baseCommands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            baseCommands.add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
+        }
+        baseCommands.add(Player.COMMAND_PLAY_PAUSE)
+        return baseCommands.build()
     }
 
     override fun getDuration(): Long {

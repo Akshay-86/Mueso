@@ -26,6 +26,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     private var pendingVideoId: String? = null
     private var pendingStartSeconds: Float = 0f
     private var pendingCueOnly: Boolean = false
+    private var isLoadingNewVideo = false
 
     var currentVideoId: String? = null
         private set
@@ -47,8 +48,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     init {
         initialize()
     }
-
-    fun getPlayerView(): YouTubePlayerView? = playerView
 
     fun initialize() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
@@ -130,16 +129,30 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     activePlayer = youTubePlayer
                     isReady = true
 
-                    // Apply allow attributes on the embedded iframe and clean YT embed UI styles
+                    // Apply allow attributes on the embedded iframe and clean YT embed UI styles.
+                    // Also size to 200x200 and enforce 'tiny' (144p) quality to eliminate hardware VP9 frame rendering in headless mode.
                     findWebView(view)?.evaluateJavascript(
                         """
                         (function() {
                             var ifr = document.querySelector('iframe');
                             if (ifr) {
                                 ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                                ifr.style.width = '200px';
+                                ifr.style.height = '200px';
                             }
                             var style = document.createElement('style');
                             style.innerHTML = `
+                                iframe, #youTubePlayerDOM {
+                                    width: 200px !important;
+                                    height: 200px !important;
+                                    opacity: 0.01 !important;
+                                    pointer-events: none !important;
+                                }
+                                video, .html5-video-player video {
+                                    visibility: hidden !important;
+                                    opacity: 0 !important;
+                                    pointer-events: none !important;
+                                }
                                 .ytp-chrome-top, .ytp-title, .ytp-watermark, .ytp-pause-overlay,
                                 .ytp-ce-element, .ytp-ce-covering-overlay, .ytp-cards-teaser,
                                 .ytp-show-cards-title, .ytp-share-button, .ytp-youtube-button,
@@ -151,6 +164,9 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 }
                             `;
                             document.head.appendChild(style);
+                            if (typeof player !== 'undefined' && player && player.setPlaybackQuality) {
+                                player.setPlaybackQuality('tiny');
+                            }
                         })();
                         """.trimIndent(), null
                     )
@@ -169,17 +185,38 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                 }
 
                 override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
-                    Log.d(TAG, "YouTubePlayer onStateChange: $state (video: $currentVideoId)")
+                    Log.d(TAG, "YouTubePlayer onStateChange: $state (video: $currentVideoId, loading: $isLoadingNewVideo, isPlaying: $isPlaying)")
                     when (state) {
                         PlayerConstants.PlayerState.PLAYING -> {
+                            isLoadingNewVideo = false
                             isPlaying = true
+                            findWebView(view)?.evaluateJavascript(
+                                "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
+                                null
+                            )
                             onStateChanged?.invoke(true)
                         }
+                        PlayerConstants.PlayerState.VIDEO_CUED -> {
+                            if (isLoadingNewVideo || isPlaying) {
+                                Log.d(TAG, "YouTubePlayer VIDEO_CUED -> auto-starting playback for $currentVideoId")
+                                youTubePlayer.play()
+                            }
+                        }
                         PlayerConstants.PlayerState.PAUSED -> {
+                            if (isLoadingNewVideo) {
+                                Log.d(TAG, "Ignoring transient PAUSED state during video load for $currentVideoId")
+                                youTubePlayer.play()
+                                return
+                            }
                             isPlaying = false
                             onStateChanged?.invoke(false)
                         }
                         PlayerConstants.PlayerState.ENDED -> {
+                            if (isLoadingNewVideo) {
+                                Log.d(TAG, "Ignoring stale ENDED state during video load for $currentVideoId")
+                                return
+                            }
+                            isLoadingNewVideo = false
                             isPlaying = false
                             onStateChanged?.invoke(false)
                             onTrackEnded?.invoke()
@@ -231,6 +268,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         currentVideoId = videoId
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
+        isLoadingNewVideo = false
+        isPlaying = false
 
         mainHandler.post {
             if (!isReady || activePlayer == null) {
@@ -261,6 +300,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
         pendingCueOnly = false
+        isLoadingNewVideo = true
+        isPlaying = true
 
         mainHandler.post {
             if (!isReady || activePlayer == null) {
@@ -281,18 +322,40 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         try {
             Log.d(TAG, "Loading and playing video: $videoId at ${startSeconds}s")
             activePlayer?.loadVideo(videoId, startSeconds)
+            activePlayer?.play()
+            playerView?.let { pv ->
+                findWebView(pv)?.evaluateJavascript(
+                    """
+                    (function() {
+                        var v = document.querySelector('video');
+                        if (v) {
+                            v.style.visibility = 'hidden';
+                            v.style.opacity = '0';
+                        }
+                        if (typeof player !== 'undefined' && player) {
+                            if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
+                            if (player.playVideo) player.playVideo();
+                        }
+                    })();
+                    """.trimIndent(), null
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading video: $videoId", e)
         }
     }
 
     fun play() {
+        isLoadingNewVideo = false
         mainHandler.post {
             activePlayer?.play()
+            isPlaying = true
+            onStateChanged?.invoke(true)
         }
     }
 
     fun pause() {
+        isLoadingNewVideo = false
         mainHandler.post {
             activePlayer?.pause()
             isPlaying = false

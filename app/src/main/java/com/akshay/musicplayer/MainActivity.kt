@@ -107,6 +107,62 @@ class MainActivity : ComponentActivity() {
                 updateRefreshRate(highRefreshRate)
             }
 
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var showBatteryDialog by remember { mutableStateOf(false) }
+
+            LaunchedEffect(Unit) {
+                val muesoPrefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                val alreadyPrompted = muesoPrefs.getBoolean("has_prompted_battery_optimization", false)
+                if (!alreadyPrompted && !com.akshay.musicplayer.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
+                    kotlinx.coroutines.delay(1200)
+                    showBatteryDialog = true
+                }
+            }
+
+            if (showBatteryDialog) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = {
+                        showBatteryDialog = false
+                        getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                            .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                    },
+                    title = {
+                        androidx.compose.material3.Text(
+                            text = "Background Playback",
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        androidx.compose.material3.Text(
+                            text = "To ensure music keeps playing continuously when your screen is locked or while using other apps, please allow Mueso to run without battery restrictions."
+                        )
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.Button(
+                            onClick = {
+                                showBatteryDialog = false
+                                getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                                com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                            }
+                        ) {
+                            androidx.compose.material3.Text("Allow")
+                        }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                showBatteryDialog = false
+                                getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                            }
+                        ) {
+                            androidx.compose.material3.Text("Later")
+                        }
+                    }
+                )
+            }
+
             MusicPlayerTheme(darkTheme = isDarkMode) {
                 var showSplash by remember { mutableStateOf(true) }
 

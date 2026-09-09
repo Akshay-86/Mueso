@@ -179,7 +179,6 @@ class PlayerViewModel(
     val downloadQuality = settingsManager.downloadQuality
     val downloadFolder = settingsManager.downloadFolder
     val enableLyrics = settingsManager.enableLyrics
-    val enableVideoMode = settingsManager.enableVideoMode
     val embedLyricsInDownload = settingsManager.embedLyricsInDownload
     val preferredLanguage = settingsManager.preferredLanguage
     val playButtonPosition = settingsManager.playButtonPosition
@@ -190,14 +189,6 @@ class PlayerViewModel(
     val skipIntroOutro = settingsManager.skipIntroOutro
     val skipNonMusicOffTopic = settingsManager.skipNonMusicOffTopic
 
-    private val _isVideoModeActive = kotlinx.coroutines.flow.MutableStateFlow(false)
-    val isVideoModeActive: kotlinx.coroutines.flow.StateFlow<Boolean> = _isVideoModeActive.asStateFlow()
-    fun setVideoModeActive(active: Boolean) {
-        _isVideoModeActive.value = active
-    }
-
-    fun getOnlinePlayerView(): com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView? = mediaPlayerController.getOnlinePlayerView()
-
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setHeroPlaylistId(id: String) = settingsManager.setHeroPlaylistId(id)
     fun setShowOnLockscreen(enabled: Boolean) = settingsManager.setShowOnLockscreen(enabled)
@@ -207,7 +198,6 @@ class PlayerViewModel(
     fun setDownloadQuality(quality: String) = settingsManager.setDownloadQuality(quality)
     fun setDownloadFolder(folder: String) = settingsManager.setDownloadFolder(folder)
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
-    fun setEnableVideoMode(enabled: Boolean) = settingsManager.setEnableVideoMode(enabled)
     fun setEmbedLyricsInDownload(enabled: Boolean) = settingsManager.setEmbedLyricsInDownload(enabled)
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)
@@ -1087,7 +1077,9 @@ class PlayerViewModel(
                 val oldTrackId = _playbackState.value.currentTrackId
                 _playbackState.value = state
 
-                Log.d("MUESO_SYNC", "ViewModel observePlaybackState: oldTrackId=$oldTrackId, newTrackId=${state.currentTrackId}, lastRequested=$lastRequestedTrackId")
+                if (oldTrackId != state.currentTrackId) {
+                    Log.d("MUESO_SYNC", "ViewModel observePlaybackState: oldTrackId=$oldTrackId, newTrackId=${state.currentTrackId}, lastRequested=$lastRequestedTrackId")
+                }
 
                 // Clear the async guard when ExoPlayer confirms the requested track
                 if (state.currentTrackId == lastRequestedTrackId) {
@@ -1117,29 +1109,31 @@ class PlayerViewModel(
                         }
 
                         val curTrack = currentTracks[currentTrackIdx]
-                        val isOnline = curTrack.filePath.startsWith("online:") || curTrack.filePath.startsWith("http")
-                        val videoId = if (curTrack.filePath.startsWith("online:")) {
-                            curTrack.filePath.removePrefix("online:")
-                        } else if (curTrack.artworkUrl != null && curTrack.artworkUrl.contains("/vi/")) {
-                            curTrack.artworkUrl.substringAfter("/vi/").substringBefore("/")
-                        } else ""
+                        if (oldTrackId != state.currentTrackId) {
+                            val isOnline = curTrack.filePath.startsWith("online:") || curTrack.filePath.startsWith("http")
+                            val videoId = if (curTrack.filePath.startsWith("online:")) {
+                                curTrack.filePath.removePrefix("online:")
+                            } else if (curTrack.artworkUrl != null && curTrack.artworkUrl.contains("/vi/")) {
+                                curTrack.artworkUrl.substringAfter("/vi/").substringBefore("/")
+                            } else ""
 
-                        val persistentFilePath = if (isOnline && videoId.isNotBlank()) "online:$videoId" else curTrack.filePath
+                            val persistentFilePath = if (isOnline && videoId.isNotBlank()) "online:$videoId" else curTrack.filePath
 
-                        sharedPreferences.edit()
-                            .putLong("last_track_id", curTrack.id)
-                            .putString("last_track_title", curTrack.title)
-                            .putString("last_track_artist", curTrack.artist)
-                            .putString("last_track_album", curTrack.album)
-                            .putLong("last_track_album_id", curTrack.albumId)
-                            .putString("last_track_filepath", persistentFilePath)
-                            .putString("last_track_artwork_url", curTrack.artworkUrl)
-                            .putLong("last_track_duration", if (curTrack.duration > 0L) curTrack.duration else state.durationMs)
-                            .putBoolean("last_track_is_online", isOnline)
-                            .putLong("last_position", state.currentPositionMs)
-                            .apply()
+                            sharedPreferences.edit()
+                                .putLong("last_track_id", curTrack.id)
+                                .putString("last_track_title", curTrack.title)
+                                .putString("last_track_artist", curTrack.artist)
+                                .putString("last_track_album", curTrack.album)
+                                .putLong("last_track_album_id", curTrack.albumId)
+                                .putString("last_track_filepath", persistentFilePath)
+                                .putString("last_track_artwork_url", curTrack.artworkUrl)
+                                .putLong("last_track_duration", if (curTrack.duration > 0L) curTrack.duration else state.durationMs)
+                                .putBoolean("last_track_is_online", isOnline)
+                                .putLong("last_position", state.currentPositionMs)
+                                .apply()
 
-                        saveQueueToPreferences()
+                            saveQueueToPreferences()
+                        }
                         // Only fetch lyrics and prefetch on actual track transitions or initial start
                         if (oldTrackId != state.currentTrackId || _lyricsFetchStatus.value[curTrack.id] == null) {
                             val newTrackId = state.currentTrackId
