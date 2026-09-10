@@ -251,11 +251,20 @@ class OnlineMusicRepository {
     ): String = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext ""
         try {
-            val effectiveQuality = audioQuality ?: context?.getSharedPreferences("music_player_settings", android.content.Context.MODE_PRIVATE)?.getString("audio_quality", "High (320 kbps)")
+            val effectiveContext = context ?: try { com.akshay.musicplayer.AppContainer.getContext() } catch (_: Exception) { null }
+            val effectiveQuality = audioQuality ?: effectiveContext?.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)?.getString("audio_quality", "High (320 kbps)")
 
             if (forceRefresh) {
                 com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
                 streamResolver.invalidateCache(videoId)
+                // When force-refreshing (usually after a 403 or playback error), try the headless BotGuard extractor first
+                if (effectiveContext != null) {
+                    val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(effectiveContext, videoId)
+                    if (!extracted.isNullOrBlank() && extracted.startsWith("http")) {
+                        Log.d(TAG, "Resolved fresh audio stream via Headless WebView on refresh for videoId=$videoId")
+                        return@withContext extracted
+                    }
+                }
             } else {
                 // 1. Check in-memory cache from active playback or previous extraction
                 val cached = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(videoId)
@@ -265,20 +274,21 @@ class OnlineMusicRepository {
                 }
             }
 
-            // 2. If context provided, try headless web extraction
-            if (context != null) {
-                val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(context, videoId)
-                if (!extracted.isNullOrBlank()) {
+            // 2. Prioritize fast direct StreamResolver (Zuno multi-client strategies: iOS, Android, TV, Web Remix)
+            val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
+            if (!resolved.isNullOrBlank() && resolved.startsWith("http")) {
+                Log.d(TAG, "Resolved audio stream for videoId=$videoId (quality=$effectiveQuality) via StreamResolver (length=${resolved.length})")
+                com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(videoId, resolved)
+                return@withContext resolved
+            }
+
+            // 3. Fallback to Headless Web Extraction (bundled JS decipherer in WebView) if direct strategies fail
+            if (effectiveContext != null) {
+                val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(effectiveContext, videoId)
+                if (!extracted.isNullOrBlank() && extracted.startsWith("http")) {
                     Log.d(TAG, "Resolved audio stream via Headless WebView for videoId=$videoId")
                     return@withContext extracted
                 }
-            }
-
-            // 3. Fallback to streamResolver
-            val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
-            if (!resolved.isNullOrBlank()) {
-                Log.d(TAG, "Resolved audio stream for videoId=$videoId (quality=$effectiveQuality) via StreamResolver (length=${resolved.length})")
-                return@withContext resolved
             }
         } catch (e: Exception) {
             Log.w(TAG, "Stream resolution error for $videoId", e)
@@ -286,14 +296,47 @@ class OnlineMusicRepository {
         return@withContext ""
     }
 
-    fun extractVideoId(track: TrackEntity): String {
-        return if (track.filePath.startsWith("online:")) {
-            track.filePath.removePrefix("online:")
-        } else if (!track.artworkUrl.isNullOrBlank() && track.artworkUrl.contains("/vi/")) {
-            track.artworkUrl.substringAfter("/vi/").substringBefore("/")
-        } else {
-            ""
+    private val trackIdToVideoIdMap = java.util.concurrent.ConcurrentHashMap<Long, String>()
+
+    fun recordVideoId(trackId: Long, videoId: String) {
+        if (trackId != 0L && videoId.isNotBlank()) {
+            trackIdToVideoIdMap[trackId] = videoId
         }
+    }
+
+    fun extractVideoId(track: TrackEntity): String {
+        if (track.filePath.startsWith("online:")) {
+            val vid = track.filePath.removePrefix("online:").substringBefore("?").substringBefore("&")
+            if (vid.isNotBlank() && !vid.contains(" ")) {
+                recordVideoId(track.id, vid)
+                return vid
+            }
+        }
+        val cached = trackIdToVideoIdMap[track.id]
+        if (!cached.isNullOrBlank()) return cached
+
+        if (!track.artworkUrl.isNullOrBlank() && track.artworkUrl.contains("/vi/")) {
+            val vid = track.artworkUrl.substringAfter("/vi/").substringBefore("/")
+            if (vid.isNotBlank()) {
+                recordVideoId(track.id, vid)
+                return vid
+            }
+        }
+        if (track.filePath.contains("youtube.com/watch?v=")) {
+            val vid = track.filePath.substringAfter("v=").substringBefore("&")
+            if (vid.isNotBlank()) {
+                recordVideoId(track.id, vid)
+                return vid
+            }
+        }
+        if (track.filePath.contains("youtu.be/")) {
+            val vid = track.filePath.substringAfter("youtu.be/").substringBefore("?")
+            if (vid.isNotBlank()) {
+                recordVideoId(track.id, vid)
+                return vid
+            }
+        }
+        return ""
     }
 
     suspend fun embedMetadata(

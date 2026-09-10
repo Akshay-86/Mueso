@@ -63,28 +63,52 @@ class MusicPlayerService : MediaSessionService() {
         notificationProvider.setSmallIcon(R.drawable.ic_notification)
         setMediaNotificationProvider(notificationProvider)
 
+        setListener(object : MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                Log.w("MusicPlayerService", "Foreground service start not allowed in background - handled gracefully without crash")
+            }
+        })
+
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
-        val userAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-
         val okHttpClient = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
+                val urlStr = originalRequest.url.toString()
                 val requestBuilder = originalRequest.newBuilder()
-                    .header("User-Agent", userAgent)
-                chain.proceed(requestBuilder.build())
+
+                if (urlStr.contains("googlevideo.com")) {
+                    val ua = when {
+                        urlStr.contains("c=IOS") -> "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)"
+                        urlStr.contains("c=ANDROID") -> "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip"
+                        urlStr.contains("c=TVHTML5") -> "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+                        else -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    }
+                    requestBuilder.header("User-Agent", ua)
+                    // Mobile clients must not send browser origin/referer to googlevideo CDN
+                    requestBuilder.removeHeader("Origin")
+                    requestBuilder.removeHeader("Referer")
+                } else {
+                    requestBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                }
+
+                val finalReq = requestBuilder.build()
+                val response = chain.proceed(finalReq)
+                if (!response.isSuccessful && response.code == 403) {
+                    android.util.Log.w("MUESO_HTTP", "HTTP 403 from googlevideo for: ${finalReq.url}")
+                }
+                response
             }
             .build()
 
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent(userAgent)
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
 
         val player = ExoPlayer.Builder(this)
@@ -107,6 +131,7 @@ class MusicPlayerService : MediaSessionService() {
         MediaSessionBridge.onOnlinePlayingChanged = { isOnline ->
             if (isOnline) {
                 acquireWakeLock()
+                player.repeatMode = Player.REPEAT_MODE_ONE
             } else if (!player.isPlaying) {
                 releaseWakeLock()
             }
@@ -188,6 +213,19 @@ class MusicPlayerService : MediaSessionService() {
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
+        }
+    }
+
+    override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        return START_STICKY
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        try {
+            super.onUpdateNotification(session, startInForegroundRequired)
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Suppressed foreground exception in onUpdateNotification: ${e.message}")
         }
     }
 

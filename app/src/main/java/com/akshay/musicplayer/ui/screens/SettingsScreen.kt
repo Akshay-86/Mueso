@@ -280,7 +280,7 @@ fun SettingsScreen(
 
                         // SponsorBlock-Style Granular Backup Scope Customization Controls
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            val sharedPrefs = context.getSharedPreferences("music_player_prefs", android.content.Context.MODE_PRIVATE)
+                            val sharedPrefs = context.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
                             var showBackupCustomization by remember { mutableStateOf(sharedPrefs.getBoolean("auto_cloud_backup", true)) }
                             var backupPlaylists by remember { mutableStateOf(sharedPrefs.getBoolean("backup_playlists", true)) }
                             var backupLyrics by remember { mutableStateOf(sharedPrefs.getBoolean("backup_lyrics", true)) }

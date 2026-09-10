@@ -88,7 +88,7 @@ class SpotifyPreviewPlayer(
             try {
                 val streamUrl = if (track.filePath.startsWith("online:")) {
                     val videoId = track.filePath.removePrefix("online:")
-                    onlineRepository.getStreamUrl(videoId)
+                    onlineRepository.getStreamUrl(videoId, context)
                 } else {
                     track.filePath
                 }

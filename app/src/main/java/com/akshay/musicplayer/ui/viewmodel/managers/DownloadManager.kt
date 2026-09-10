@@ -106,7 +106,7 @@ class DownloadManager(
             var savedDestFile: File? = null
 
             try {
-                val dlQuality = context.getSharedPreferences("music_player_settings", Context.MODE_PRIVATE)
+                val dlQuality = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
                     .getString("download_quality", "Standard (256 kbps)")
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
                 val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId, context, audioQuality = dlQuality) else track.filePath
@@ -174,7 +174,7 @@ class DownloadManager(
                 val fileToSave = createdTempFile
 
                 // Resolve active lyrics (currently playing track, track itself, or user-selected custom lyrics)
-                val shouldEmbedLyrics = context.getSharedPreferences("music_player_settings", Context.MODE_PRIVATE)
+                val shouldEmbedLyrics = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
                     .getBoolean("embed_lyrics_in_download", true)
                 val currentPlayingTrack = getCurrentTrack()
                 val activeLyrics = if (track.id == currentPlayingTrack?.id && currentPlayingTrack.lyrics != null) {

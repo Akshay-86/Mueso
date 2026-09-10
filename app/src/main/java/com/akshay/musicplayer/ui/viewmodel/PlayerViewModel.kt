@@ -54,7 +54,7 @@ data class DownloadProgress(
 
 class PlayerViewModel(
     private val getLocalTracksUseCase: GetLocalTracksUseCase,
-    private val mediaPlayerController: MediaPlayerController,
+    val mediaPlayerController: MediaPlayerController,
     private val playlistDao: com.akshay.musicplayer.data.db.PlaylistDao,
     private val onlinePlaylistDao: com.akshay.musicplayer.data.db.OnlinePlaylistDao,
     private val sharedPreferences: android.content.SharedPreferences
@@ -261,16 +261,14 @@ class PlayerViewModel(
     fun playArtistRadio(artistPage: com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage) {
         viewModelScope.launch {
             if (!artistPage.radioVideoId.isNullOrBlank()) {
-                val track = TrackEntity(
-                    id = artistPage.radioVideoId.hashCode().toLong(),
+                val track = com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack(
+                    videoId = artistPage.radioVideoId,
                     title = "${artistPage.name} Radio",
                     artist = artistPage.name,
                     album = "YouTube Music",
-                    duration = 0L,
-                    albumId = 0L,
-                    filePath = "online:${artistPage.radioVideoId}",
+                    durationSec = 0,
                     artworkUrl = artistPage.thumbnailUrl
-                )
+                ).toTrackEntity()
                 playTrack(track)
             } else if (artistPage.topSongs.isNotEmpty()) {
                 playOnlinePlaylist(artistPage.topSongs.map { it.toTrackEntity() }.shuffled(), 0)
@@ -614,10 +612,19 @@ class PlayerViewModel(
         val title = sharedPreferences.getString("last_track_title", "") ?: ""
         val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
         val album = sharedPreferences.getString("last_track_album", "Last Played") ?: "Last Played"
-        val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
+        var filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
         val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
         val duration = sharedPreferences.getLong("last_track_duration", 0L)
         val albumId = sharedPreferences.getLong("last_track_album_id", 0L)
+
+        // Sanitize stale googlevideo / direct http stream URLs from previous versions
+        if (filePath.contains("googlevideo") || (filePath.startsWith("http") && !filePath.endsWith(".mp3"))) {
+            val vid = if (!artworkUrl.isNullOrBlank() && artworkUrl.contains("/vi/")) {
+                artworkUrl.substringAfter("/vi/").substringBefore("/")
+            } else ""
+            filePath = if (vid.isNotBlank()) "online:$vid" else "online:$title $artist"
+            sharedPreferences.edit().putString("last_track_filepath", filePath).apply()
+        }
         Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restoring single preview track: title='$title', artist='$artist', album='$album', albumId=$albumId, filePath='$filePath', artworkUrl='$artworkUrl', duration=${duration}ms")
         if (title.isNotBlank()) {
             val previewTrack = TrackEntity(
@@ -683,38 +690,45 @@ class PlayerViewModel(
     }
 
     private suspend fun resolveTrack(track: TrackEntity): TrackEntity {
-        return if (track.filePath.startsWith("online:")) {
+        val isOnline = track.filePath.startsWith("online:") || track.filePath.contains("googlevideo") || track.filePath.contains("youtube")
+        if (!isOnline) {
+            return track
+        }
+
+        var videoId = onlineRepository.extractVideoId(track)
+        if (videoId.isBlank()) {
             val queryOrId = track.filePath.removePrefix("online:")
-            val videoId = if (queryOrId.length == 11 && !queryOrId.contains(" ")) {
+            videoId = if (queryOrId.length == 11 && !queryOrId.contains(" ") && !queryOrId.contains("/")) {
                 queryOrId
             } else {
-                val searchResults = onlineRepository.searchOnlineTracks(queryOrId)
-                searchResults.firstOrNull()?.filePath?.removePrefix("online:") ?: ""
+                val q = if (queryOrId.isBlank() || queryOrId.contains("googlevideo")) "${track.artist} ${track.title}".trim() else queryOrId
+                val searchResults = onlineRepository.searchOnlineTracks(q)
+                val first = searchResults.firstOrNull()
+                first?.let { onlineRepository.extractVideoId(it) } ?: ""
             }
-            if (videoId.isNotBlank()) {
-                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
-                track.copy(filePath = "online:$videoId", artworkUrl = artwork)
-            } else {
-                track
-            }
-        } else {
-            track
         }
+
+        if (videoId.isNotBlank()) {
+            onlineRepository.recordVideoId(track.id, videoId)
+            val artwork = track.artworkUrl?.takeIf { it.isNotBlank() } ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+            Log.d("MUESO_SYNC", "resolveTrack: setting clean online track path 'online:$videoId' for '${track.title}'")
+            return track.copy(filePath = "online:$videoId", artworkUrl = artwork)
+        }
+        return track
     }
 
     private suspend fun reResolveTrackStream(track: TrackEntity): TrackEntity {
-        val originalVideoId = if (track.filePath.startsWith("online:")) {
-            track.filePath.removePrefix("online:")
-        } else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
-            track.artworkUrl.substringAfter("/vi/").substringBefore("/")
-        } else ""
-
-        if (originalVideoId.isNotBlank()) {
-            val freshStreamUrl = onlineRepository.getStreamUrl(originalVideoId, forceRefresh = true)
-            if (freshStreamUrl.isNotBlank() && freshStreamUrl.startsWith("http")) {
-                val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$originalVideoId/hq720.jpg"
-                return track.copy(filePath = freshStreamUrl, artworkUrl = artwork)
-            }
+        var videoId = onlineRepository.extractVideoId(track)
+        if (videoId.isBlank()) {
+            val query = "${track.artist} ${track.title}".trim()
+            val searchResults = onlineRepository.searchOnlineTracks(query)
+            val first = searchResults.firstOrNull()
+            videoId = first?.let { onlineRepository.extractVideoId(it) } ?: ""
+        }
+        if (videoId.isNotBlank()) {
+            onlineRepository.recordVideoId(track.id, videoId)
+            val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+            return track.copy(filePath = "online:$videoId", artworkUrl = artwork)
         }
         return track
     }
@@ -1026,9 +1040,18 @@ class PlayerViewModel(
 
             val title = sharedPreferences.getString("last_track_title", "") ?: ""
             val artist = sharedPreferences.getString("last_track_artist", "") ?: ""
-            val filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
+            var filePath = sharedPreferences.getString("last_track_filepath", "") ?: ""
             val artworkUrl = sharedPreferences.getString("last_track_artwork_url", null)
             val duration = sharedPreferences.getLong("last_track_duration", 0L)
+
+            // Sanitize stale googlevideo / direct http stream URLs from previous versions
+            if (filePath.contains("googlevideo") || (filePath.startsWith("http") && !filePath.endsWith(".mp3"))) {
+                val vid = if (!artworkUrl.isNullOrBlank() && artworkUrl.contains("/vi/")) {
+                    artworkUrl.substringAfter("/vi/").substringBefore("/")
+                } else ""
+                filePath = if (vid.isNotBlank()) "online:$vid" else "online:$title $artist"
+                sharedPreferences.edit().putString("last_track_filepath", filePath).apply()
+            }
 
             val restoredTrack = TrackEntity(
                 id = lastTrackId,
@@ -1289,6 +1312,29 @@ class PlayerViewModel(
 
     private var lastPrefetchedNextIndex: Int = -1
 
+    private fun warmNextTrack(nextIndex: Int) {
+        if (nextIndex !in currentTracks.indices) return
+        val nextTrack = currentTracks[nextIndex]
+        val isUnresolved = nextTrack.filePath.startsWith("online:") &&
+                (nextTrack.filePath.removePrefix("online:").contains(" ") || nextTrack.filePath.removePrefix("online:").length != 11)
+        if (isUnresolved) {
+            lastPrefetchedNextIndex = nextIndex
+            activeNextStreamJob?.cancel()
+            activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                Log.d("MUESO_QUEUE", "Warming/resolving search query for next track at index $nextIndex: ${nextTrack.title}")
+                val resolvedNext = resolveTrack(nextTrack)
+                withContext(Dispatchers.Main) {
+                    val nList = currentTracks.toMutableList()
+                    if (nextIndex in nList.indices && nList[nextIndex].id == nextTrack.id) {
+                        nList[nextIndex] = resolvedNext
+                        currentTracks = nList
+                        mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
+                    }
+                }
+            }
+        }
+    }
+
     private fun checkNearEndPrefetch(currentIndex: Int, currentPositionMs: Long, durationMs: Long) {
         val nextIndex = currentIndex + 1
         if (nextIndex !in currentTracks.indices) return
@@ -1299,24 +1345,7 @@ class PlayerViewModel(
                         (durationMs > 10_000L && currentPositionMs >= (durationMs * 0.85).toLong())
 
         if (isNearEnd) {
-            val nextTrack = currentTracks[nextIndex]
-            val isUnresolved = nextTrack.filePath.startsWith("online:") || isStreamUrlExpired(nextTrack.filePath)
-            if (isUnresolved) {
-                lastPrefetchedNextIndex = nextIndex
-                activeNextStreamJob?.cancel()
-                activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
-                    Log.d("MUESO_QUEUE", "Near-end pre-fetching next track at index $nextIndex: ${nextTrack.title}")
-                    val resolvedNext = resolveTrack(nextTrack)
-                    withContext(Dispatchers.Main) {
-                        val nList = currentTracks.toMutableList()
-                        if (nextIndex in nList.indices && nList[nextIndex].id == nextTrack.id) {
-                            nList[nextIndex] = resolvedNext
-                            currentTracks = nList
-                            mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
-                        }
-                    }
-                }
-            }
+            warmNextTrack(nextIndex)
         }
     }
 
@@ -1599,6 +1628,19 @@ class PlayerViewModel(
                                                 mediaPlayerController.togglePlayPause()
                                             }
                                         }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            val videoId = onlineRepository.extractVideoId(track)
+                                            if (videoId.isNotBlank()) {
+                                                Log.w("MUESO_STREAM", "Direct stream re-resolve failed for '${track.title}'. Switching to YouTube Player fallback.")
+                                                val fallbackTrack = track.copy(filePath = "online:$videoId")
+                                                val list = currentTracks.toMutableList()
+                                                list[currentIdx] = fallbackTrack
+                                                currentTracks = list
+                                                mediaPlayerController.updateTrackInQueue(currentIdx, fallbackTrack)
+                                                mediaPlayerController.seekToIndex(currentIdx)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1670,6 +1712,7 @@ class PlayerViewModel(
                 currentTracks = mutableTracks
                 mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
                 prefetchAndKeepQueueAlive(startIndex)
+                warmNextTrack(startIndex + 1)
             }
         }
     }
@@ -1681,8 +1724,9 @@ class PlayerViewModel(
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
         lastRequestedTrackId = track.id
-        val isOnline = track.filePath.startsWith("online:") || isStreamUrlExpired(track.filePath)
-        if (isOnline) {
+        val isOnlineQueryPlaceholder = track.filePath.startsWith("online:") &&
+                (track.filePath.removePrefix("online:").contains(" ") || track.filePath.removePrefix("online:").length != 11)
+        if (isOnlineQueryPlaceholder) {
             mediaPlayerController.pause()
             _resolvingTrackTitle.value = track.title
             _isResolvingTrack.value = true
@@ -1690,15 +1734,18 @@ class PlayerViewModel(
         currentTracks = listOf(track)
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         viewModelScope.launch(Dispatchers.IO) {
-            val resolved = resolveTrack(track)
+            val resolved = if (isOnlineQueryPlaceholder) resolveTrack(track) else track
 
             withContext(Dispatchers.Main) {
-                _isResolvingTrack.value = false
-                _resolvingTrackTitle.value = null
+                if (isOnlineQueryPlaceholder) {
+                    _isResolvingTrack.value = false
+                    _resolvingTrackTitle.value = null
+                }
                 currentTracks = listOf(resolved)
                 mediaPlayerController.setPlaylistAndPlay(currentTracks, 0)
             }
 
+            val isOnline = track.filePath.startsWith("online:") || track.filePath.startsWith("http")
             if (isOnline) {
                 val recommendations = onlineRepository.getRelatedRecommendations(track)
                 val existingIds = currentTracks.map { it.id }.toSet()
@@ -1708,6 +1755,7 @@ class PlayerViewModel(
                         currentTracks = currentTracks + uniqueRecs
                         mediaPlayerController.appendTracksToQueue(uniqueRecs)
                         prefetchAndKeepQueueAlive(0)
+                        warmNextTrack(1)
                     }
                 }
             }
@@ -1743,11 +1791,12 @@ class PlayerViewModel(
                 _playlistTrackCount.value = 0
             }
 
-            val isUnresolvedOrExpired = track.filePath.startsWith("online:") || isStreamUrlExpired(track.filePath)
+            val isUnresolvedOrExpired = track.filePath.startsWith("online:") &&
+                    (track.filePath.removePrefix("online:").contains(" ") || track.filePath.removePrefix("online:").length != 11)
             if (isUnresolvedOrExpired) {
                 // Immediately cut off playback of previous track while resolving new track
                 mediaPlayerController.pause()
-                Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: track at index $index is unresolved/expired, resolving first...")
+                Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: track at index $index is search query, resolving first...")
                 _resolvingTrackTitle.value = track.title
                 _isResolvingTrack.value = true
                 activeCurrentStreamJob?.cancel()
@@ -1768,11 +1817,13 @@ class PlayerViewModel(
                             currentTracks = list
                             mediaPlayerController.updateTrackInQueue(index, resolved)
                             mediaPlayerController.seekToIndex(index)
+                            warmNextTrack(index + 1)
                         }
                     }
                 }
             } else {
                 mediaPlayerController.seekToIndex(index)
+                warmNextTrack(index + 1)
             }
         }
     }

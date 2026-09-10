@@ -48,6 +48,13 @@ class MainActivity : ComponentActivity() {
         // Setup ViewModel
         setupViewModel()
 
+        try {
+            val serviceIntent = android.content.Intent(this, com.akshay.musicplayer.media.service.MusicPlayerService::class.java)
+            androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Failed to startForegroundService: ${e.message}")
+        }
+
         handleNotificationIntent(intent)
 
         setContent {
@@ -180,24 +187,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setupViewModel() {
-        val contentResolver: ContentResolver = contentResolver
+        val appContext = applicationContext
+        val contentResolver: ContentResolver = appContext.contentResolver
         val mediaStoreDataSource = LocalMediaStoreDataSource(contentResolver, Dispatchers.IO)
         val trackRepository = TrackRepositoryImpl(mediaStoreDataSource)
         val getLocalTracksUseCase = GetLocalTracksUseCase(trackRepository)
-        mediaPlayerController = ExoPlayerController(this)
-        val db = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(this)
+        val db = com.akshay.musicplayer.data.db.AppDatabase.getDatabase(appContext)
         val playlistDao = db.playlistDao()
         val onlinePlaylistDao = db.onlinePlaylistDao()
-        val prefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs = appContext.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
 
         playerViewModel = ViewModelProvider(
             this,
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    val controller = ExoPlayerController(appContext)
                     return PlayerViewModel(
                         getLocalTracksUseCase,
-                        mediaPlayerController,
+                        controller,
                         playlistDao,
                         onlinePlaylistDao,
                         prefs
@@ -205,6 +213,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ).get(PlayerViewModel::class.java)
+
+        mediaPlayerController = playerViewModel.mediaPlayerController as ExoPlayerController
     }
 
     override fun onResume() {
@@ -379,6 +389,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         playerViewModel.saveCurrentPlaybackPosition()
         super.onDestroy()
-        mediaPlayerController.release()
+        if (isFinishing) {
+            mediaPlayerController.release()
+        }
     }
 }

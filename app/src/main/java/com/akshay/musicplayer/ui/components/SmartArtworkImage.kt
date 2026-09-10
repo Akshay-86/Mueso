@@ -35,7 +35,7 @@ fun SmartArtworkImage(
 ) {
     val context = LocalContext.current
     val effectiveQuality = thumbnailQuality ?: remember(context) {
-        context.getSharedPreferences("music_player_prefs", Context.MODE_PRIVATE)
+        context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
             .getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
     }
     val repo = remember { OnlineMusicRepository() }
