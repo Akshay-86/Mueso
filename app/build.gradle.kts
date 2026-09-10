@@ -54,14 +54,19 @@ android {
         create("release") {
             val ksPath = System.getenv("KEYSTORE_PATH") ?: "release-key.jks"
             val ksFile = file(ksPath)
+            val rootFile = rootProject.file(ksPath)
             val altFile = file("app/$ksPath")
-            val targetFile = if (ksFile.exists()) ksFile else altFile
+            val targetFile = when {
+                ksFile.exists() -> ksFile
+                rootFile.exists() -> rootFile
+                else -> altFile
+            }
 
             if (targetFile.exists()) {
                 storeFile = targetFile
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-                keyAlias = System.getenv("KEY_ALIAS") ?: ""
-                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "muesopassword"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "mueso"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "muesopassword"
             }
         }
     }

@@ -388,6 +388,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     private fun startServiceIfForeground() {
+        if (com.akshay.musicplayer.media.service.MediaSessionBridge.isServiceRunning) {
+            return
+        }
         try {
             val intent = android.content.Intent(context, MusicPlayerService::class.java)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
@@ -773,6 +776,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             seekToIndex(nextIndex)
         } else if (getRepeatMode() == Player.REPEAT_MODE_ALL && tracksQueue.isNotEmpty()) {
             seekToIndex(0)
+        } else {
+            Log.d("MUESO_SYNC", "Reached end of playlist in seekToNext, pausing.")
+            pause()
         }
     }
 

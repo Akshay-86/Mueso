@@ -54,3 +54,11 @@
 
 # Preserve Line Numbers for Debugging Stack Traces
 -keepattributes SourceFile,LineNumberTable
+
+# ─── AndroidYouTubePlayer & WebView JavaScript Interface ───
+-keep class com.pierfrancescosoffritti.androidyoutubeplayer.** { *; }
+-dontwarn com.pierfrancescosoffritti.androidyoutubeplayer.**
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

@@ -51,17 +51,45 @@ class MusicPlayerService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        MediaSessionBridge.isServiceRunning = true
 
         // Create notification channel early so the system has it before any notification is posted
         createNotificationChannel()
 
-        // Configure the notification provider with a proper monochrome small icon
-        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+        // Configure the notification provider with a proper monochrome small icon and lock screen visibility
+        val defaultProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(NOTIFICATION_CHANNEL_ID)
             .setChannelName(R.string.app_name)
             .build()
-        notificationProvider.setSmallIcon(R.drawable.ic_notification)
-        setMediaNotificationProvider(notificationProvider)
+        defaultProvider.setSmallIcon(R.drawable.ic_notification)
+
+        val customNotificationProvider = object : androidx.media3.session.MediaNotification.Provider {
+            override fun createNotification(
+                mediaSession: MediaSession,
+                customLayout: com.google.common.collect.ImmutableList<androidx.media3.session.CommandButton>,
+                actionFactory: androidx.media3.session.MediaNotification.ActionFactory,
+                onNotificationChangedCallback: androidx.media3.session.MediaNotification.Provider.Callback
+            ): androidx.media3.session.MediaNotification {
+                val mediaNotification = defaultProvider.createNotification(
+                    mediaSession,
+                    customLayout,
+                    actionFactory,
+                    onNotificationChangedCallback
+                )
+                val notif = mediaNotification.notification
+                notif.visibility = android.app.Notification.VISIBILITY_PUBLIC
+                return mediaNotification
+            }
+
+            override fun handleCustomCommand(
+                session: MediaSession,
+                action: String,
+                extras: android.os.Bundle
+            ): Boolean {
+                return defaultProvider.handleCustomCommand(session, action, extras)
+            }
+        }
+        setMediaNotificationProvider(customNotificationProvider)
 
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {
@@ -202,16 +230,25 @@ class MusicPlayerService : MediaSessionService() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            try {
+                manager.deleteNotificationChannel("music_playback_channel")
+                manager.deleteNotificationChannel("music_playback_channel_v2")
+            } catch (e: Exception) {
+                Log.w("MusicPlayerService", "Could not delete legacy notification channel: ${e.message}")
+            }
+
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 "Music Playback",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Controls for the currently playing music"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
     }
@@ -234,6 +271,7 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        MediaSessionBridge.isServiceRunning = false
         releaseWakeLock()
         MediaSessionBridge.onOnlinePlayingChanged = null
         mediaSession?.let {
@@ -245,12 +283,13 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     companion object {
-        private const val NOTIFICATION_CHANNEL_ID = "music_playback_channel"
+        private const val NOTIFICATION_CHANNEL_ID = "music_playback_channel_v3"
         private const val NOTIFICATION_ID = 1
     }
 }
 
 object MediaSessionBridge {
+    @Volatile var isServiceRunning: Boolean = false
     @Volatile var isOnlinePlaying: Boolean = false
         set(value) {
             field = value

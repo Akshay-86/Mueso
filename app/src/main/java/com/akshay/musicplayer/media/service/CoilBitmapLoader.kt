@@ -28,6 +28,10 @@ class CoilBitmapLoader(private val context: Context) : BitmapLoader {
         .allowHardware(false) // CRITICAL: System Notifications and MediaSession do not support hardware bitmaps
         .build()
 
+    override fun supportsMimeType(mimeType: String): Boolean {
+        return mimeType.startsWith("image/")
+    }
+
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> {
         val future = SettableFuture.create<Bitmap>()
         scope.launch {
@@ -46,10 +50,6 @@ class CoilBitmapLoader(private val context: Context) : BitmapLoader {
     }
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> {
-        return loadBitmap(uri, null)
-    }
-
-    override fun loadBitmap(uri: Uri, options: BitmapFactory.Options?): ListenableFuture<Bitmap> {
         val future = SettableFuture.create<Bitmap>()
         scope.launch {
             try {

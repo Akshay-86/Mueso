@@ -216,9 +216,9 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 Log.d(TAG, "Ignoring stale ENDED state during video load for $currentVideoId")
                                 return
                             }
+                            Log.d(TAG, "YouTubePlayer onStateChange: ENDED (video: $currentVideoId) -> advancing to next track")
                             isLoadingNewVideo = false
                             isPlaying = false
-                            onStateChanged?.invoke(false)
                             onTrackEnded?.invoke()
                         }
                         else -> {}
