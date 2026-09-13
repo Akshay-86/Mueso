@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,12 +27,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.BuildConfig
+import com.akshay.musicplayer.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -109,25 +112,14 @@ fun AboutScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // App Icon with Gradient Background
-                    Box(
+                    // Official App Logo
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_logo),
+                        contentDescription = "Mueso Logo",
                         modifier = Modifier
                             .size(80.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(GradientStart, GradientEnd)
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = "Mueso Logo",
-                            tint = Color.White,
-                            modifier = Modifier.size(44.dp)
-                        )
-                    }
+                            .clip(RoundedCornerShape(20.dp))
+                    )
 
                     Text(
                         text = "Mueso",

@@ -655,6 +655,48 @@ class PlayerViewModel(
         NotificationHelper.onPlayDownloadedTrackRequested = { filePath ->
             playLocalTrackByPath(filePath)
         }
+        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener {
+            viewModelScope.launch {
+                handleNetworkRestored()
+            }
+        }
+    }
+
+    private suspend fun handleNetworkRestored() {
+        Log.i("MUESO_NET", "PlayerViewModel: Network restored event received!")
+        val curTrackId = _playbackState.value.currentTrackId
+        val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
+        if (curIdx in currentTracks.indices) {
+            val curTrack = currentTracks[curIdx]
+            val isUnresolved = curTrack.filePath.startsWith("online:") &&
+                    (curTrack.filePath.removePrefix("online:").contains(" ") || curTrack.filePath.removePrefix("online:").length != 11)
+            if (isUnresolved) {
+                Log.i("MUESO_NET", "Resolving current track '${curTrack.title}' following network recovery...")
+                val resolved = resolveTrack(curTrack)
+                withContext(Dispatchers.Main) {
+                    val list = currentTracks.toMutableList()
+                    if (curIdx in list.indices && list[curIdx].id == curTrack.id) {
+                        list[curIdx] = resolved
+                        currentTracks = list
+                        mediaPlayerController.updateTrackInQueue(curIdx, resolved)
+                        mediaPlayerController.retryPendingNetworkTrack()
+                    }
+                }
+            } else if (mediaPlayerController.isWaitingForNetwork()) {
+                withContext(Dispatchers.Main) {
+                    mediaPlayerController.retryPendingNetworkTrack()
+                }
+            }
+            // Also pre-resolve next track if needed
+            val nextIdx = curIdx + 1
+            if (nextIdx in currentTracks.indices) {
+                warmNextTrack(nextIdx)
+            }
+        } else if (mediaPlayerController.isWaitingForNetwork()) {
+            withContext(Dispatchers.Main) {
+                mediaPlayerController.retryPendingNetworkTrack()
+            }
+        }
     }
 
     fun playLocalTrackByPath(filePath: String) {
@@ -702,7 +744,14 @@ class PlayerViewModel(
                 queryOrId
             } else {
                 val q = if (queryOrId.isBlank() || queryOrId.contains("googlevideo")) "${track.artist} ${track.title}".trim() else queryOrId
-                val searchResults = onlineRepository.searchOnlineTracks(q)
+                val searchResults = try {
+                    if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                        onlineRepository.searchOnlineTracks(q)
+                    } else emptyList()
+                } catch (e: Exception) {
+                    Log.w("MUESO_SYNC", "resolveTrack search failed for '$q': ${e.message}")
+                    emptyList()
+                }
                 val first = searchResults.firstOrNull()
                 first?.let { onlineRepository.extractVideoId(it) } ?: ""
             }
@@ -721,7 +770,14 @@ class PlayerViewModel(
         var videoId = onlineRepository.extractVideoId(track)
         if (videoId.isBlank()) {
             val query = "${track.artist} ${track.title}".trim()
-            val searchResults = onlineRepository.searchOnlineTracks(query)
+            val searchResults = try {
+                if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                    onlineRepository.searchOnlineTracks(query)
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.w("MUESO_SYNC", "reResolveTrackStream search failed for '$query': ${e.message}")
+                emptyList()
+            }
             val first = searchResults.firstOrNull()
             videoId = first?.let { onlineRepository.extractVideoId(it) } ?: ""
         }
@@ -1611,6 +1667,12 @@ class PlayerViewModel(
                                                event.message.contains("interrupted", ignoreCase = true) ||
                                                event.message.contains("Malformed", ignoreCase = true)
 
+                        val isNetworkError = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected() ||
+                                             event.message.contains("NETWORK_CONNECTION", ignoreCase = true) ||
+                                             event.message.contains("UnknownHost", ignoreCase = true) ||
+                                             event.message.contains("SocketTimeout", ignoreCase = true) ||
+                                             event.message.contains("ConnectException", ignoreCase = true)
+
                         if (is403Error) {
                             Log.w("MUESO_STREAM", "HTTP 403 detected in error chain. Refreshing stream URL...")
                             val currentIdx = currentTracks.indexOfFirst { it.id == _playbackState.value.currentTrackId }
@@ -1644,6 +1706,8 @@ class PlayerViewModel(
                                     }
                                 }
                             }
+                        } else if (isNetworkError) {
+                            Log.w("MUESO_NET", "Playback error caused by network outage: ${event.message}. NOT auto-advancing, awaiting connection.")
                         } else if (isRecentUserAction || isTransientError) {
                             Log.d("MUESO_STREAM", "Ignoring transient error during rapid track switch: ${event.message}")
                         } else {
@@ -1661,8 +1725,18 @@ class PlayerViewModel(
 
     fun playNextTrack() {
         lastUserSkipTime = System.currentTimeMillis()
-        viewModelScope.launch {
-            mediaPlayerController.seekToNext()
+        val curTrackId = _playbackState.value.currentTrackId
+        val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
+        val nextIdx = curIdx + 1
+
+        if (nextIdx in currentTracks.indices) {
+            playTrackAtIndex(nextIdx)
+        } else if (_repeatMode.value == Player.REPEAT_MODE_ALL && currentTracks.isNotEmpty()) {
+            playTrackAtIndex(0)
+        } else {
+            viewModelScope.launch {
+                mediaPlayerController.seekToNext()
+            }
         }
     }
 
@@ -1673,8 +1747,18 @@ class PlayerViewModel(
 
     fun playPreviousTrack() {
         lastUserSkipTime = System.currentTimeMillis()
-        viewModelScope.launch {
-            mediaPlayerController.seekToPrevious()
+        val curTrackId = _playbackState.value.currentTrackId
+        val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
+        val prevIdx = curIdx - 1
+
+        if (prevIdx in currentTracks.indices) {
+            playTrackAtIndex(prevIdx)
+        } else if (_repeatMode.value == Player.REPEAT_MODE_ALL && currentTracks.isNotEmpty()) {
+            playTrackAtIndex(currentTracks.size - 1)
+        } else {
+            viewModelScope.launch {
+                mediaPlayerController.seekToPrevious()
+            }
         }
     }
 

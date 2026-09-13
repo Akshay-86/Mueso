@@ -3,9 +3,16 @@ package com.akshay.musicplayer.media.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
@@ -49,9 +56,78 @@ class MusicPlayerService : MediaSessionService() {
         }
     }
 
+    private var isNoisyReceiverRegistered = false
+
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            Log.d("MusicPlayerService", "noisyReceiver received action: $action")
+            when (action) {
+                AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
+                    Log.i("MusicPlayerService", "ACTION_AUDIO_BECOMING_NOISY -> pausing playback")
+                    handleBecomingNoisy()
+                }
+                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> {
+                    val state = intent.getIntExtra(
+                        BluetoothProfile.EXTRA_STATE,
+                        BluetoothProfile.STATE_CONNECTED
+                    )
+                    if (state == BluetoothProfile.STATE_DISCONNECTED ||
+                        state == BluetoothProfile.STATE_DISCONNECTING) {
+                        Log.i("MusicPlayerService", "Bluetooth A2DP disconnected/disconnecting -> pausing playback")
+                        handleBecomingNoisy()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleBecomingNoisy() {
+        try {
+            if (MediaSessionBridge.isOnlinePlaying) {
+                MediaSessionBridge.onPauseRequested?.invoke()
+            }
+            mediaSession?.player?.pause()
+        } catch (e: Exception) {
+            Log.e("MusicPlayerService", "Error pausing on becoming noisy: ${e.message}", e)
+        }
+    }
+
+    private fun registerNoisyReceiver() {
+        if (isNoisyReceiverRegistered) return
+        try {
+            val filter = IntentFilter().apply {
+                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            }
+            ContextCompat.registerReceiver(
+                this,
+                noisyReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            isNoisyReceiverRegistered = true
+            Log.d("MusicPlayerService", "Successfully registered audio becoming noisy & bluetooth receiver")
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to register noisy receiver", e)
+        }
+    }
+
+    private fun unregisterNoisyReceiver() {
+        if (!isNoisyReceiverRegistered) return
+        try {
+            unregisterReceiver(noisyReceiver)
+            isNoisyReceiverRegistered = false
+            Log.d("MusicPlayerService", "Successfully unregistered noisy receiver")
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to unregister noisy receiver", e)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         MediaSessionBridge.isServiceRunning = true
+        registerNoisyReceiver()
 
         // Create notification channel early so the system has it before any notification is posted
         createNotificationChannel()
@@ -141,8 +217,8 @@ class MusicPlayerService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
-            .setAudioAttributes(audioAttributes, false)
-            .setHandleAudioBecomingNoisy(false)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
@@ -271,6 +347,7 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        unregisterNoisyReceiver()
         MediaSessionBridge.isServiceRunning = false
         releaseWakeLock()
         MediaSessionBridge.onOnlinePlayingChanged = null

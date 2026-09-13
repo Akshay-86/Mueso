@@ -18,7 +18,7 @@
 
 <br />
 
-**Mueso** is a next-generation, high-performance Android music player built with **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It seamlessly bridges local offline audio libraries with online streaming, native YouTube Music personalization, rich artist pages, mood & genre exploration, real-time LRCLIB synced lyrics, smart SponsorBlock segment filtering, native ID3/MP4 metadata tagging, and high-speed playlist downloads.
+**Mueso** is a next-generation, high-performance, 100% native Android music player built with **Kotlin**, **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It requires **zero external backend servers or Python microservices**—running entirely client-side on-device. It seamlessly bridges local offline audio libraries with online streaming, native YouTube Music personalization, rich artist pages, mood & genre exploration, real-time LRCLIB synced lyrics, smart SponsorBlock segment filtering, native ID3/MP4 metadata tagging, offline downloads, and network-loss auto-resumption.
 
 > [!TIP]
 > **Creating or importing a playlist is recommended for the best experience!** Import your favorite Spotify playlists or sync your YouTube Music account to enjoy seamless queue management and reels-style vertical playback.
@@ -85,6 +85,7 @@
 - **📥 Offline Library & Quality-Aware Downloads**: Download audio tracks directly in High / Medium / Low quality with natively embedded ID3v2.3 (MP3) and MP4 Box (M4A) metadata tags, high-res cover art, and companion `.lrc` lyrics files.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers (timer duration, after song, or end of playlist).
+- **📶 Network Drop Resilience & Auto-Resumption**: Dedicated lifecycle network monitor (`NetworkMonitor`) that prevents queue skipping during cellular dips or dead zones (e.g., traveling between cell towers), automatically retrying and resuming playback seamlessly as soon as internet connectivity returns.
 - **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, track background adjustments, hero banners, and app preferences securely to Google Drive AppData.
 
 ---
@@ -104,14 +105,16 @@ We publish automated signed builds via GitHub Actions with architecture-specific
 
 ## 🛠️ Architecture & Tech Stack
 
-Mueso follows modern **MVVM Clean Architecture** guidelines:
+Mueso is built as a **100% Native Kotlin** Android application adhering strictly to **MVVM Clean Architecture** principles:
 
 | Component | Technology |
 | :--- | :--- |
 | **UI Framework** | Jetpack Compose (1.6+), Material 3 Design System |
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
+| **Media Service** | AndroidX MediaSessionService & MediaController IPC |
 | **Online Client** | Native Kotlin InnerTube Client (YouTube Music API) |
-| **State Management** | Kotlin Coroutines, StateFlow, ViewModel |
+| **Network Resilience** | Real-time ConnectivityManager Callback & StateFlow Auto-Recovery |
+| **State Management** | Kotlin Coroutines, StateFlow, SharedFlow, ViewModel |
 | **Database** | Room Persistence Library |
 | **Networking & HTTP** | OkHttp 3, Moshi JSON |
 | **Metadata Tagging** | Native Kotlin ID3v2.3 & MP4 Box Audio Tagger |

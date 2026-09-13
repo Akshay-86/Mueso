@@ -1,10 +1,16 @@
 package com.akshay.musicplayer.media.player
 
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -65,6 +71,39 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var isSyncingToMediaSession = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val onlineRepo = OnlineMusicRepository()
+
+    @Volatile private var isWaitingForNetwork: Boolean = false
+    private var pendingNetworkRetryTrack: TrackEntity? = null
+    private var pendingNetworkRetryIndex: Int = -1
+    private var pendingNetworkRetryPosMs: Long = 0L
+    private var networkRetryJob: Job? = null
+
+    override fun isWaitingForNetwork(): Boolean = isWaitingForNetwork
+
+    private var isNoisyReceiverRegistered = false
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            Log.d("ExoPlayerController", "noisyReceiver received action: $action")
+            when (action) {
+                AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
+                    Log.i("ExoPlayerController", "ACTION_AUDIO_BECOMING_NOISY -> pausing playback")
+                    pause()
+                }
+                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> {
+                    val state = intent.getIntExtra(
+                        BluetoothProfile.EXTRA_STATE,
+                        BluetoothProfile.STATE_CONNECTED
+                    )
+                    if (state == BluetoothProfile.STATE_DISCONNECTED ||
+                        state == BluetoothProfile.STATE_DISCONNECTING) {
+                        Log.i("ExoPlayerController", "Bluetooth A2DP disconnected/disconnecting -> pausing playback")
+                        pause()
+                    }
+                }
+            }
+        }
+    }
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -147,10 +186,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             handlePositionUpdates(false)
 
             // If an online stream fails in ExoPlayer (e.g. 403 Forbidden, expired stream, or network error),
-            // seamlessly fall back to the embedded YouTube player so music NEVER gets stuck or stopped!
+            // seamlessly fall back to the embedded YouTube player or stage for network recovery
             val curTrack = tracksQueue.getOrNull(currentQueueIndex)
             val videoId = if (curTrack != null) onlineRepo.extractVideoId(curTrack) else ""
             val isOnlineStream = curTrack != null && (curTrack.filePath.startsWith("http") || curTrack.filePath.startsWith("online:")) && videoId.isNotBlank()
+            val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+
+            if (isOnlineStream && isNetDown) {
+                Log.w("MUESO_NET", "ExoPlayer stream error while offline on '${curTrack?.title}'. Queuing for network recovery.")
+                handleOnlineTrackNetworkError(curTrack!!, mediaController?.currentPosition ?: 0L)
+                return
+            }
+
             if (isOnlineStream) {
                 Log.w("MUESO_SYNC", "ExoPlayer stream error on '${curTrack?.title}'. Falling back to YouTube player!")
                 scope.launch(Dispatchers.Main) {
@@ -393,9 +440,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
         try {
             val intent = android.content.Intent(context, MusicPlayerService::class.java)
-            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            context.startService(intent)
         } catch (e: Exception) {
-            Log.d("MUESO_SYNC", "Could not startForegroundService (expected if app is backgrounded): ${e.message}")
+            Log.d("MUESO_SYNC", "Could not startService: ${e.message}")
         }
     }
 
@@ -410,14 +457,96 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 onlineRepo.extractVideoId(track).isNotBlank()
     }
 
+    private fun handleOnlineTrackNetworkError(track: TrackEntity, positionMs: Long = 0L) {
+        fallbackJob?.cancel()
+        networkRetryJob?.cancel()
+        isWaitingForNetwork = true
+        pendingNetworkRetryTrack = track
+        pendingNetworkRetryIndex = currentQueueIndex
+        pendingNetworkRetryPosMs = positionMs
+        Log.w("MUESO_NET", "Online playback stalled due to network issue for '${track.title}' at ${positionMs}ms. Waiting for network...")
+
+        syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = positionMs)
+        _playbackState.value = _playbackState.value.copy(
+            isPlaying = false,
+            currentTrackId = track.id,
+            currentPositionMs = positionMs
+        )
+
+        // Periodic background retry: checks every 6s if network returned
+        networkRetryJob = scope.launch(Dispatchers.Main) {
+            var attempt = 0
+            while (isWaitingForNetwork && isActive) {
+                delay(6000)
+                attempt++
+                if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                    Log.i("MUESO_NET", "Periodic retry detected network online! Retrying '${track.title}' (attempt $attempt)")
+                    retryPendingNetworkTrack()
+                    break
+                } else {
+                    Log.d("MUESO_NET", "Periodic retry: waiting for network (attempt $attempt)...")
+                }
+            }
+        }
+    }
+
+    override fun retryPendingNetworkTrack() {
+        val track = pendingNetworkRetryTrack ?: currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex) ?: return
+        val targetIndex = if (pendingNetworkRetryIndex in tracksQueue.indices) pendingNetworkRetryIndex else currentQueueIndex
+        val posMs = pendingNetworkRetryPosMs
+        Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms ===")
+
+        isWaitingForNetwork = false
+        networkRetryJob?.cancel()
+        pendingNetworkRetryTrack = null
+        pendingNetworkRetryIndex = -1
+        pendingNetworkRetryPosMs = 0L
+
+        scope.launch(Dispatchers.Main) {
+            val videoId = onlineRepo.extractVideoId(track).ifBlank {
+                val p = track.filePath.removePrefix("online:")
+                if (p.length == 11 && !p.contains(" ") && !p.contains("/")) p else ""
+            }
+
+            if (videoId.isNotBlank()) {
+                isPlayingOnline = true
+                currentOnlineTrack = track
+                currentQueueIndex = targetIndex
+                currentTrackId = track.id
+                ytPlayerManager.reloadAndPlay(videoId, (posMs / 1000f).coerceAtLeast(0f))
+                syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = posMs)
+                _playbackState.value = PlaybackState(
+                    isPlaying = true,
+                    currentTrackId = track.id,
+                    currentPositionMs = posMs,
+                    durationMs = track.duration.coerceAtLeast(0L)
+                )
+            } else {
+                seekToIndex(targetIndex)
+            }
+        }
+    }
+
     private fun handleOnlineTrackError(errorName: String) {
         val track = currentOnlineTrack ?: return
         val currentVid = ytPlayerManager.currentVideoId ?: onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
         if (currentVid.isBlank()) return
 
+        val isNetworkDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+        val isNetworkError = isNetworkDown ||
+                errorName == "NETWORK_ERROR" ||
+                errorName == "HTML_5_PLAYER" ||
+                errorName.contains("NETWORK", ignoreCase = true)
+
+        if (isNetworkError) {
+            Log.w("MUESO_NET", "Online track '${track.title}' hit network error '$errorName' (netDown=$isNetworkDown). Entering network wait/retry state.")
+            handleOnlineTrackNetworkError(track, ytPlayerManager.currentPositionMs)
+            return
+        }
+
         fallbackJob?.cancel()
         fallbackJob = scope.launch(Dispatchers.Main) {
-            Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) encountered error '$errorName' in YouTube player. Auto-skipping to next track.")
+            Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) encountered permanent error '$errorName' in YouTube player. Auto-skipping to next track.")
             try {
                 android.widget.Toast.makeText(
                     context,
@@ -504,6 +633,24 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             }
         }
 
+        ytPlayerManager.onNetworkError = { vid, posSec ->
+            if (isPlayingOnline) {
+                val track = currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex)
+                if (track != null) {
+                    handleOnlineTrackNetworkError(track, (posSec * 1000).toLong())
+                }
+            }
+        }
+
+        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener {
+            mainHandler.post {
+                if (isWaitingForNetwork) {
+                    Log.i("MUESO_NET", "Network restored callback fired in ExoPlayerController! Resuming playback...")
+                    retryPendingNetworkTrack()
+                }
+            }
+        }
+
         com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = {
             mainHandler.post { seekToNext() }
         }
@@ -512,6 +659,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
         com.akshay.musicplayer.media.service.MediaSessionBridge.onPlayRequested = {
             mainHandler.post {
+                if (isWaitingForNetwork) {
+                    if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                        retryPendingNetworkTrack()
+                    } else {
+                        try {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Waiting for network connection...",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } catch (_: Exception) {}
+                    }
+                    return@post
+                }
                 if (isPlayingOnline) {
                     ytPlayerManager.play()
                 }
@@ -519,9 +680,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
         com.akshay.musicplayer.media.service.MediaSessionBridge.onPauseRequested = {
             mainHandler.post {
-                if (isPlayingOnline) {
-                    ytPlayerManager.pause()
-                }
+                pause()
             }
         }
         com.akshay.musicplayer.media.service.MediaSessionBridge.hasNextItem = {
@@ -546,15 +705,36 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             }
         }
 
+        try {
+            val noisyFilter = IntentFilter().apply {
+                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            }
+            ContextCompat.registerReceiver(
+                context,
+                noisyReceiver,
+                noisyFilter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            isNoisyReceiverRegistered = true
+            Log.d("ExoPlayerController", "Successfully registered audio becoming noisy & bluetooth receiver")
+        } catch (e: Exception) {
+            Log.w("ExoPlayerController", "Failed to register noisy receiver", e)
+        }
+
         val sessionToken = SessionToken(context, ComponentName(context, MusicPlayerService::class.java))
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({
-            mediaController = mediaControllerFuture?.get()
-            mediaController?.addListener(listener)
-            pendingRestore?.invoke()
-            pendingRestore = null
-            if (!isRestoring && !isPlayingOnline) {
-                updatePlaybackState()
+            try {
+                mediaController = mediaControllerFuture?.get()
+                mediaController?.addListener(listener)
+                pendingRestore?.invoke()
+                pendingRestore = null
+                if (!isRestoring && !isPlayingOnline) {
+                    updatePlaybackState()
+                }
+            } catch (e: Exception) {
+                Log.e("ExoPlayerController", "Failed to connect to MediaController: ${e.message}", e)
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -792,6 +972,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun togglePlayPause() {
+        if (isWaitingForNetwork) {
+            if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                retryPendingNetworkTrack()
+            } else {
+                try {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Waiting for network connection...",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } catch (_: Exception) {}
+            }
+            return
+        }
         if (isPlayingOnline) {
             ytPlayerManager.togglePlayPause()
         } else {
@@ -811,6 +1005,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun pause() {
+        networkRetryJob?.cancel()
+        isWaitingForNetwork = false
         if (isPlayingOnline) {
             ytPlayerManager.pause()
             currentOnlineTrack?.let { syncMediaSessionForOnlineTrack(it, isPlaying = false) }
@@ -858,9 +1054,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         Log.d("MUESO_SYNC", "seekToIndex: index=$index")
         startServiceIfForeground()
         fallbackJob?.cancel()
+        networkRetryJob?.cancel()
+        isWaitingForNetwork = false
         currentQueueIndex = index
         val track = tracksQueue.getOrNull(index)
         if (track != null && isOnlineTrack(track)) {
+            val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+            if (isNetDown) {
+                Log.w("MUESO_NET", "seekToIndex: online track '${track.title}' requested while offline. Staging for network restoration.")
+                currentOnlineTrack = track
+                currentTrackId = track.id
+                handleOnlineTrackNetworkError(track, 0L)
+                return
+            }
+
             isPlayingOnline = true
             currentOnlineTrack = track
             currentTrackId = track.id
@@ -1065,6 +1272,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         ytPlayerManager.release()
         positionUpdateJob?.cancel()
+        if (isNoisyReceiverRegistered) {
+            try {
+                context.unregisterReceiver(noisyReceiver)
+                isNoisyReceiverRegistered = false
+            } catch (e: Exception) {
+                Log.w("ExoPlayerController", "Failed to unregister noisy receiver during release", e)
+            }
+        }
         try {
             mediaController?.removeListener(listener)
             mediaControllerFuture?.let { MediaController.releaseFuture(it) }

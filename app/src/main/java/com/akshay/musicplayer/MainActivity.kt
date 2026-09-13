@@ -50,9 +50,9 @@ class MainActivity : ComponentActivity() {
 
         try {
             val serviceIntent = android.content.Intent(this, com.akshay.musicplayer.media.service.MusicPlayerService::class.java)
-            androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
+            startService(serviceIntent)
         } catch (e: Exception) {
-            android.util.Log.w("MainActivity", "Failed to startForegroundService: ${e.message}")
+            android.util.Log.w("MainActivity", "Failed to startService: ${e.message}")
         }
 
         handleNotificationIntent(intent)

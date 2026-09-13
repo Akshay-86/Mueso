@@ -17,5 +17,6 @@ class MusicPlayerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         AppContainer.initialize(this)
+        com.akshay.musicplayer.data.remote.NetworkMonitor.initialize(this)
     }
 }

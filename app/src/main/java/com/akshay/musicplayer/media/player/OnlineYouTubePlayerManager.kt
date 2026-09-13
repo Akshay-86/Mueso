@@ -44,6 +44,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     var onPositionUpdate: ((positionMs: Long, durationMs: Long) -> Unit)? = null
     var onTrackEnded: (() -> Unit)? = null
     var onError: ((String) -> Unit)? = null
+    var onNetworkError: ((videoId: String, positionSec: Float) -> Unit)? = null
 
     init {
         initialize()
@@ -113,6 +114,19 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             }
                         }
                         return super.shouldInterceptRequest(view, request)
+                    }
+
+                    override fun onReceivedError(
+                        view: android.webkit.WebView?,
+                        request: android.webkit.WebResourceRequest?,
+                        error: android.webkit.WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        val isOnline = com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+                        if (!isOnline && currentVideoId != null) {
+                            Log.w(TAG, "WebView onReceivedError without network: ${error?.description}")
+                            onNetworkError?.invoke(currentVideoId ?: "", (currentPositionMs / 1000f).coerceAtLeast(0f))
+                        }
                     }
                 }
                 wv.webChromeClient = object : android.webkit.WebChromeClient() {
@@ -241,7 +255,16 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                         // Ignore harmless initial ready check error before any video has been loaded
                         return
                     }
-                    Log.e(TAG, "YouTubePlayer onError: $error for video $currentVideoId")
+                    val isNetworkDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+                    val isLikelyNetworkIssue = isNetworkDown ||
+                            error == PlayerConstants.PlayerError.HTML_5_PLAYER ||
+                            error.name.contains("NETWORK", ignoreCase = true)
+
+                    Log.e(TAG, "YouTubePlayer onError: $error (isNetworkDown=$isNetworkDown) for video $currentVideoId")
+                    if (isLikelyNetworkIssue) {
+                        onNetworkError?.invoke(currentVideoId ?: "", (currentPositionMs / 1000f).coerceAtLeast(0f))
+                        return
+                    }
                     onError?.invoke(error.name)
                 }
             }, options)
@@ -315,6 +338,50 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                 return@post
             }
             loadVideoInternal(videoId, startSeconds)
+        }
+    }
+
+    fun reloadAndPlay(videoId: String, startSeconds: Float = 0f) {
+        currentVideoId = videoId
+        durationMs = 0L
+        currentPositionMs = (startSeconds * 1000).toLong()
+        pendingCueOnly = false
+        isLoadingNewVideo = true
+        isPlaying = true
+
+        mainHandler.post {
+            if (playerView == null || !isReady || activePlayer == null) {
+                Log.d(TAG, "reloadAndPlay: player not ready, initializing fresh for $videoId at ${startSeconds}s")
+                initialize()
+                playVideo(videoId, startSeconds)
+                return@post
+            }
+
+            playerView?.let { pv ->
+                findWebView(pv)?.let { wv ->
+                    Log.d(TAG, "reloadAndPlay: issuing JS loadVideoById for $videoId at ${startSeconds}s")
+                    wv.evaluateJavascript(
+                        """
+                        (function() {
+                            try {
+                                if (typeof player !== 'undefined' && player && player.loadVideoById) {
+                                    player.loadVideoById({videoId: '$videoId', startSeconds: $startSeconds});
+                                    if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
+                                    player.playVideo();
+                                    return true;
+                                }
+                            } catch(e) {}
+                            return false;
+                        })();
+                        """.trimIndent()
+                    ) { result ->
+                        if (result != "true") {
+                            Log.d(TAG, "JS loadVideoById returned $result, falling back to activePlayer.loadVideo")
+                            loadVideoInternal(videoId, startSeconds)
+                        }
+                    }
+                } ?: loadVideoInternal(videoId, startSeconds)
+            } ?: loadVideoInternal(videoId, startSeconds)
         }
     }
 
