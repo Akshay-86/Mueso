@@ -35,6 +35,8 @@ fun PlaylistCollageArt(
             if (videoId.isNotBlank()) "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" else null
         } else if (track.albumId > 0) {
             "content://media/external/audio/albumart/${track.albumId}"
+        } else if (track.filePath.isNotBlank() && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http")) {
+            track.filePath
         } else {
             null
         }

@@ -49,7 +49,13 @@ class BackupManager(
             skipSelfPromo = sharedPreferences.getBoolean("skip_self_promo", true),
             skipInteraction = sharedPreferences.getBoolean("skip_interaction", true),
             skipIntroOutro = sharedPreferences.getBoolean("skip_intro_outro", true),
-            skipNonMusicOffTopic = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
+            skipNonMusicOffTopic = sharedPreferences.getBoolean("skip_non_music_off_topic", true),
+            themeMode = sharedPreferences.getString("theme_mode", "system") ?: "system",
+            usePureBlack = sharedPreferences.getBoolean("use_pure_black", false),
+            accentColorId = sharedPreferences.getString("accent_color_id", "sunset_orange") ?: "sunset_orange",
+            fontScaleOption = sharedPreferences.getString("font_scale_option", "standard") ?: "standard",
+            cornerRadiusOption = sharedPreferences.getString("corner_radius_option", "rounded") ?: "rounded",
+            lyricsFontSizeOption = sharedPreferences.getString("lyrics_font_size_option", "standard") ?: "standard"
         )
     }
 
@@ -138,6 +144,12 @@ class BackupManager(
             .putBoolean("skip_interaction", settings.skipInteraction)
             .putBoolean("skip_intro_outro", settings.skipIntroOutro)
             .putBoolean("skip_non_music_off_topic", settings.skipNonMusicOffTopic)
+            .putString("theme_mode", settings.themeMode)
+            .putBoolean("use_pure_black", settings.usePureBlack)
+            .putString("accent_color_id", settings.accentColorId)
+            .putString("font_scale_option", settings.fontScaleOption)
+            .putString("corner_radius_option", settings.cornerRadiusOption)
+            .putString("lyrics_font_size_option", settings.lyricsFontSizeOption)
             .apply()
         settingsManager?.reloadFromPreferences()
     }

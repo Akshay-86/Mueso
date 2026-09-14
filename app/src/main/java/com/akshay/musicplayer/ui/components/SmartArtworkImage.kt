@@ -118,7 +118,7 @@ private fun extractArtworkData(context: Context, rawUriOrPath: String): Any? {
         // 1. Content URI (e.g. content://media/external/audio/media/123)
         if (rawUriOrPath.startsWith("content://")) {
             val uri = Uri.parse(rawUriOrPath)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && rawUriOrPath.contains("audio/media")) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     val bm = context.contentResolver.loadThumbnail(uri, Size(1024, 1024), null)
                     if (bm != null) return bm

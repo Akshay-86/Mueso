@@ -19,6 +19,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import com.akshay.musicplayer.data.repository.TrackRepositoryImpl
 import com.akshay.musicplayer.data.sources.LocalMediaStoreDataSource
@@ -59,14 +74,32 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val isDarkMode by playerViewModel.isDarkMode.collectAsState()
+            val themeMode by playerViewModel.themeMode.collectAsState()
+            val usePureBlack by playerViewModel.usePureBlack.collectAsState()
+            val accentColorId by playerViewModel.accentColorId.collectAsState()
+            val fontScaleOption by playerViewModel.fontScaleOption.collectAsState()
+            val cornerRadiusOption by playerViewModel.cornerRadiusOption.collectAsState()
+            val lyricsFontSizeOption by playerViewModel.lyricsFontSizeOption.collectAsState()
+
             val showOnLockscreen by playerViewModel.showOnLockscreen.collectAsState()
             val highRefreshRate by playerViewModel.highRefreshRate.collectAsState()
+
+            val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val isEffectiveDark = when (com.akshay.musicplayer.ui.theme.ThemeMode.fromId(themeMode)) {
+                com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM -> systemInDark
+                com.akshay.musicplayer.ui.theme.ThemeMode.DARK -> true
+                com.akshay.musicplayer.ui.theme.ThemeMode.LIGHT -> false
+            }
 
             val view = androidx.compose.ui.platform.LocalView.current
             if (!view.isInEditMode) {
                 SideEffect {
                     val window = (view.context as android.app.Activity).window
-                    androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDarkMode
+                    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, view)
+                    insetsController.isAppearanceLightStatusBars = !isEffectiveDark
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        insetsController.isAppearanceLightNavigationBars = !isEffectiveDark
+                    }
                 }
             }
 
@@ -126,51 +159,95 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (showBatteryDialog) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = {
-                        showBatteryDialog = false
-                        getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                            .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                    },
-                    title = {
-                        androidx.compose.material3.Text(
-                            text = "Background Playback",
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                    },
-                    text = {
-                        androidx.compose.material3.Text(
-                            text = "To ensure music keeps playing continuously when your screen is locked or while using other apps, please allow Mueso to run without battery restrictions."
-                        )
-                    },
-                    confirmButton = {
-                        androidx.compose.material3.Button(
-                            onClick = {
-                                showBatteryDialog = false
-                                getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                                    .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                                com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
-                            }
-                        ) {
-                            androidx.compose.material3.Text("Allow")
-                        }
-                    },
-                    dismissButton = {
-                        androidx.compose.material3.TextButton(
-                            onClick = {
-                                showBatteryDialog = false
-                                getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                                    .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                            }
-                        ) {
-                            androidx.compose.material3.Text("Later")
-                        }
-                    }
-                )
-            }
+            MusicPlayerTheme(
+                themeMode = themeMode,
+                usePureBlack = usePureBlack,
+                accentColorId = accentColorId,
+                fontScaleOption = fontScaleOption,
+                cornerRadiusOption = cornerRadiusOption,
+                lyricsFontSizeOption = lyricsFontSizeOption
+            ) {
+                if (showBatteryDialog) {
+                    val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+                    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+                    val dialogBg = if (isPureBlack) Color(0xFF0D0D0D) else MaterialTheme.colorScheme.surface
+                    val textPrimary = MaterialTheme.colorScheme.onSurface
+                    val textSub = MaterialTheme.colorScheme.onSurfaceVariant
 
-            MusicPlayerTheme(darkTheme = isDarkMode) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            showBatteryDialog = false
+                            getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                                .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                        },
+                        shape = RoundedCornerShape(24.dp),
+                        containerColor = dialogBg,
+                        icon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(accentColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        },
+                        title = {
+                            Text(
+                                text = "Background Playback",
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = "To ensure music keeps playing continuously when your screen is locked or while using other apps, please allow Mueso to run without battery restrictions.",
+                                color = textSub,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showBatteryDialog = false
+                                    getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                                        .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                                    com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Allow Unrestricted", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    showBatteryDialog = false
+                                    getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
+                                        .edit().putBoolean("has_prompted_battery_optimization", true).apply()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Maybe Later", color = textSub)
+                            }
+                        }
+                    )
+                }
+
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {

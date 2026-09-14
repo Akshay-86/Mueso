@@ -10,6 +10,24 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _isDarkMode = MutableStateFlow(sharedPreferences.getBoolean("is_dark_mode", true))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(sharedPreferences.getString("theme_mode", "system") ?: "system")
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    private val _usePureBlack = MutableStateFlow(sharedPreferences.getBoolean("use_pure_black", false))
+    val usePureBlack: StateFlow<Boolean> = _usePureBlack.asStateFlow()
+
+    private val _accentColorId = MutableStateFlow(sharedPreferences.getString("accent_color_id", "sunset_orange") ?: "sunset_orange")
+    val accentColorId: StateFlow<String> = _accentColorId.asStateFlow()
+
+    private val _fontScaleOption = MutableStateFlow(sharedPreferences.getString("font_scale_option", "standard") ?: "standard")
+    val fontScaleOption: StateFlow<String> = _fontScaleOption.asStateFlow()
+
+    private val _cornerRadiusOption = MutableStateFlow(sharedPreferences.getString("corner_radius_option", "rounded") ?: "rounded")
+    val cornerRadiusOption: StateFlow<String> = _cornerRadiusOption.asStateFlow()
+
+    private val _lyricsFontSizeOption = MutableStateFlow(sharedPreferences.getString("lyrics_font_size_option", "standard") ?: "standard")
+    val lyricsFontSizeOption: StateFlow<String> = _lyricsFontSizeOption.asStateFlow()
+
     private val _heroPlaylistId = MutableStateFlow(sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global")
     val heroPlaylistId: StateFlow<String> = _heroPlaylistId.asStateFlow()
 
@@ -67,6 +85,42 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
         sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()
+        val mode = if (enabled) "dark" else "light"
+        _themeMode.value = mode
+        sharedPreferences.edit().putString("theme_mode", mode).apply()
+    }
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        sharedPreferences.edit().putString("theme_mode", mode).apply()
+        val isDark = mode != "light"
+        _isDarkMode.value = isDark
+        sharedPreferences.edit().putBoolean("is_dark_mode", isDark).apply()
+    }
+
+    fun setUsePureBlack(enabled: Boolean) {
+        _usePureBlack.value = enabled
+        sharedPreferences.edit().putBoolean("use_pure_black", enabled).apply()
+    }
+
+    fun setAccentColorId(id: String) {
+        _accentColorId.value = id
+        sharedPreferences.edit().putString("accent_color_id", id).apply()
+    }
+
+    fun setFontScaleOption(option: String) {
+        _fontScaleOption.value = option
+        sharedPreferences.edit().putString("font_scale_option", option).apply()
+    }
+
+    fun setCornerRadiusOption(option: String) {
+        _cornerRadiusOption.value = option
+        sharedPreferences.edit().putString("corner_radius_option", option).apply()
+    }
+
+    fun setLyricsFontSizeOption(option: String) {
+        _lyricsFontSizeOption.value = option
+        sharedPreferences.edit().putString("lyrics_font_size_option", option).apply()
     }
 
     fun setHeroPlaylistId(id: String) {
@@ -154,6 +208,12 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun reloadFromPreferences() {
         _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
+        _themeMode.value = sharedPreferences.getString("theme_mode", "system") ?: "system"
+        _usePureBlack.value = sharedPreferences.getBoolean("use_pure_black", false)
+        _accentColorId.value = sharedPreferences.getString("accent_color_id", "sunset_orange") ?: "sunset_orange"
+        _fontScaleOption.value = sharedPreferences.getString("font_scale_option", "standard") ?: "standard"
+        _cornerRadiusOption.value = sharedPreferences.getString("corner_radius_option", "rounded") ?: "rounded"
+        _lyricsFontSizeOption.value = sharedPreferences.getString("lyrics_font_size_option", "standard") ?: "standard"
         _heroPlaylistId.value = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global"
         _showOnLockscreen.value = sharedPreferences.getBoolean("show_on_lockscreen", true)
         _highRefreshRate.value = sharedPreferences.getBoolean("high_refresh_rate", false)

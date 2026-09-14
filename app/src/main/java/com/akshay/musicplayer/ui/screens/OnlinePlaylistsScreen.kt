@@ -42,17 +42,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import coil.compose.AsyncImage
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
 import com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack
 import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.ui.components.PlaylistCollageArt
 import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAccount
 
-private val OrangeAccent = Color(0xFFFF512F)
+private val OrangeAccent: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+
 private val TextSecondary = Color(0xFF8E8E93)
 
 data class SelectedOnlinePlaylist(
@@ -228,7 +234,7 @@ fun OnlinePlaylistsScreen(
                         .background(
                             Brush.horizontalGradient(
                                 if (isYouTubeLoggedIn) listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
-                                else listOf(Color(0xFFFF512F), Color(0xFFDD2476))
+                                else listOf(OrangeAccent, MaterialTheme.colorScheme.secondary)
                             )
                         )
                         .padding(16.dp)
@@ -385,7 +391,52 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // 2. User Liked Playlists (When Signed In)
+            // 2. Custom In-App Online Playlists (Top Priority)
+            if (customOnlinePlaylists.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "My Custom Playlists",
+                                color = textColor,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${customOnlinePlaylists.size} playlist${if (customOnlinePlaylists.size != 1) "s" else ""}",
+                                color = textSub,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            items(customOnlinePlaylists, key = { it.id }) { playlist ->
+                                CustomPlaylistCard(
+                                    playlist = playlist,
+                                    viewModel = viewModel,
+                                    isDarkMode = isDarkMode,
+                                    onClick = { selectedCustomPlaylist = playlist },
+                                    onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
+                                    onEdit = { editingPlaylist = playlist },
+                                    onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. User Liked Playlists (When Signed In)
             if (isYouTubeLoggedIn && youtubeUserPlaylists.isNotEmpty() && selectedMoodCategory == "All") {
                 item {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
@@ -715,47 +766,6 @@ fun OnlinePlaylistsScreen(
                     }
                 }
             }
-
-            // 5. Custom In-App Online Playlists
-            if (customOnlinePlaylists.isNotEmpty()) {
-                item {
-                    Column(modifier = Modifier.padding(top = 16.dp)) {
-                        Text(
-                            text = "Custom Online Playlists",
-                            color = textColor,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                        )
-
-                        val customRows = customOnlinePlaylists.chunked(2)
-                        customRows.forEach { row ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                row.forEach { playlist ->
-                                    CustomPlaylistCard(
-                                        playlist = playlist,
-                                        viewModel = viewModel,
-                                        modifier = Modifier.weight(1f),
-                                        isDarkMode = isDarkMode,
-                                        onClick = { selectedCustomPlaylist = playlist },
-                                        onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
-                                        onEdit = { editingPlaylist = playlist },
-                                        onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
-                                    )
-                                }
-                                if (row.size == 1) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // YouTube Music Login Dialog
@@ -1057,7 +1067,9 @@ fun OnlineSongCard(
     isDarkMode: Boolean,
     onClick: () -> Unit
 ) {
-    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val isPureBlack = LocalIsPureBlack.current
+    val cardBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1C1C1E)) else Color(0xFFFFFFFF)
+    val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
@@ -1066,6 +1078,7 @@ fun OnlineSongCard(
             .width(140.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(10.dp)
     ) {
@@ -1139,7 +1152,9 @@ fun DynamicPlaylistCard(
     isDarkMode: Boolean,
     onClick: () -> Unit
 ) {
-    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val isPureBlack = LocalIsPureBlack.current
+    val cardBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1C1C1E)) else Color(0xFFFFFFFF)
+    val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
@@ -1148,6 +1163,7 @@ fun DynamicPlaylistCard(
             .width(150.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(10.dp)
     ) {
@@ -1211,61 +1227,109 @@ fun CustomPlaylistCard(
 ) {
     val tracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
     val tracks by tracksFlow.collectAsState(initial = emptyList())
-    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+    val isPureBlack = LocalIsPureBlack.current
+    val cardBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1C1C1E)) else Color(0xFFFFFFFF)
+    val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
     var showMenu by remember { mutableStateOf(false) }
 
-    Box(
+    Column(
         modifier = modifier
+            .width(150.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(12.dp)
+            .padding(10.dp)
     ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .size(130.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            PlaylistCollageArt(
+                tracks = tracks,
+                modifier = Modifier.fillMaxSize(),
+                cornerRadius = 12.dp
+            )
+
+            // 3-Dots Menu Button overlay in top-end corner
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
             ) {
-                Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = OrangeAccent, modifier = Modifier.size(24.dp))
-                Box {
-                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = textPrimary.copy(alpha = 0.6f))
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Edit Details") },
-                            onClick = { showMenu = false; onEdit() },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete Playlist") },
-                            onClick = { showMenu = false; onDelete() },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) }
-                        )
-                    }
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Menu",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Edit Details") },
+                        onClick = { showMenu = false; onEdit() },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete Playlist", color = Color.Red) },
+                        onClick = { showMenu = false; onDelete() },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) }
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = playlist.name,
-                color = textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Text(
-                text = "${tracks.size} track(s)",
-                color = textPrimary.copy(alpha = 0.6f),
-                fontSize = 12.sp
-            )
+            // Quick Play Button in bottom-end corner
+            if (tracks.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.65f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = playlist.name,
+            color = textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Text(
+            text = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
+            color = textSec,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

@@ -59,7 +59,9 @@ import com.akshay.musicplayer.ui.components.SongInfo
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
-private val AccentOrange = Color(0xFFFF512F)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

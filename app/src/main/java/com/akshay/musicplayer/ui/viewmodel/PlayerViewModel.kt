@@ -208,6 +208,12 @@ class PlayerViewModel(
     fun checkAndResumePendingInstall(context: android.content.Context) = updateManager.checkAndResumePendingInstall(context)
 
     val isDarkMode = settingsManager.isDarkMode
+    val themeMode = settingsManager.themeMode
+    val usePureBlack = settingsManager.usePureBlack
+    val accentColorId = settingsManager.accentColorId
+    val fontScaleOption = settingsManager.fontScaleOption
+    val cornerRadiusOption = settingsManager.cornerRadiusOption
+    val lyricsFontSizeOption = settingsManager.lyricsFontSizeOption
     val heroPlaylistId = settingsManager.heroPlaylistId
     val showOnLockscreen = settingsManager.showOnLockscreen
     val highRefreshRate = settingsManager.highRefreshRate
@@ -227,6 +233,12 @@ class PlayerViewModel(
     val skipNonMusicOffTopic = settingsManager.skipNonMusicOffTopic
 
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
+    fun setThemeMode(mode: String) = settingsManager.setThemeMode(mode)
+    fun setUsePureBlack(enabled: Boolean) = settingsManager.setUsePureBlack(enabled)
+    fun setAccentColorId(id: String) = settingsManager.setAccentColorId(id)
+    fun setFontScaleOption(option: String) = settingsManager.setFontScaleOption(option)
+    fun setCornerRadiusOption(option: String) = settingsManager.setCornerRadiusOption(option)
+    fun setLyricsFontSizeOption(option: String) = settingsManager.setLyricsFontSizeOption(option)
     fun setHeroPlaylistId(id: String) = settingsManager.setHeroPlaylistId(id)
     fun setShowOnLockscreen(enabled: Boolean) = settingsManager.setShowOnLockscreen(enabled)
     fun setHighRefreshRate(enabled: Boolean) = settingsManager.setHighRefreshRate(enabled)
@@ -1530,6 +1542,23 @@ class PlayerViewModel(
             }
             _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
             return
+        }
+
+        // 2. For offline songs: check embedded tags & sidecar .lrc first
+        val isOffline = !track.filePath.startsWith("online:") &&
+                !track.filePath.startsWith("http://") &&
+                !track.filePath.startsWith("https://") &&
+                track.filePath.isNotBlank()
+
+        if (isOffline) {
+            val embeddedLyrics = com.akshay.musicplayer.util.EmbeddedLyricsHelper.extractLyrics(track.filePath)
+            if (embeddedLyrics != null && (embeddedLyrics.lines.isNotEmpty() || !embeddedLyrics.rawText.isNullOrBlank())) {
+                currentTracks = currentTracks.map {
+                    if (it.id == track.id) it.copy(lyrics = embeddedLyrics) else it
+                }
+                _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+                return
+            }
         }
 
         _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FETCHING)

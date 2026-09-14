@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
 
 @Composable
 fun AlbumArtBackground(
@@ -124,7 +125,7 @@ fun AlbumArtBackground(
             ) {
                 Text(
                     text = "↔️ Drag sideways to frame cover • Release to lock",
-                    color = Color(0xFFFF512F),
+                    color = LocalAccentColor.current,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )

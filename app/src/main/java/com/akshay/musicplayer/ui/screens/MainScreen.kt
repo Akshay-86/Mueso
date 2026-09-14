@@ -45,8 +45,13 @@ import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 
-private val BgDark = Color(0xFF0F0F0F)
-private val AccentOrange = Color(0xFFFF512F)
+private val BgDark: Color
+    @Composable
+    get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF000000) else MaterialTheme.colorScheme.background
+
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -948,10 +953,10 @@ fun PlaceholderScreen(title: String) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 32.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        Text(title, color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.headlineMedium)
+        Text(title, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), style = MaterialTheme.typography.headlineMedium)
     }
 }

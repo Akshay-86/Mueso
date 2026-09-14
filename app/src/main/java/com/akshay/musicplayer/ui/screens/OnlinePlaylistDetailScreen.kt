@@ -58,8 +58,14 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet
 
-private val BgDark = Color(0xFF0F0F0F)
-private val AccentOrange = Color(0xFFFF512F)
+private val BgDark: Color
+    @Composable
+    get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF000000) else Color(0xFF0F0F0F)
+
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+
 private val TextSecondary = Color(0xFF8E8E93)
 
 @Composable
@@ -129,6 +135,12 @@ fun OnlinePlaylistDetailScreen(
         }
     }
 
+    val dynamicGradient = com.akshay.musicplayer.ui.utils.rememberPlaylistGradient(
+        tracks = tracks,
+        title = title,
+        fallbackGradient = if (gradientColors.isNotEmpty() && gradientColors != listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))) gradientColors else null
+    )
+
     if (showAddToPlaylist && viewModel != null) {
         AddToPlaylistBottomSheet(
             tracks = displayTracks,
@@ -197,8 +209,8 @@ fun OnlinePlaylistDetailScreen(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    gradientColors.firstOrNull() ?: AccentOrange,
-                                    gradientColors.lastOrNull() ?: Color(0xFF1A1A2E),
+                                    dynamicGradient.firstOrNull() ?: AccentOrange,
+                                    dynamicGradient.lastOrNull() ?: Color(0xFF1A1A2E),
                                     if (isDarkMode) BgDark else MaterialTheme.colorScheme.background
                                 )
                             )
@@ -375,7 +387,7 @@ fun OnlinePlaylistDetailScreen(
                                 tracks = tracks,
                                 modifier = Modifier.size(160.dp),
                                 cornerRadius = 20.dp,
-                                fallbackGradient = gradientColors
+                                fallbackGradient = dynamicGradient
                             )
 
                             Column(

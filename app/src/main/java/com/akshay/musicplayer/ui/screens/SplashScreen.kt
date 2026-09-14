@@ -104,8 +104,8 @@ fun SplashScreen(onAnimationFinished: () -> Unit) {
         onAnimationFinished()
     }
 
-    val accentOrange = Color(0xFFFF512F)
-    val accentPink = Color(0xFFDD2476)
+    val accentOrange = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    val accentPink = MaterialTheme.colorScheme.secondary
 
     Box(
         modifier = Modifier

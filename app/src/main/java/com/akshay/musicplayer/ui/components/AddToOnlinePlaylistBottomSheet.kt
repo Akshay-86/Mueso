@@ -35,7 +35,10 @@ import com.akshay.musicplayer.ui.screens.CreateOnlinePlaylistDialog
 import com.akshay.musicplayer.ui.screens.CreatePlaylistDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
-private val AccentOrange = Color(0xFFFF512F)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+
 private val YouTubeRed = Color(0xFFFF0000)
 private val PurpleGradient = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
 
@@ -69,7 +72,8 @@ fun AddToPlaylistBottomSheet(
     var showCreateDialogType by remember { mutableStateOf<String?>(null) } // "online", "local", "youtube"
     var showCreateChoiceDialog by remember { mutableStateOf(false) }
 
-    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val sheetBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1A1A2E)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
     val cardBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
@@ -772,7 +776,8 @@ fun CreatePlaylistChoiceDialog(
     onSelectType: (type: String) -> Unit, // "youtube", "online", "local"
     onDismiss: () -> Unit
 ) {
-    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val sheetBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1A1A2E)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
     val cardBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)

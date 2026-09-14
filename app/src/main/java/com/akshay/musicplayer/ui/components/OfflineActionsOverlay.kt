@@ -38,21 +38,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OfflineActionsOverlay(
     modifier: Modifier = Modifier,
-    repeatMode: Int = 0,
     isShuffleEnabled: Boolean = false,
-    isSleepTimerActive: Boolean = false,
-    sleepTimerLabel: String? = null,
+    repeatMode: Int = 0, // 0 = OFF, 1 = ALL, 2 = ONE
     sleepTimerStatus: String? = null,
     queueSize: Int = 0,
     isOnlineSong: Boolean = false,
     isDownloading: Boolean = false,
     downloadProgress: Float = 0f,
     isDownloaded: Boolean = false,
+    isSleepTimerActive: Boolean = false,
+    sleepTimerLabel: String? = null,
     onSleepTimerClick: () -> Unit = {},
     onShuffleClick: () -> Unit = {},
     onRepeatClick: () -> Unit = {},
@@ -62,7 +63,7 @@ fun OfflineActionsOverlay(
     onCancelDownloadClick: () -> Unit = {},
     onAddToPlaylistClick: () -> Unit = {}
 ) {
-    val accentColor = Color(0xFFFF512F)
+    val accentColor = LocalAccentColor.current
 
     Column(
         modifier = modifier.fillMaxWidth(),

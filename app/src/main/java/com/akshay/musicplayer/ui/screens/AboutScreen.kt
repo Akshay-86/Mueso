@@ -39,9 +39,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val AccentOrange = Color(0xFFFF512F)
-private val GradientStart = Color(0xFFFF512F)
-private val GradientEnd = Color(0xFFDD2476)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,11 +54,12 @@ fun AboutScreen(
 
     BackHandler(onBack = onBackClick)
 
-    val bgColor = if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
-    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
+    val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
-    val dividerColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+    val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
 
     val appVersion = remember {
         val name = BuildConfig.VERSION_NAME

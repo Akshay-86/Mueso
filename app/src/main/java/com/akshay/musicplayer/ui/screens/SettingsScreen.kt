@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -12,18 +13,22 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import android.os.Build
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -35,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,10 +53,11 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.launch
 
-private val AccentOrange = Color(0xFFFF512F)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +67,13 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
+    val usePureBlack by viewModel.usePureBlack.collectAsState()
+    val accentColorId by viewModel.accentColorId.collectAsState()
+    val fontScaleOption by viewModel.fontScaleOption.collectAsState()
+    val cornerRadiusOption by viewModel.cornerRadiusOption.collectAsState()
+    val lyricsFontSizeOption by viewModel.lyricsFontSizeOption.collectAsState()
+
     val googleAccount by viewModel.googleAccount.collectAsState()
     val googleAccountEmail by viewModel.googleAccountEmail.collectAsState()
     val hasUnbackedUpChanges by viewModel.hasUnbackedUpChanges.collectAsState()
@@ -88,6 +102,15 @@ fun SettingsScreen(
 
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
+
+    val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+
+    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
+    val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
+    val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -120,11 +143,7 @@ fun SettingsScreen(
         viewModel.initGoogleDriveAccount(context)
     }
 
-    val bgColor = if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
-    val cardBg = if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
-    val dividerColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+
 
     val listState = rememberLazyListState()
 
@@ -457,7 +476,70 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 2. Display & Lockscreen Behavior ───
+            // ─── 2. Customization & Appearance ───
+            item {
+                Text(
+                    text = "Customization & Appearance",
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .padding(vertical = 4.dp)
+                ) {
+                    ThemeModeSelectorItem(
+                        currentMode = themeMode,
+                        isDarkMode = isDarkMode,
+                        accentColor = AccentOrange,
+                        onModeSelect = { viewModel.setThemeMode(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Pure Black (AMOLED)",
+                        subtitle = "Pitch black background to save battery on OLED displays",
+                        icon = Icons.Default.Contrast,
+                        checked = usePureBlack,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setUsePureBlack(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    AccentColorPickerItem(
+                        currentAccentId = accentColorId,
+                        isDarkMode = isDarkMode,
+                        onAccentSelect = { viewModel.setAccentColorId(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FontScaleSelectorItem(
+                        currentScale = fontScaleOption,
+                        isDarkMode = isDarkMode,
+                        accentColor = AccentOrange,
+                        onScaleSelect = { viewModel.setFontScaleOption(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    CornerRadiusSelectorItem(
+                        currentOption = cornerRadiusOption,
+                        isDarkMode = isDarkMode,
+                        accentColor = AccentOrange,
+                        onOptionSelect = { viewModel.setCornerRadiusOption(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LyricsFontSizeSelectorItem(
+                        currentOption = lyricsFontSizeOption,
+                        isDarkMode = isDarkMode,
+                        accentColor = AccentOrange,
+                        onOptionSelect = { viewModel.setLyricsFontSizeOption(it) }
+                    )
+                }
+            }
+
+            // ─── 3. Display & Lockscreen Behavior ───
             item {
                 Text(
                     text = "Display & Lockscreen Behavior",
@@ -475,15 +557,6 @@ fun SettingsScreen(
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
-                    SettingsToggleItem(
-                        title = "Dark Mode",
-                        subtitle = "Glassmorphic dark aesthetic",
-                        icon = if (isDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
-                        checked = isDarkMode,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setDarkMode(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
                     SettingsToggleItem(
                         title = "Show Over Lockscreen",
                         subtitle = "Display player when phone is locked",
@@ -516,7 +589,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 3. Audio & Visual Quality ───
+            // ─── 4. Audio & Visual Quality ───
             item {
                 Text(
                     text = "Audio & Visual Quality",
@@ -555,7 +628,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 4. Downloads & Offline Storage ───
+            // ─── 5. Downloads & Offline Storage ───
             item {
                 Text(
                     text = "Downloads & Storage",
@@ -603,7 +676,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 5. Smart Skip (SponsorBlock Integration) ───
+            // ─── 6. Smart Skip (SponsorBlock Integration) ───
             item {
                 Text(
                     text = "Smart Skip (SponsorBlock API)",
@@ -647,7 +720,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 6. Import Playlist ───
+            // ─── 7. Import Playlist ───
             item {
                 Text(
                     text = "Import Playlist",
@@ -685,7 +758,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 7. App Updates (GitHub Releases) ───
+            // ─── 8. App Updates (GitHub Releases) ───
             item {
                 val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
                 val updateInfo by viewModel.updateInfo.collectAsState()
@@ -827,7 +900,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 8. About Mueso ───
+            // ─── 9. About Mueso ───
             item {
                 Text(
                     text = "About",
@@ -865,7 +938,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 9. Force Refresh & Developer Pre-Builds ───
+            // ─── 10. Force Refresh & Developer Pre-Builds ───
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -957,13 +1030,14 @@ private fun SettingsToggleItem(
     checked: Boolean,
     isDarkMode: Boolean,
     badge: String? = null,
+    accentColor: Color = AccentOrange,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
 
     val iconTint by animateColorAsState(
-        targetValue = if (checked) AccentOrange else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF8E8E93)),
+        targetValue = if (checked) accentColor else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF8E8E93)),
         animationSpec = tween(250),
         label = "iconTint"
     )
@@ -992,12 +1066,12 @@ private fun SettingsToggleItem(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(AccentOrange.copy(alpha = 0.15f))
+                                .background(accentColor.copy(alpha = 0.15f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = badge,
-                                color = AccentOrange,
+                                color = accentColor,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.5.sp
@@ -1011,7 +1085,7 @@ private fun SettingsToggleItem(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AccentOrange)
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor)
         )
     }
 }
@@ -1024,6 +1098,7 @@ private fun SettingsSelectorItem(
     currentValue: String,
     options: List<String>,
     isDarkMode: Boolean,
+    accentColor: Color = AccentOrange,
     onSelect: (String) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
@@ -1046,7 +1121,7 @@ private fun SettingsSelectorItem(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
                 Column {
                     Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text(subtitle, color = textSub, fontSize = 12.sp)
@@ -1062,7 +1137,7 @@ private fun SettingsSelectorItem(
             ) { targetText ->
                 Text(
                     text = targetText,
-                    color = AccentOrange,
+                    color = accentColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -1092,7 +1167,7 @@ private fun SettingsSelectorItem(
                     (option.contains("480p") && currentValue.contains("480p"))
 
                 val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) AccentOrange else Color.Transparent,
+                    targetValue = if (isSelected) accentColor else Color.Transparent,
                     animationSpec = tween(250),
                     label = "pillBgColor"
                 )
@@ -1132,6 +1207,808 @@ private fun SettingsSelectorItem(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeModeSelectorItem(
+    currentMode: String,
+    isDarkMode: Boolean,
+    accentColor: Color,
+    onModeSelect: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    val modes = listOf(
+        Triple("system", "System", Icons.Default.BrightnessAuto),
+        Triple("dark", "Dark", Icons.Default.DarkMode),
+        Triple("light", "Light", Icons.Default.LightMode)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Palette, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+            Column {
+                Text("Theme Mode", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Choose dark, light, or follow system", color = textSub, fontSize = 12.sp)
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerBg)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            modes.forEach { (id, label, icon) ->
+                val isSelected = currentMode.equals(id, ignoreCase = true)
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) accentColor else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "themeModeBg"
+                )
+                val contentColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else textSub,
+                    animationSpec = tween(250),
+                    label = "themeModeText"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .clickable { onModeSelect(id) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(15.dp))
+                        Text(
+                            text = label,
+                            color = contentColor,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccentColorPickerItem(
+    currentAccentId: String,
+    isDarkMode: Boolean,
+    onAccentSelect: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val activeAccent = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    val isCustomSelected = currentAccentId.startsWith("custom_")
+    var showCustomDialog by remember { mutableStateOf(false) }
+
+    if (showCustomDialog) {
+        CustomColorPickerDialog(
+            initialColorHex = if (isCustomSelected) currentAccentId.removePrefix("custom_") else "FF512F",
+            isDarkMode = isDarkMode,
+            onDismiss = { showCustomDialog = false },
+            onColorSelected = { newId ->
+                onAccentSelect(newId)
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.ColorLens, contentDescription = null, tint = activeAccent, modifier = Modifier.size(20.dp))
+                Column {
+                    Text("Accent Color Palette", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Custom highlight color across the entire app", color = textSub, fontSize = 12.sp)
+                }
+            }
+            val activeName = if (currentAccentId == "dynamic") "Material You" else com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId).name
+            Text(activeName, color = activeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                item {
+                    val isSelected = currentAccentId.equals("dynamic", ignoreCase = true)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onAccentSelect("dynamic") }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.sweepGradient(
+                                        listOf(
+                                            Color(0xFF4285F4),
+                                            Color(0xFFEA4335),
+                                            Color(0xFFFBBC05),
+                                            Color(0xFF34A853),
+                                            Color(0xFF4285F4)
+                                        )
+                                    )
+                                )
+                                .then(
+                                    if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape)
+                                    else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Dynamic",
+                            color = if (isSelected) activeAccent else textSub,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+
+            if (isCustomSelected) {
+                item {
+                    val customPalette = com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showCustomDialog = true }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(listOf(customPalette.primary, customPalette.secondary)))
+                                .border(2.5.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Custom",
+                            color = activeAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            items(com.akshay.musicplayer.ui.theme.ThemePresets.AllPalettes) { palette ->
+                val isSelected = currentAccentId.equals(palette.id, ignoreCase = true)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onAccentSelect(palette.id) }
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(palette.primary, palette.secondary)))
+                            .then(
+                                if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape)
+                                else Modifier
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = palette.name.substringBefore(" "),
+                        color = if (isSelected) activeAccent else textSub,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+
+            item {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showCustomDialog = true }
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f))
+                            .border(1.5.dp, if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add Custom Color",
+                            tint = activeAccent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isCustomSelected) "Edit" else "Custom",
+                        color = textSub,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomColorPickerDialog(
+    initialColorHex: String,
+    isDarkMode: Boolean,
+    onDismiss: () -> Unit,
+    onColorSelected: (String) -> Unit
+) {
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val dialogBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1E1E2E)) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
+
+    val cleanInitial = initialColorHex.removePrefix("custom_").removePrefix("#").take(6)
+    val initialInt = try {
+        cleanInitial.toLong(16).toInt()
+    } catch (_: Exception) {
+        0xFF512F
+    }
+
+    var red by remember { mutableFloatStateOf(android.graphics.Color.red(initialInt).toFloat()) }
+    var green by remember { mutableFloatStateOf(android.graphics.Color.green(initialInt).toFloat()) }
+    var blue by remember { mutableFloatStateOf(android.graphics.Color.blue(initialInt).toFloat()) }
+
+    val currentColorInt = android.graphics.Color.rgb(red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+    val currentColor = Color(currentColorInt)
+    val currentHex = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+
+    var hexInputText by remember { mutableStateOf(currentHex) }
+
+    val quickColors = listOf(
+        Color(0xFFFF1744), Color(0xFFFF4081), Color(0xFFE040FB), Color(0xFF7C4DFF),
+        Color(0xFF536DFE), Color(0xFF448AFF), Color(0xFF00E5FF), Color(0xFF1DE9B6),
+        Color(0xFF00E676), Color(0xFF76FF03), Color(0xFFFFEA00), Color(0xFFFF9100),
+        Color(0xFFFF3D00), Color(0xFF8D6E63), Color(0xFFB0BEC5), Color(0xFFFF6D00)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = dialogBg,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Palette, contentDescription = null, tint = currentColor)
+                Text("Custom Accent Color", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Live Color Swatch Banner
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(currentColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val luminance = (red * 0.299 + green * 0.587 + blue * 0.114)
+                    Text(
+                        text = "#$currentHex",
+                        color = if (luminance > 160) Color.Black else Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp
+                    )
+                }
+
+                // Quick Palette Grid
+                Text("Quick Swatches", color = textSub, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(quickColors) { c ->
+                        val isSelected = currentColorInt == c.toArgb()
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(c)
+                                .clickable {
+                                    red = (c.red * 255f)
+                                    green = (c.green * 255f)
+                                    blue = (c.blue * 255f)
+                                    hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                                }
+                                .then(
+                                    if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape) else Modifier
+                                )
+                        )
+                    }
+                }
+
+                // Sliders for RGB
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Red: ${red.toInt()}", color = Color(0xFFFF5252), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Green: ${green.toInt()}", color = Color(0xFF69F0AE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Blue: ${blue.toInt()}", color = Color(0xFF448AFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = red,
+                        onValueChange = {
+                            red = it
+                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                        },
+                        valueRange = 0f..255f,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFFFF5252), activeTrackColor = Color(0xFFFF5252))
+                    )
+                    Slider(
+                        value = green,
+                        onValueChange = {
+                            green = it
+                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                        },
+                        valueRange = 0f..255f,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFF69F0AE), activeTrackColor = Color(0xFF69F0AE))
+                    )
+                    Slider(
+                        value = blue,
+                        onValueChange = {
+                            blue = it
+                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                        },
+                        valueRange = 0f..255f,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFF448AFF), activeTrackColor = Color(0xFF448AFF))
+                    )
+                }
+
+                // Hex Code Input
+                OutlinedTextField(
+                    value = hexInputText,
+                    onValueChange = { txt ->
+                        val clean = txt.removePrefix("#").filter { it.isLetterOrDigit() }.take(6).uppercase()
+                        hexInputText = clean
+                        if (clean.length == 6) {
+                            try {
+                                val cInt = clean.toLong(16).toInt()
+                                red = android.graphics.Color.red(cInt).toFloat()
+                                green = android.graphics.Color.green(cInt).toFloat()
+                                blue = android.graphics.Color.blue(cInt).toFloat()
+                            } catch (_: Exception) {}
+                        }
+                    },
+                    prefix = { Text("#", color = currentColor, fontWeight = FontWeight.Bold) },
+                    label = { Text("Hex Color Code") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = currentColor,
+                        unfocusedBorderColor = textSub.copy(alpha = 0.3f),
+                        cursorColor = currentColor,
+                        focusedLabelColor = currentColor,
+                        unfocusedLabelColor = textSub,
+                        focusedTextColor = textPrimary,
+                        unfocusedTextColor = textPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            val luminance = (red * 0.299 + green * 0.587 + blue * 0.114)
+            Button(
+                onClick = {
+                    onColorSelected("custom_$currentHex")
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = currentColor),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Apply Color", color = if (luminance > 160) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textSub)
+            }
+        }
+    )
+}
+
+@Composable
+private fun FontScaleSelectorItem(
+    currentScale: String,
+    isDarkMode: Boolean,
+    accentColor: Color,
+    onScaleSelect: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    val options = listOf(
+        Pair("compact", "Compact (88%)"),
+        Pair("standard", "Standard (100%)"),
+        Pair("comfortable", "Comfort (112%)"),
+        Pair("large", "Large (125%)")
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.FormatSize, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                Column {
+                    Text("UI & Font Scale", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Scale font size and UI proportions", color = textSub, fontSize = 12.sp)
+                }
+            }
+            Text(
+                text = options.firstOrNull { it.first == currentScale }?.second ?: "Standard (100%)",
+                color = accentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerBg)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEach { (id, label) ->
+                val isSelected = currentScale.equals(id, ignoreCase = true)
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) accentColor else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "fontScaleBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else textSub,
+                    animationSpec = tween(250),
+                    label = "fontScaleText"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .clickable { onScaleSelect(id) }
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label.substringBefore(" "),
+                        color = textColor,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        // Live text preview card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Preview:", color = textSub, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text("🎵 Playing Starboy • The Weeknd (3:50)", color = textPrimary, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CornerRadiusSelectorItem(
+    currentOption: String,
+    isDarkMode: Boolean,
+    accentColor: Color,
+    onOptionSelect: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    val options = listOf(
+        Pair("rounded", "Rounded (16dp)"),
+        Pair("squircle", "Squircle (10dp)"),
+        Pair("sharp", "Sharp (4dp)")
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.CropSquare, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                Column {
+                    Text("Corner Style", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Border radius for cards, dialogs, and sheets", color = textSub, fontSize = 12.sp)
+                }
+            }
+            Text(
+                text = options.firstOrNull { it.first == currentOption }?.second?.substringBefore(" ") ?: "Rounded",
+                color = accentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerBg)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEach { (id, label) ->
+                val isSelected = currentOption.equals(id, ignoreCase = true)
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) accentColor else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "cornerBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else textSub,
+                    animationSpec = tween(250),
+                    label = "cornerText"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .clickable { onOptionSelect(id) }
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = textColor,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsFontSizeSelectorItem(
+    currentOption: String,
+    isDarkMode: Boolean,
+    accentColor: Color,
+    onOptionSelect: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+
+    val options = listOf(
+        Pair("compact", "Compact"),
+        Pair("standard", "Standard"),
+        Pair("large", "Large")
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.FormatQuote, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                Column {
+                    Text("Lyrics Text Size", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Size of synced lyrics in player view", color = textSub, fontSize = 12.sp)
+                }
+            }
+            Text(
+                text = options.firstOrNull { it.first == currentOption }?.second ?: "Standard",
+                color = accentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerBg)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEach { (id, label) ->
+                val isSelected = currentOption.equals(id, ignoreCase = true)
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) accentColor else Color.Transparent,
+                    animationSpec = tween(250),
+                    label = "lyricsSizeBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else textSub,
+                    animationSpec = tween(250),
+                    label = "lyricsSizeText"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .clickable { onOptionSelect(id) }
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = textColor,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        // Live lyrics preview card
+        val sampleSizeSp = when (currentOption) {
+            "compact" -> 18.sp
+            "large" -> 26.sp
+            else -> 22.sp
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "I'm tryna put you in the worst mood, ah",
+                    color = accentColor,
+                    fontSize = sampleSizeSp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "P1 cleaner than your church shoes, ah",
+                    color = textSub.copy(alpha = 0.6f),
+                    fontSize = (sampleSizeSp.value * 0.75f).sp,
+                    fontWeight = FontWeight.Normal
+                )
             }
         }
     }

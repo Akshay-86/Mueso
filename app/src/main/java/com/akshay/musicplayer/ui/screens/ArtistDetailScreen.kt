@@ -35,9 +35,18 @@ import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.SmartArtworkImage
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
-private val AccentOrange = Color(0xFFFF512F)
-private val DarkBg = Color(0xFF0F0F13)
-private val SurfaceDark = Color(0xFF1E1E2E)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+
+private val DarkBg: Color
+    @Composable
+    get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF000000) else Color(0xFF0F0F13)
+
+private val SurfaceDark: Color
+    @Composable
+    get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF0D0D0D) else Color(0xFF1E1E2E)
+
 private val TextMuted = Color(0xFF8E8E93)
 
 @OptIn(ExperimentalMaterial3Api::class)

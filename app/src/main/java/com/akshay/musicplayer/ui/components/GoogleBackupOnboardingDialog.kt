@@ -18,8 +18,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 
-private val AccentOrange = Color(0xFFFF512F)
+private val AccentOrange: Color
+    @Composable get() = LocalAccentColor.current
 
 @Composable
 fun GoogleBackupOnboardingDialog(
@@ -27,7 +30,8 @@ fun GoogleBackupOnboardingDialog(
     onSignInClick: () -> Unit,
     onSkipClick: () -> Unit
 ) {
-    val dialogBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+    val isPureBlack = LocalIsPureBlack.current
+    val dialogBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1F1F2E)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
 

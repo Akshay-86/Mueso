@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.domain.models.LrclibSearchResultItem
 import com.akshay.musicplayer.domain.models.LyricsData
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalLyricsFontSize
 import com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus
 import kotlinx.coroutines.launch
 
@@ -66,6 +68,8 @@ fun LyricsView(
     onSeekTo: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val lyricsFont = LocalLyricsFontSize.current
+    val accentColor = LocalAccentColor.current
     val adjustedPositionMs = (currentPositionMs + lyricsOffsetMs).coerceAtLeast(0L)
 
     val (prevLine, currLine, nextLine) = when (lyricsFetchStatus) {
@@ -112,11 +116,12 @@ fun LyricsView(
                         Column(modifier = Modifier.fillMaxWidth()) {
                             // Previous Line
                             if (!previous.isNullOrBlank() && !previous.equals("null", ignoreCase = true)) {
+                                val prevFontSize = (lyricsFont.inactiveSp - 2f).coerceAtLeast(13f).sp
                                 Text(
                                     text = previous,
                                     style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontSize = 15.sp,
-                                        lineHeight = 21.sp
+                                        fontSize = prevFontSize,
+                                        lineHeight = (prevFontSize.value * 1.35f).sp
                                     ),
                                     color = Color.White.copy(alpha = 0.35f),
                                     fontWeight = FontWeight.Bold,
@@ -126,12 +131,13 @@ fun LyricsView(
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
 
-                            // Current Active Line (26sp ExtraBold)
+                            // Current Active Line
+                            val activeFontSize = lyricsFont.activeSp.sp
                             Text(
                                 text = if (current.equals("null", ignoreCase = true)) "" else current,
                                 style = MaterialTheme.typography.displayMedium.copy(
-                                    fontSize = 26.sp,
-                                    lineHeight = 34.sp,
+                                    fontSize = activeFontSize,
+                                    lineHeight = (activeFontSize.value * 1.3f).sp,
                                     letterSpacing = (-0.3).sp
                                 ),
                                 color = Color.White.copy(
@@ -145,11 +151,12 @@ fun LyricsView(
                             // Next Line
                             if (!next.isNullOrBlank() && !next.equals("null", ignoreCase = true)) {
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val nextFontSize = lyricsFont.inactiveSp.sp
                                 Text(
                                     text = next,
                                     style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontSize = 17.sp,
-                                        lineHeight = 23.sp
+                                        fontSize = nextFontSize,
+                                        lineHeight = (nextFontSize.value * 1.35f).sp
                                     ),
                                     color = Color.White.copy(alpha = 0.35f),
                                     fontWeight = FontWeight.Bold,
@@ -175,7 +182,7 @@ fun LyricsView(
                             text = footerMsg,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF512F).copy(alpha = 0.9f)
+                            color = accentColor.copy(alpha = 0.9f)
                         )
                         if (isSavedInUserPlaylist) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -227,6 +234,8 @@ private fun InlineLyricsGlassCard(
     onApplyCandidate: (LrclibSearchResultItem) -> Unit,
     onSeekTo: (Long) -> Unit
 ) {
+    val accentColor = LocalAccentColor.current
+    val lyricsFont = LocalLyricsFontSize.current
     var isSearchInputActive by remember { mutableStateOf(false) }
     var searchQuery by remember(trackTitle) { mutableStateOf(trackTitle) }
     var isSearching by remember { mutableStateOf(false) }
@@ -268,7 +277,7 @@ private fun InlineLyricsGlassCard(
             .heightIn(min = 220.dp, max = 320.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(Color.Black.copy(alpha = 0.85f))
-            .border(BorderStroke(1.2.dp, Color(0xFFFF512F).copy(alpha = 0.45f)), RoundedCornerShape(20.dp))
+            .border(BorderStroke(1.2.dp, accentColor.copy(alpha = 0.45f)), RoundedCornerShape(20.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -357,7 +366,7 @@ private fun InlineLyricsGlassCard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFF512F))
+                        .background(accentColor)
                         .clickable {
                             keyboardController?.hide()
                             triggerSearch(searchQuery)
@@ -384,7 +393,7 @@ private fun InlineLyricsGlassCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFFFF512F), modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Sync, contentDescription = null, tint = accentColor, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = "Offset: ${if (lyricsOffsetMs >= 0) "+${lyricsOffsetMs / 1000.0}s" else "${lyricsOffsetMs / 1000.0}s"}",
@@ -399,14 +408,14 @@ private fun InlineLyricsGlassCard(
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                         modifier = Modifier.height(26.dp)
                     ) {
-                        Text("-0.5s", fontSize = 11.sp, color = Color(0xFFFF512F), fontWeight = FontWeight.Bold)
+                        Text("-0.5s", fontSize = 11.sp, color = accentColor, fontWeight = FontWeight.Bold)
                     }
                     TextButton(
                         onClick = { onAdjustOffset(500L) },
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                         modifier = Modifier.height(26.dp)
                     ) {
-                        Text("+0.5s", fontSize = 11.sp, color = Color(0xFFFF512F), fontWeight = FontWeight.Bold)
+                        Text("+0.5s", fontSize = 11.sp, color = accentColor, fontWeight = FontWeight.Bold)
                     }
                     TextButton(
                         onClick = onResetOffset,
@@ -449,7 +458,7 @@ private fun InlineLyricsGlassCard(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFFFF512F), modifier = Modifier.size(22.dp))
+                    CircularProgressIndicator(color = accentColor, modifier = Modifier.size(22.dp))
                     Spacer(modifier = Modifier.height(6.dp))
                     Text("Searching candidates...", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                 }
@@ -467,7 +476,7 @@ private fun InlineLyricsGlassCard(
                 ) {
                     Text(
                         text = "Matches (${currentCandidates.size})",
-                        color = Color(0xFFFF512F),
+                        color = accentColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -516,11 +525,13 @@ private fun InlineLyricsGlassCard(
             ) {
                 itemsIndexed(lyrics.lines) { index, line ->
                     val isActive = index == activeIndex
+                    val activeFontSize = (lyricsFont.activeSp * 0.77f).coerceAtLeast(16f).sp
+                    val inactiveFontSize = (lyricsFont.inactiveSp * 0.82f).coerceAtLeast(13f).sp
                     Text(
                         text = line.text,
                         style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = if (isActive) 20.sp else 14.sp,
-                            lineHeight = if (isActive) 26.sp else 20.sp
+                            fontSize = if (isActive) activeFontSize else inactiveFontSize,
+                            lineHeight = if (isActive) (activeFontSize.value * 1.3f).sp else (inactiveFontSize.value * 1.3f).sp
                         ),
                         color = if (isActive) Color.White else Color.White.copy(alpha = 0.35f),
                         fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
@@ -548,7 +559,7 @@ private fun InlineLyricsGlassCard(
                 ) {
                     Text(
                         text = "Synced lyrics not available • Showing plain text",
-                        color = Color(0xFFFF512F),
+                        color = accentColor,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )

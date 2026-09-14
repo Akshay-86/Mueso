@@ -80,10 +80,11 @@ fun SleepTimerBottomSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    val accentColor = Color(0xFFFF512F)
-    val accentGradient = Brush.horizontalGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))
+    val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    val accentGradient = com.akshay.musicplayer.ui.theme.LocalAccentGradient.current
 
-    val sheetBg = if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFFFFFFF)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val sheetBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1A1A2E)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
 
     var selectedTab by remember { mutableIntStateOf(0) }

@@ -46,8 +46,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
 
-private val OrangeAccent = Color(0xFFFF512F)
+private val OrangeAccent: Color
+    @Composable get() = LocalAccentColor.current
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable

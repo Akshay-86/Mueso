@@ -57,11 +57,17 @@ import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
-private val AccentOrange = Color(0xFFFF512F)
-private val AccentGradient = Brush.horizontalGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))
-private val SurfaceDark = Color(0xFF1A1A2E)
-private val SurfaceCard = Color(0xFF16213E)
-private val BgDark = Color(0xFF0F0F0F)
+private val AccentOrange: Color
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+
+private val AccentGradient: Brush
+    @Composable
+    get() = com.akshay.musicplayer.ui.theme.LocalAccentGradient.current
+
+private val SurfaceDark: Color
+    @Composable
+    get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF0D0D0D) else Color(0xFF1A1A2E)
 
 @Composable
 fun OfflineLibraryScreen(
@@ -1254,7 +1260,7 @@ fun AddToPlaylistDialog(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(Brush.linearGradient(listOf(Color(0xFFFF512F), Color(0xFFDD2476)))),
+                                    .background(AccentGradient),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = Color.White)

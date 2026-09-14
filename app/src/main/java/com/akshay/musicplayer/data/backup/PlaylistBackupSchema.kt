@@ -31,7 +31,13 @@ data class BackupSettings(
     val skipSelfPromo: Boolean = true,
     val skipInteraction: Boolean = true,
     val skipIntroOutro: Boolean = true,
-    val skipNonMusicOffTopic: Boolean = true
+    val skipNonMusicOffTopic: Boolean = true,
+    val themeMode: String = "system",
+    val usePureBlack: Boolean = false,
+    val accentColorId: String = "sunset_orange",
+    val fontScaleOption: String = "standard",
+    val cornerRadiusOption: String = "rounded",
+    val lyricsFontSizeOption: String = "standard"
 )
 
 @JsonClass(generateAdapter = true)

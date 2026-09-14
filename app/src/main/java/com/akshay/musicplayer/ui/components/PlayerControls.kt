@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.ui.state.PlaybackState
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
 
 @Composable
 fun PlayerControls(
@@ -50,6 +51,7 @@ fun PlayerControls(
     }
 
     val showLoading = isSeeking || isResolvingTrack
+    val accentColor = LocalAccentColor.current
 
     val playButton: @Composable () -> Unit = {
         IconButton(
@@ -59,7 +61,7 @@ fun PlayerControls(
             if (showLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(30.dp),
-                    color = Color(0xFFFF512F),
+                    color = accentColor,
                     strokeWidth = 3.dp
                 )
             } else {
