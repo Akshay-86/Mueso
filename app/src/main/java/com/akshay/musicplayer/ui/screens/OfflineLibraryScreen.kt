@@ -1104,9 +1104,15 @@ fun AddToPlaylistDialog(
         CreatePlaylistDialog(
             isDarkMode = isDarkMode,
             onConfirm = { name ->
-                viewModel?.createPlaylist(name)
+                viewModel?.createPlaylist(name) { id ->
+                    if (trackToAdd != null) {
+                        viewModel.addTrackToPlaylist(id, trackToAdd.id)
+                    }
+                }
                 showCreateDialog = false
-                Toast.makeText(context, "Created \"$name\"", Toast.LENGTH_SHORT).show()
+                val msg = if (trackToAdd != null) "Added \"${trackToAdd.title}\" to \"$name\"" else "Created \"$name\""
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                onDismiss()
             },
             onDismiss = { showCreateDialog = false }
         )

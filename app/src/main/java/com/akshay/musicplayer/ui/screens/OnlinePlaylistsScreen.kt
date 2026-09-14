@@ -904,6 +904,7 @@ fun OnlinePlaylistsScreen(
                     isCustomUserPlaylist = pl.isYouTubeUserPlaylist,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
+                    onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                     onBackClick = { selectedPlaylist = null },
                     onPlayAllClick = {
                         if (playlistTracks.isNotEmpty()) {
@@ -998,6 +999,7 @@ fun OnlinePlaylistsScreen(
                     isCustomUserPlaylist = true,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
+                    onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                     onBackClick = { selectedCustomPlaylist = null },
                     onPlayAllClick = {
                         if (tracks.isNotEmpty()) {

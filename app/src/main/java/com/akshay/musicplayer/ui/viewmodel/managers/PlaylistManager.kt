@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,7 +30,8 @@ class PlaylistManager(
     private val sharedPreferences: SharedPreferences,
     private val coroutineScope: CoroutineScope,
     private val markDirty: () -> Unit,
-    private val getLocalTracks: () -> List<TrackEntity>
+    private val localTracksFlow: StateFlow<List<TrackEntity>>,
+    private val getLocalTracks: suspend () -> List<TrackEntity>
 ) {
     private val _playlists = MutableStateFlow<List<PlaylistEntity>>(emptyList())
     val playlists: StateFlow<List<PlaylistEntity>> = _playlists.asStateFlow()
@@ -83,9 +85,14 @@ class PlaylistManager(
         }
     }
 
-    fun createPlaylist(name: String) {
+    fun createPlaylist(name: String, onCreated: ((Long) -> Unit)? = null) {
         coroutineScope.launch(Dispatchers.IO) {
-            playlistDao.insertPlaylist(PlaylistEntity(name = name))
+            val id = playlistDao.insertPlaylist(PlaylistEntity(name = name))
+            if (onCreated != null) {
+                withContext(Dispatchers.Main) {
+                    onCreated(id)
+                }
+            }
         }
     }
 
@@ -144,22 +151,30 @@ class PlaylistManager(
     }
 
     fun getPlaylistTracks(playlistId: Long): Flow<List<TrackEntity>> {
-        return playlistDao.getTrackIdsForPlaylist(playlistId).map { trackIds ->
-            val localTracks = getLocalTracks()
+        return combine(
+            playlistDao.getTrackIdsForPlaylist(playlistId),
+            localTracksFlow
+        ) { trackIds, localTracks ->
+            val actualTracks = if (localTracks.isEmpty()) getLocalTracks() else localTracks
             trackIds.mapNotNull { trackId ->
-                localTracks.find { it.id == trackId }
+                actualTracks.find { it.id == trackId }
             }
         }
     }
 
     // Online Playlist Logic
 
-    fun createOnlinePlaylist(name: String, description: String? = null) {
+    fun createOnlinePlaylist(name: String, description: String? = null, onCreated: ((Long) -> Unit)? = null) {
         coroutineScope.launch(Dispatchers.IO) {
-            onlinePlaylistDao.insertOnlinePlaylist(
+            val id = onlinePlaylistDao.insertOnlinePlaylist(
                 OnlinePlaylistEntity(name = name, description = description)
             )
             markDirty()
+            if (onCreated != null) {
+                withContext(Dispatchers.Main) {
+                    onCreated(id)
+                }
+            }
         }
     }
 

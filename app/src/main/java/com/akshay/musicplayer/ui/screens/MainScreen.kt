@@ -666,6 +666,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         isCustomUserPlaylist = pl.isYouTubeUserPlaylist,
                         isDarkMode = isDarkMode,
                         viewModel = viewModel,
+                        onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                         onBackClick = { selectedOnlinePlaylist = null },
                         onPlayAllClick = {
                             if (playlistTracks.isNotEmpty()) {

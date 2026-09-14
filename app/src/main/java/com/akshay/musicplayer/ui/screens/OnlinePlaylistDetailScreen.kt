@@ -792,7 +792,7 @@ fun OnlinePlaylistDetailScreen(
                 isDarkMode = isDarkMode,
                 onConfirmDownload = { selectedTracks ->
                     selectedTracks.forEach { track ->
-                        onDownloadTrack?.invoke(track)
+                        onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track)
                     }
                     showDownloadDialog = false
                     android.widget.Toast.makeText(context, "Downloading ${selectedTracks.size} tracks...", android.widget.Toast.LENGTH_SHORT).show()

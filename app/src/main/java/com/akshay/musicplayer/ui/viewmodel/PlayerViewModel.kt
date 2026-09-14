@@ -62,9 +62,37 @@ class PlayerViewModel(
 
     private val onlineRepository = OnlineMusicRepository()
 
+    private val _allLocalTracks = MutableStateFlow<List<TrackEntity>>(emptyList())
+    val allLocalTracks: StateFlow<List<TrackEntity>> = _allLocalTracks.asStateFlow()
+
+    suspend fun getOrFetchLocalTracks(): List<TrackEntity> {
+        val cached = _allLocalTracks.value.ifEmpty {
+            val state = _uiState.value
+            if (state is PlayerUiState.Success) state.tracks else emptyList()
+        }
+        if (cached.isNotEmpty()) {
+            if (_allLocalTracks.value.isEmpty()) {
+                _allLocalTracks.value = cached
+            }
+            return cached
+        }
+        return getLocalTracksUseCase().getOrDefault(emptyList()).also {
+            if (it.isNotEmpty()) {
+                _allLocalTracks.value = it
+            }
+        }
+    }
+
     val settingsManager = SettingsManager(sharedPreferences)
     val backupManager = BackupManager(sharedPreferences, playlistDao, onlinePlaylistDao, viewModelScope, settingsManager)
-    val searchManager = SearchManager(onlineRepository, viewModelScope) { currentTracks }
+    val searchManager = SearchManager(onlineRepository, viewModelScope) {
+        val cached = _allLocalTracks.value
+        if (cached.isNotEmpty()) cached
+        else {
+            val state = _uiState.value
+            if (state is PlayerUiState.Success) state.tracks else emptyList()
+        }
+    }
     val downloadManager = DownloadManager(
         onlineRepository = onlineRepository,
         getDownloadFolder = { settingsManager.downloadFolder.value },
@@ -75,7 +103,16 @@ class PlayerViewModel(
         getSavedLyrics = { trackId -> getSavedCustomLyrics(trackId) },
         coroutineScope = viewModelScope
     )
-    val playlistManager = PlaylistManager(playlistDao, onlinePlaylistDao, onlineRepository, sharedPreferences, viewModelScope, { backupManager.markDirty() }, { currentTracks })
+    val playlistManager = PlaylistManager(
+        playlistDao = playlistDao,
+        onlinePlaylistDao = onlinePlaylistDao,
+        onlineRepository = onlineRepository,
+        sharedPreferences = sharedPreferences,
+        coroutineScope = viewModelScope,
+        markDirty = { backupManager.markDirty() },
+        localTracksFlow = allLocalTracks,
+        getLocalTracks = { getOrFetchLocalTracks() }
+    )
     val youtubeAuthManager = com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAuthManager(
         context = com.akshay.musicplayer.AppContainer.getContext(),
         onlineRepo = onlineRepository,
@@ -340,7 +377,7 @@ class PlayerViewModel(
 
     val playlists = playlistManager.playlists
     val onlinePlaylists = playlistManager.onlinePlaylists
-    fun createPlaylist(name: String) = playlistManager.createPlaylist(name)
+    fun createPlaylist(name: String, onCreated: ((Long) -> Unit)? = null) = playlistManager.createPlaylist(name, onCreated)
     fun deletePlaylist(playlistId: Long) = playlistManager.deletePlaylist(playlistId)
     fun renamePlaylist(playlistId: Long, newName: String) = playlistManager.renamePlaylist(playlistId, newName)
     fun addTrackToPlaylist(playlistId: Long, trackId: Long) = playlistManager.addTrackToPlaylist(playlistId, trackId)
@@ -350,7 +387,7 @@ class PlayerViewModel(
     fun getPlaylistTracks(playlistId: Long) = playlistManager.getPlaylistTracks(playlistId)
     fun touchPlaylist(playlistId: Long) = playlistManager.touchPlaylist(playlistId)
     fun touchOnlinePlaylist(playlistId: Long) = playlistManager.touchOnlinePlaylist(playlistId)
-    fun createOnlinePlaylist(name: String, description: String? = null) = playlistManager.createOnlinePlaylist(name, description)
+    fun createOnlinePlaylist(name: String, description: String? = null, onCreated: ((Long) -> Unit)? = null) = playlistManager.createOnlinePlaylist(name, description, onCreated)
     fun deleteOnlinePlaylist(playlistId: Long) = playlistManager.deleteOnlinePlaylist(playlistId)
     fun renameOnlinePlaylist(playlistId: Long, newName: String) = playlistManager.renameOnlinePlaylist(playlistId, newName)
     fun addTrackToOnlinePlaylist(playlistId: Long, track: com.akshay.musicplayer.domain.models.TrackEntity) = playlistManager.addTrackToOnlinePlaylist(playlistId, track)
@@ -806,6 +843,7 @@ class PlayerViewModel(
         viewModelScope.launch {
             _uiState.value = PlayerUiState.Loading
             getLocalTracksUseCase().onSuccess { tracks ->
+                _allLocalTracks.value = tracks
                 val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
                 Log.d("MUESO_RESTORE", "loadLocalTracks: Loaded ${tracks.size} local tracks. isOnline=$isOnline, isPlaylistContext=${_isPlaylistContext.value}, currentTracksSize=${currentTracks.size}")
                 if (!isOnline && tracks.isNotEmpty() && (!_isPlaylistContext.value || currentTracks.isEmpty() || currentTracks.size <= 1)) {
@@ -921,6 +959,7 @@ class PlayerViewModel(
                     val updatedTracks = currentState.tracks.map { track ->
                         if (track.id == trackId) track.copy(title = newTitle, filePath = updatedPath ?: track.filePath) else track
                     }
+                    _allLocalTracks.value = updatedTracks
                     _uiState.value = PlayerUiState.Success(updatedTracks)
                     if (currentTracks.isNotEmpty()) {
                         currentTracks = currentTracks.map { if (it.id == trackId) it.copy(title = newTitle, filePath = updatedPath ?: it.filePath) else it }
@@ -1000,6 +1039,7 @@ class PlayerViewModel(
                 val currentState = _uiState.value
                 if (currentState is PlayerUiState.Success) {
                     val updatedTracks = currentState.tracks.filter { it.id != track.id }
+                    _allLocalTracks.value = updatedTracks
                     _uiState.value = if (updatedTracks.isEmpty()) PlayerUiState.Empty else PlayerUiState.Success(updatedTracks)
                     if (currentTracks.isNotEmpty()) {
                         currentTracks = currentTracks.filter { it.id != track.id }

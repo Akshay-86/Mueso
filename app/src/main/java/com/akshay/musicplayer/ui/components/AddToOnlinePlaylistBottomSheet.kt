@@ -81,7 +81,17 @@ fun AddToPlaylistBottomSheet(
             onCreate = { name, desc ->
                 viewModel.createYouTubePlaylist(name, desc ?: "") { id ->
                     if (id != null) {
-                        Toast.makeText(context, "Created YouTube Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                        effectiveTracks.forEach { trk ->
+                            viewModel.addTrackToYouTubePlaylist(
+                                com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist(id = id, title = name),
+                                trk
+                            ) { _ -> }
+                        }
+                        val msg = if (effectiveTracks.isEmpty()) "Created YouTube Playlist \"$name\""
+                        else if (effectiveTracks.size == 1) "Added \"${effectiveTracks.first().title}\" to \"$name\" (YouTube)"
+                        else "Added ${effectiveTracks.size} tracks to \"$name\" (YouTube)"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        onDismiss()
                     } else {
                         Toast.makeText(context, "Failed to create YouTube Playlist", Toast.LENGTH_SHORT).show()
                     }
@@ -97,9 +107,17 @@ fun AddToPlaylistBottomSheet(
         CreateOnlinePlaylistDialog(
             onDismiss = { showCreateDialogType = null },
             onCreate = { name, desc ->
-                viewModel.createOnlinePlaylist(name, desc)
+                viewModel.createOnlinePlaylist(name, desc) { newId ->
+                    if (effectiveTracks.isNotEmpty()) {
+                        viewModel.addTracksToOnlinePlaylist(newId, effectiveTracks)
+                    }
+                }
                 showCreateDialogType = null
-                Toast.makeText(context, "Created Online Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                val msg = if (effectiveTracks.isEmpty()) "Created Online Playlist \"$name\""
+                else if (effectiveTracks.size == 1) "Added \"${effectiveTracks.first().title}\" to \"$name\""
+                else "Added ${effectiveTracks.size} tracks to \"$name\""
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                onDismiss()
             },
             isDarkMode = isDarkMode
         )
@@ -110,9 +128,21 @@ fun AddToPlaylistBottomSheet(
         CreatePlaylistDialog(
             isDarkMode = isDarkMode,
             onConfirm = { name ->
-                viewModel.createPlaylist(name)
+                viewModel.createPlaylist(name) { newId ->
+                    if (effectiveTracks.isNotEmpty()) {
+                        if (effectiveTracks.size == 1) {
+                            viewModel.addTrackToPlaylist(newId, effectiveTracks.first().id)
+                        } else {
+                            viewModel.addTracksToPlaylist(newId, effectiveTracks.map { it.id })
+                        }
+                    }
+                }
                 showCreateDialogType = null
-                Toast.makeText(context, "Created Local Playlist \"$name\"", Toast.LENGTH_SHORT).show()
+                val msg = if (effectiveTracks.isEmpty()) "Created Local Playlist \"$name\""
+                else if (effectiveTracks.size == 1) "Added \"${effectiveTracks.first().title}\" to \"$name\""
+                else "Added ${effectiveTracks.size} tracks to \"$name\""
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                onDismiss()
             },
             onDismiss = { showCreateDialogType = null }
         )
