@@ -162,11 +162,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                     opacity: 0.01 !important;
                                     pointer-events: none !important;
                                 }
-                                video, .html5-video-player video {
-                                    visibility: hidden !important;
-                                    opacity: 0 !important;
-                                    pointer-events: none !important;
-                                }
                                 .ytp-chrome-top, .ytp-title, .ytp-watermark, .ytp-pause-overlay,
                                 .ytp-ce-element, .ytp-ce-covering-overlay, .ytp-cards-teaser,
                                 .ytp-show-cards-title, .ytp-share-button, .ytp-youtube-button,
@@ -230,7 +225,16 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 Log.d(TAG, "Ignoring stale ENDED state during video load for $currentVideoId")
                                 return
                             }
-                            Log.d(TAG, "YouTubePlayer onStateChange: ENDED (video: $currentVideoId) -> advancing to next track")
+                            // Guard against premature or spurious ENDED events during loading/buffering
+                            val isGenuineEnd = durationMs > 10_000L && currentPositionMs >= (durationMs - 4000L)
+                            if (!isGenuineEnd) {
+                                Log.w(TAG, "Ignoring premature ENDED event for $currentVideoId at pos=${currentPositionMs}ms / dur=${durationMs}ms")
+                                if (isPlaying) {
+                                    youTubePlayer.play()
+                                }
+                                return
+                            }
+                            Log.d(TAG, "YouTubePlayer onStateChange: genuine ENDED (video: $currentVideoId) -> advancing to next track")
                             isLoadingNewVideo = false
                             isPlaying = false
                             onTrackEnded?.invoke()
@@ -394,11 +398,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                 findWebView(pv)?.evaluateJavascript(
                     """
                     (function() {
-                        var v = document.querySelector('video');
-                        if (v) {
-                            v.style.visibility = 'hidden';
-                            v.style.opacity = '0';
-                        }
                         if (typeof player !== 'undefined' && player) {
                             if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
                             if (player.playVideo) player.playVideo();

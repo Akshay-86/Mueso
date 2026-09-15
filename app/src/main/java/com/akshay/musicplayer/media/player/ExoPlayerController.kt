@@ -548,63 +548,30 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         fallbackJob?.cancel()
         fallbackJob = scope.launch(Dispatchers.Main) {
-            // 1. Transient error retry: If error occurred during first attempt for this track, retry once after short delay
             if (lastErrorTrackId != track.id) {
                 lastErrorTrackId = track.id
                 trackErrorRetryCount = 0
             }
 
-            if (trackErrorRetryCount < 1) {
+            if (trackErrorRetryCount < 2) {
                 trackErrorRetryCount++
                 Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) encountered error '$errorName'. Attempting automatic reload retry (attempt $trackErrorRetryCount)...")
-                delay(600)
+                delay(700L * trackErrorRetryCount)
                 if (currentOnlineTrack?.id == track.id) {
-                    ytPlayerManager.reloadAndPlay(currentVid, 0f)
+                    val pos = (ytPlayerManager.currentPositionMs / 1000f).coerceAtLeast(0f)
+                    ytPlayerManager.reloadAndPlay(currentVid, pos)
                     return@launch
                 }
             }
 
-            // 2. Mark this videoId as failed so we don't pick it again
-            val failedSet = failedVideoIdsMap.getOrPut(track.id) { java.util.concurrent.ConcurrentHashMap.newKeySet() }
-            failedSet.add(currentVid)
-
-            // 3. Search for a working alternative audio version
-            Log.w("MUESO_SYNC", "Track '${track.title}' failed with '$currentVid' ($errorName). Searching for alternative stream...")
-            val altResults = withContext(Dispatchers.IO) {
-                try {
-                    val query = "${track.artist} ${track.title} audio".trim()
-                    onlineRepo.searchOnlineTracks(query)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            }
-
-            val alternative = altResults.firstOrNull { candidate ->
-                val candVid = onlineRepo.extractVideoId(candidate)
-                candVid.isNotBlank() && candVid !in failedSet
-            }
-
-            if (alternative != null) {
-                val altVid = onlineRepo.extractVideoId(alternative)
-                Log.i("MUESO_SYNC", "Found alternative videoId '$altVid' for '${track.title}'. Playing alternative...")
-                val updatedTrack = track.copy(filePath = "online:$altVid")
-                currentOnlineTrack = updatedTrack
-                currentTrackId = updatedTrack.id
-                ytPlayerManager.playVideo(altVid, 0f)
-                syncMediaSessionForOnlineTrack(updatedTrack, isPlaying = true, positionMs = 0L)
-                return@launch
-            }
-
-            // 4. Only if both reload and alternative search fail, skip track
-            Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) encountered permanent error '$errorName' with no alternatives. Skipping.")
+            Log.w("MUESO_SYNC", "Track '${track.title}' ($currentVid) encountered error '$errorName' after retries.")
             try {
                 android.widget.Toast.makeText(
                     context,
-                    "\"${track.title}\" is unavailable and was skipped",
+                    "Playback error for \"${track.title}\". Please try again.",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             } catch (_: Exception) {}
-            _mediaEvents.emit(PlayerEvent.TrackEnded)
         }
     }
 

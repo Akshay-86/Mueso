@@ -29,6 +29,9 @@ class MusicPlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var isForegroundServiceStarted = false
+    private var isServiceDestroying = false
+
 
     private fun acquireWakeLock() {
         if (wakeLock == null) {
@@ -136,6 +139,7 @@ class MusicPlayerService : MediaSessionService() {
         val defaultProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(NOTIFICATION_CHANNEL_ID)
             .setChannelName(R.string.app_name)
+            .setNotificationId(NOTIFICATION_ID)
             .build()
         defaultProvider.setSmallIcon(R.drawable.ic_notification)
 
@@ -146,11 +150,26 @@ class MusicPlayerService : MediaSessionService() {
                 actionFactory: androidx.media3.session.MediaNotification.ActionFactory,
                 onNotificationChangedCallback: androidx.media3.session.MediaNotification.Provider.Callback
             ): androidx.media3.session.MediaNotification {
+                // Safe callback for asynchronous bitmap loading:
+                // Instead of letting MediaNotificationManager handle bitmap completion via onNotificationChanged
+                // (which calls startForegroundService() and crashes when backgrounded on Android 12+ with
+                // ForegroundServiceStartNotAllowedException), we directly update the notification via NotificationManager.
+                val safeCallback = androidx.media3.session.MediaNotification.Provider.Callback { notification ->
+                    try {
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        val notif = notification.notification
+                        notif.visibility = android.app.Notification.VISIBILITY_PUBLIC
+                        notificationManager.notify(notification.notificationId, notif)
+                    } catch (e: Exception) {
+                        Log.w("MusicPlayerService", "Failed to update notification with bitmap: ${e.message}")
+                    }
+                }
+
                 val mediaNotification = defaultProvider.createNotification(
                     mediaSession,
                     customLayout,
                     actionFactory,
-                    onNotificationChangedCallback
+                    safeCallback
                 )
                 val notif = mediaNotification.notification
                 notif.visibility = android.app.Notification.VISIBILITY_PUBLIC
@@ -330,15 +349,41 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
+        try {
+            super.onStartCommand(intent, flags, startId)
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Suppressed foreground exception in onStartCommand: ${e.message}")
+        }
         return START_STICKY
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         try {
-            super.onUpdateNotification(session, startInForegroundRequired)
+            if (isForegroundServiceStarted) {
+                // Service is already in foreground and stopForeground() is overridden to keep it there.
+                // Pass startInForegroundRequired = false so MediaNotificationManager safely updates the
+                // notification via NotificationManagerCompat.notify() and never calls startForegroundService()
+                // from the background looper.
+                super.onUpdateNotification(session, false)
+            } else {
+                try {
+                    super.onUpdateNotification(session, startInForegroundRequired)
+                    isForegroundServiceStarted = true
+                } catch (e: Exception) {
+                    Log.w("MusicPlayerService", "Failed to startForeground via MediaNotificationManager, falling back to safe update: ${e.message}")
+                    super.onUpdateNotification(session, false)
+                }
+            }
         } catch (e: Exception) {
             Log.w("MusicPlayerService", "Suppressed foreground exception in onUpdateNotification: ${e.message}")
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = mediaSession?.player
+        if (player == null || (!player.playWhenReady && !MediaSessionBridge.isOnlinePlaying)) {
+            isServiceDestroying = true
+            stopSelf()
         }
     }
 
@@ -347,6 +392,7 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        isServiceDestroying = true
         unregisterNoisyReceiver()
         MediaSessionBridge.isServiceRunning = false
         releaseWakeLock()
@@ -361,7 +407,7 @@ class MusicPlayerService : MediaSessionService() {
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "music_playback_channel_v3"
-        private const val NOTIFICATION_ID = 1
+        private const val NOTIFICATION_ID = 1001
     }
 }
 
@@ -481,6 +527,10 @@ class MusicForwardingPlayer(
         return super.hasPreviousMediaItem()
     }
 
+    override fun isCommandAvailable(command: Int): Boolean {
+        return getAvailableCommands().contains(command)
+    }
+
     override fun getAvailableCommands(): Player.Commands {
         val baseCommands = super.getAvailableCommands().buildUpon()
         if (MediaSessionBridge.hasNextItem?.invoke() == true) {
@@ -496,6 +546,8 @@ class MusicForwardingPlayer(
             baseCommands.add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
         }
         baseCommands.add(Player.COMMAND_PLAY_PAUSE)
+        baseCommands.add(Player.COMMAND_PREPARE)
+        baseCommands.add(Player.COMMAND_STOP)
         return baseCommands.build()
     }
 

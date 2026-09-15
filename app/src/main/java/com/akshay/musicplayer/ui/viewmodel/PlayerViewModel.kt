@@ -1387,6 +1387,7 @@ class PlayerViewModel(
         }
 
         if (isPlaying && activeSponsorSegments.isNotEmpty()) {
+            val totalDur = if (playbackState.value.durationMs > 0L) playbackState.value.durationMs else track.duration
             for (seg in activeSponsorSegments) {
                 val shouldSkipCategory = enableSponsorBlock.value && when (seg.category) {
                     "sponsor" -> skipSponsor.value
@@ -1397,8 +1398,15 @@ class PlayerViewModel(
                     else -> true
                 }
                 if (!shouldSkipCategory) continue
+
+                val isOutro = seg.category == "outro" || (totalDur > 10_000L && seg.endMs >= totalDur - 3500L)
                 val isIntroAtStart = seg.startMs <= 1500L
-                if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
+
+                if (isOutro && currentPositionMs in (seg.startMs - 300L)..(seg.endMs + 1000L)) {
+                    Log.d("MUESO_SPONSOR", "Auto-skipping outro segment from ${seg.startMs}ms for '${track.title}' -> playing next track")
+                    playNextTrack()
+                    break
+                } else if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
                     Log.d("MUESO_SPONSOR", "Auto-skipping intro segment from 0ms to ${seg.endMs}ms for '${track.title}'")
                     mediaPlayerController.seekTo(seg.endMs)
                     break
