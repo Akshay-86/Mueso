@@ -315,31 +315,24 @@ class YouTubeStreamResolver(
             return null
         }
 
-        val quality = qualityPreference?.lowercase() ?: "high"
-        val selected = when {
-            quality.contains("low") || quality.contains("96") || quality.contains("64") || quality.contains("48") -> {
-                // Low quality (Data Saver): pick lowest bitrate audio stream (e.g. itag 139 ~48kbps AAC or 50kbps Opus)
-                audioFormats.minByOrNull { it.optInt("bitrate", 0) }
-            }
-            quality.contains("medium") || quality.contains("128") || quality.contains("160") -> {
-                // Medium quality (Standard / 128 kbps): prefer standard AAC 128-148kbps (itag 140) or Opus 160kbps (itag 251)
-                val mediumMp4 = audioFormats.firstOrNull { it.optInt("itag", 0) == 140 }
-                mediumMp4 ?: audioFormats.minByOrNull { Math.abs(it.optInt("bitrate", 0) - 130000) }
-            }
-            else -> {
-                // High / Highest / Standard (256/320 kbps / best available): pick highest bitrate AAC or audio format
-                val mp4Audio = audioFormats.filter { it.optString("mimeType", "").contains("audio/mp4") }
-                mp4Audio.maxByOrNull { it.optInt("bitrate", 0) }
-                    ?: audioFormats.maxByOrNull { it.optInt("bitrate", 0) }
-            }
-        } ?: audioFormats.first()
+        val trackFormats = audioFormats.map { format ->
+            AudioTrackFormat(
+                itag = format.optInt("itag", 0),
+                bitrate = format.optInt("bitrate", 0),
+                mimeType = format.optString("mimeType", ""),
+                url = format.optString("url", "")
+            )
+        }
 
-        val url = selected.optString("url", "")
-        val bitrate = selected.optInt("bitrate", 0)
-        val mime = selected.optString("mimeType", "")
-        val itag = selected.optInt("itag", 0)
-        Log.d(TAG, "Player $label: selected audio (pref='$qualityPreference') itag=$itag, bitrate=${bitrate/1000}kbps, mime=$mime for $videoId")
-        return url
+        val bwKbps = com.akshay.musicplayer.data.remote.NetworkMonitor.getDownstreamBandwidthKbps()
+        val selectedFormat = AdaptiveBitrateManager.selectOptimalAudioFormat(
+            availableFormats = trackFormats,
+            userPreference = qualityPreference,
+            bandwidthKbps = bwKbps
+        ) ?: trackFormats.first()
+
+        Log.d(TAG, "Player $label: selected audio (pref='$qualityPreference', bw=${bwKbps}kbps) itag=${selectedFormat.itag}, bitrate=${selectedFormat.bitrate/1000}kbps, mime=${selectedFormat.mimeType} for $videoId")
+        return selectedFormat.url
     }
 
     private fun extractCookieValue(cookie: String, key: String): String? {

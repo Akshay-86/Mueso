@@ -27,6 +27,13 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     private var pendingStartSeconds: Float = 0f
     private var pendingCueOnly: Boolean = false
     private var isLoadingNewVideo = false
+    private var isUserPaused: Boolean = false
+
+    var isBuffering: Boolean = false
+        private set
+
+    var currentLoadedFraction: Float = 0f
+        private set
 
     var currentVideoId: String? = null
         private set
@@ -48,6 +55,15 @@ class OnlineYouTubePlayerManager(private val context: Context) {
 
     init {
         initialize()
+        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener {
+            mainHandler.post {
+                if (!isUserPaused && isPlaying && currentVideoId != null) {
+                    val posSec = (currentPositionMs / 1000f).coerceAtLeast(0f)
+                    Log.i(TAG, "Network restored in OnlineYouTubePlayerManager! Resuming $currentVideoId from ${posSec}s")
+                    activePlayer?.play()
+                }
+            }
+        }
     }
 
     fun initialize() {
@@ -93,6 +109,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     domStorageEnabled = true
                     javaScriptEnabled = true
                     mediaPlaybackRequiresUserGesture = false
+                    cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                    databaseEnabled = true
                 }
                 wv.webViewClient = object : android.webkit.WebViewClient() {
                     override fun shouldInterceptRequest(
@@ -122,11 +140,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                         error: android.webkit.WebResourceError?
                     ) {
                         super.onReceivedError(view, request, error)
-                        val isOnline = com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
-                        if (!isOnline && currentVideoId != null) {
-                            Log.w(TAG, "WebView onReceivedError without network: ${error?.description}")
-                            onNetworkError?.invoke(currentVideoId ?: "", (currentPositionMs / 1000f).coerceAtLeast(0f))
-                        }
+                        Log.d(TAG, "WebView onReceivedError: ${error?.description}")
                     }
                 }
                 wv.webChromeClient = object : android.webkit.WebChromeClient() {
@@ -194,19 +208,29 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                 }
 
                 override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
-                    Log.d(TAG, "YouTubePlayer onStateChange: $state (video: $currentVideoId, loading: $isLoadingNewVideo, isPlaying: $isPlaying)")
+                    Log.d(TAG, "YouTubePlayer onStateChange: $state (video: $currentVideoId, loading: $isLoadingNewVideo, isPlaying: $isPlaying, isUserPaused: $isUserPaused)")
                     when (state) {
                         PlayerConstants.PlayerState.PLAYING -> {
                             isLoadingNewVideo = false
                             isPlaying = true
+                            isBuffering = false
                             findWebView(view)?.evaluateJavascript(
                                 "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
                                 null
                             )
                             onStateChanged?.invoke(true)
                         }
+                        PlayerConstants.PlayerState.BUFFERING -> {
+                            Log.d(TAG, "YouTubePlayer BUFFERING for $currentVideoId (pos: ${currentPositionMs}ms, loaded: $currentLoadedFraction)")
+                            isBuffering = true
+                            // Immediately drop video bitrate to minimum ('tiny') so network bandwidth is 100% dedicated to buffering audio!
+                            findWebView(view)?.evaluateJavascript(
+                                "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
+                                null
+                            )
+                        }
                         PlayerConstants.PlayerState.VIDEO_CUED -> {
-                            if (isLoadingNewVideo || isPlaying) {
+                            if (isLoadingNewVideo || (isPlaying && !isUserPaused)) {
                                 Log.d(TAG, "YouTubePlayer VIDEO_CUED -> auto-starting playback for $currentVideoId")
                                 youTubePlayer.play()
                             }
@@ -217,7 +241,9 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 youTubePlayer.play()
                                 return
                             }
+                            Log.d(TAG, "YouTubePlayer PAUSED for $currentVideoId (isUserPaused: $isUserPaused)")
                             isPlaying = false
+                            isBuffering = false
                             onStateChanged?.invoke(false)
                         }
                         PlayerConstants.PlayerState.ENDED -> {
@@ -229,7 +255,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             val isGenuineEnd = durationMs > 10_000L && currentPositionMs >= (durationMs - 4000L)
                             if (!isGenuineEnd) {
                                 Log.w(TAG, "Ignoring premature ENDED event for $currentVideoId at pos=${currentPositionMs}ms / dur=${durationMs}ms")
-                                if (isPlaying) {
+                                if (isPlaying && !isUserPaused) {
                                     youTubePlayer.play()
                                 }
                                 return
@@ -237,9 +263,23 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             Log.d(TAG, "YouTubePlayer onStateChange: genuine ENDED (video: $currentVideoId) -> advancing to next track")
                             isLoadingNewVideo = false
                             isPlaying = false
+                            isBuffering = false
                             onTrackEnded?.invoke()
                         }
                         else -> {}
+                    }
+                }
+
+                override fun onVideoLoadedFraction(youTubePlayer: YouTubePlayer, loadedFraction: Float) {
+                    currentLoadedFraction = loadedFraction
+                    val bufferedMs = (loadedFraction * durationMs).toLong()
+                    val bufferAheadMs = (bufferedMs - currentPositionMs).coerceAtLeast(0L)
+                    // If buffer ahead is thin (< 15 seconds), aggressively ensure quality is set to 'tiny' to build buffer layer
+                    if (bufferAheadMs < 15_000L && durationMs > 20_000L) {
+                        findWebView(view)?.evaluateJavascript(
+                            "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
+                            null
+                        )
                     }
                 }
 
@@ -264,8 +304,10 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             error == PlayerConstants.PlayerError.HTML_5_PLAYER ||
                             error.name.contains("NETWORK", ignoreCase = true)
 
-                    Log.e(TAG, "YouTubePlayer onError: $error (isNetworkDown=$isNetworkDown) for video $currentVideoId")
+                    Log.e(TAG, "YouTubePlayer onError: $error (isNetworkDown=$isNetworkDown, pos=${currentPositionMs}ms) for video $currentVideoId")
                     if (isLikelyNetworkIssue) {
+                        isPlaying = false
+                        isBuffering = false
                         onNetworkError?.invoke(currentVideoId ?: "", (currentPositionMs / 1000f).coerceAtLeast(0f))
                         return
                     }
@@ -329,6 +371,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         pendingCueOnly = false
         isLoadingNewVideo = true
         isPlaying = true
+        isUserPaused = false
+        isBuffering = false
 
         mainHandler.post {
             if (!isReady || activePlayer == null) {
@@ -346,12 +390,17 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     }
 
     fun reloadAndPlay(videoId: String, startSeconds: Float = 0f) {
+        val sameVideo = (currentVideoId == videoId)
         currentVideoId = videoId
-        durationMs = 0L
+        if (!sameVideo) {
+            durationMs = 0L
+        }
         currentPositionMs = (startSeconds * 1000).toLong()
         pendingCueOnly = false
         isLoadingNewVideo = true
         isPlaying = true
+        isUserPaused = false
+        isBuffering = false
 
         mainHandler.post {
             if (playerView == null || !isReady || activePlayer == null) {
@@ -369,8 +418,13 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                         (function() {
                             try {
                                 if (typeof player !== 'undefined' && player && player.loadVideoById) {
-                                    player.loadVideoById({videoId: '$videoId', startSeconds: $startSeconds});
+                                    player.loadVideoById('$videoId', $startSeconds);
                                     if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
+                                    var v = document.querySelector('video');
+                                    if (v) {
+                                        v.preload = 'auto';
+                                        v.setAttribute('preload', 'auto');
+                                    }
                                     player.playVideo();
                                     return true;
                                 }
@@ -400,6 +454,11 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     (function() {
                         if (typeof player !== 'undefined' && player) {
                             if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
+                            var v = document.querySelector('video');
+                            if (v) {
+                                v.preload = 'auto';
+                                v.setAttribute('preload', 'auto');
+                            }
                             if (player.playVideo) player.playVideo();
                         }
                     })();
@@ -413,6 +472,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
 
     fun play() {
         isLoadingNewVideo = false
+        isUserPaused = false
         mainHandler.post {
             activePlayer?.play()
             isPlaying = true
@@ -422,6 +482,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
 
     fun pause() {
         isLoadingNewVideo = false
+        isUserPaused = true
         mainHandler.post {
             activePlayer?.pause()
             isPlaying = false
@@ -456,6 +517,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
             isReady = false
             currentVideoId = null
             isPlaying = false
+            isUserPaused = false
+            isBuffering = false
         }
     }
 }

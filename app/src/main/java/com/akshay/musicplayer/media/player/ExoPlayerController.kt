@@ -465,14 +465,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         isWaitingForNetwork = true
         pendingNetworkRetryTrack = track
         pendingNetworkRetryIndex = currentQueueIndex
-        pendingNetworkRetryPosMs = positionMs
-        Log.w("MUESO_NET", "Online playback stalled due to network issue for '${track.title}' at ${positionMs}ms. Waiting for network...")
+        val actualPosMs = maxOf(
+            positionMs,
+            pendingNetworkRetryPosMs,
+            ytPlayerManager.currentPositionMs,
+            _playbackState.value.currentPositionMs
+        )
+        pendingNetworkRetryPosMs = actualPosMs
+        Log.w("MUESO_NET", "Online playback stalled due to network issue for '${track.title}' at ${actualPosMs}ms. Waiting for network...")
 
-        syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = positionMs)
+        syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = actualPosMs)
         _playbackState.value = _playbackState.value.copy(
             isPlaying = false,
             currentTrackId = track.id,
-            currentPositionMs = positionMs
+            currentPositionMs = actualPosMs
         )
 
         // Periodic background retry: checks every 6s if network returned
@@ -495,8 +501,12 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun retryPendingNetworkTrack() {
         val track = pendingNetworkRetryTrack ?: currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex) ?: return
         val targetIndex = if (pendingNetworkRetryIndex in tracksQueue.indices) pendingNetworkRetryIndex else currentQueueIndex
-        val posMs = pendingNetworkRetryPosMs
-        Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms ===")
+        val posMs = maxOf(
+            pendingNetworkRetryPosMs,
+            ytPlayerManager.currentPositionMs,
+            _playbackState.value.currentPositionMs
+        )
+        Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms (ytPos=${ytPlayerManager.currentPositionMs}, statePos=${_playbackState.value.currentPositionMs}, savedPos=$pendingNetworkRetryPosMs) ===")
 
         isWaitingForNetwork = false
         networkRetryJob?.cancel()
@@ -515,7 +525,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 currentOnlineTrack = track
                 currentQueueIndex = targetIndex
                 currentTrackId = track.id
-                ytPlayerManager.reloadAndPlay(videoId, (posMs / 1000f).coerceAtLeast(0f))
+                val resumeSec = (posMs / 1000f).coerceAtLeast(0f)
+                Log.i("MUESO_NET", "Resuming online track $videoId at ${resumeSec}s")
+                ytPlayerManager.reloadAndPlay(videoId, resumeSec)
                 syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = posMs)
                 _playbackState.value = PlaybackState(
                     isPlaying = true,
@@ -541,7 +553,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 errorName.contains("NETWORK", ignoreCase = true)
 
         if (isNetworkError) {
-            Log.w("MUESO_NET", "Online track '${track.title}' hit network error '$errorName' (netDown=$isNetworkDown). Entering network wait/retry state.")
+            if (!isNetworkDown && trackErrorRetryCount < 3) {
+                trackErrorRetryCount++
+                val posSec = (ytPlayerManager.currentPositionMs / 1000f).coerceAtLeast(0f)
+                Log.w("MUESO_NET", "Transient network/HTML5 error for '${track.title}'. Quick reload at ${posSec}s with lowest bitrate (attempt $trackErrorRetryCount)")
+                ytPlayerManager.reloadAndPlay(currentVid, posSec)
+                return
+            }
+            Log.w("MUESO_NET", "Online track '${track.title}' hit persistent network error '$errorName' (netDown=$isNetworkDown). Entering network wait/retry state.")
             handleOnlineTrackNetworkError(track, ytPlayerManager.currentPositionMs)
             return
         }
@@ -618,6 +637,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         ytPlayerManager.onPositionUpdate = { posMs, durMs ->
             if (isPlayingOnline) {
+                if (isWaitingForNetwork && posMs > pendingNetworkRetryPosMs) {
+                    pendingNetworkRetryPosMs = posMs
+                }
                 com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = posMs
                 if (durMs > 0) {
                     val wasDurationZero = com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs <= 0L

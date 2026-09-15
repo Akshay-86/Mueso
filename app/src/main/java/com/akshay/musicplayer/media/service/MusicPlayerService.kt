@@ -234,8 +234,23 @@ class MusicPlayerService : MediaSessionService() {
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
 
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 30_000,
+                /* maxBufferMs = */ 90_000,
+                /* bufferForPlaybackMs = */ 1_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 3_000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(
+                /* backBufferDurationMs = */ 30_000,
+                /* retainBackBufferFromKeyframe = */ true
+            )
+            .build()
+
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)

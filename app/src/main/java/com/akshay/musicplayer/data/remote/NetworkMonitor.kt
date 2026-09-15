@@ -94,6 +94,14 @@ object NetworkMonitor {
         return current
     }
 
+    fun getDownstreamBandwidthKbps(): Int {
+        val cm = connectivityManager ?: return 10_000
+        val activeNetwork = cm.activeNetwork ?: return 10_000
+        val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return 10_000
+        val kbps = capabilities.linkDownstreamBandwidthKbps
+        return if (kbps > 0) kbps else 10_000
+    }
+
     private fun updateOnlineStatus(newStatus: Boolean) {
         val oldStatus = _isOnline.value
         _isOnline.value = newStatus
