@@ -15,7 +15,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -209,25 +211,49 @@ fun AboutScreen(
                         .padding(vertical = 6.dp)
                 ) {
                     FeatureRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Lossless & High Quality Audio",
-                        subtitle = "Adaptive streaming & crystal-clear offline playback",
+                        icon = Icons.Default.ViewCarousel,
+                        title = "Reels-Style Vertical Player",
+                        subtitle = "Smooth vertical swipe transitions with customizable album background framing",
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
                     HorizontalDivider(color = dividerColor)
                     FeatureRow(
-                        icon = Icons.Default.Videocam,
-                        title = "Song & Video Switching Mode",
-                        subtitle = "Instant toggle between audio and video playback with fullscreen mode",
+                        icon = Icons.Default.GraphicEq,
+                        title = "Lossless & High Quality Audio",
+                        subtitle = "Adaptive streaming up to 320 kbps and crystal-clear offline downloads",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.Default.Person,
+                        title = "Dedicated Artist Exploration",
+                        subtitle = "Full artist profiles with top songs, albums, singles, and instant radio/shuffle",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.Default.Search,
+                        title = "Multi-Category Search & Shelves",
+                        subtitle = "Explore moods, genres, curated shelves, and fast in-memory cached search",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.AutoMirrored.Filled.QueueMusic,
+                        title = "Spotify Playlist Import",
+                        subtitle = "Paste Spotify links to match, review, and import playlists directly",
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
                     HorizontalDivider(color = dividerColor)
                     FeatureRow(
                         icon = Icons.Default.Shield,
-                        title = "SponsorBlock Integration",
-                        subtitle = "Automatically skip sponsorships, intros, and non-music segments",
+                        title = "Smart SponsorBlock Integration",
+                        subtitle = "Skip sponsorships, self-promotions, intros/outros, and non-music filler",
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
@@ -235,7 +261,15 @@ fun AboutScreen(
                     FeatureRow(
                         icon = Icons.Default.Lyrics,
                         title = "Synchronized Karaoke Lyrics",
-                        subtitle = "Real-time synced lyrics with custom timing offset adjustment",
+                        subtitle = "Real-time synced lyrics with custom timing offset adjustment & search picker",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.Default.Palette,
+                        title = "Dynamic Theming & AMOLED",
+                        subtitle = "Pure Black AMOLED mode, custom accent colors, font scaling & corner radius",
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
@@ -243,7 +277,23 @@ fun AboutScreen(
                     FeatureRow(
                         icon = Icons.Default.CloudUpload,
                         title = "Google Drive Cloud Backup",
-                        subtitle = "Automatic cloud sync for custom playlists and preferences",
+                        subtitle = "Automatic cloud sync for custom playlists, background frames, and preferences",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.Default.SystemUpdate,
+                        title = "In-App GitHub Updates",
+                        subtitle = "Direct release checker with architecture-specific APK downloads and installer",
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    FeatureRow(
+                        icon = Icons.Default.Bedtime,
+                        title = "Sleep Timer & Lockscreen Controls",
+                        subtitle = "Duration, stop-after-song, or end-of-playlist timers with lockscreen controls",
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
@@ -342,10 +392,108 @@ fun AboutScreen(
                 }
             }
 
-            // ─── 5. Open Source & License ───
+            // ─── 5. Open Source & Credits ───
             item {
                 Text(
-                    text = "License & Credits",
+                    text = "Open Source Credits",
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .padding(vertical = 4.dp)
+                ) {
+                    LinkRow(
+                        icon = Icons.Default.MusicNote,
+                        title = "Zuno (by @noFAYZ)",
+                        subtitle = "Desktop YouTube Music client; streaming strategies & reference",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://github.com/noFAYZ/zuno")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LinkRow(
+                        icon = Icons.Default.Shield,
+                        title = "SponsorBlock API",
+                        subtitle = "Crowd-sourced database for skipping non-music segments",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://sponsor.ajay.app")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LinkRow(
+                        icon = Icons.Default.Lyrics,
+                        title = "LRCLIB API",
+                        subtitle = "Community-driven synchronized karaoke lyrics provider",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://lrclib.net")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LinkRow(
+                        icon = Icons.Default.PlayCircle,
+                        title = "android-youtube-player",
+                        subtitle = "Headless IFrame audio engine by Pierfrancesco Soffritti",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://github.com/PierfrancescoSoffritti/android-youtube-player")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LinkRow(
+                        icon = Icons.AutoMirrored.Filled.Label,
+                        title = "JAudioTagger",
+                        subtitle = "Audio tagging library by Adrien Poupa for ID3 & MP4 metadata",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://github.com/AdrienPoupa/jaudiotagger")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    LinkRow(
+                        icon = Icons.Default.GraphicEq,
+                        title = "AndroidX Media3 (ExoPlayer)",
+                        subtitle = "Google's media engine for playback, caching & session service",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://developer.android.com/media/media3")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                }
+            }
+
+            // ─── 6. License ───
+            item {
+                Text(
+                    text = "License",
                     color = AccentOrange,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
@@ -382,7 +530,7 @@ fun AboutScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Mueso is powered by open source projects and communities, including Jetpack Compose, AndroidX Media3, NewPipeExtractor, SponsorBlock API, Coil, and Room.",
+                        text = "Mueso is 100% free and open-source software distributed under the MIT License.",
                         color = textSub,
                         fontSize = 12.sp,
                         lineHeight = 18.sp

@@ -873,6 +873,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         val action: () -> Unit = {
             mediaController?.let { controller ->
+                controller.repeatMode = currentRepeatMode
                 controller.setMediaItems(mediaItems, safeIndex, 0L)
                 controller.prepare()
                 controller.play()
@@ -1068,12 +1069,17 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private var currentRepeatMode: Int = Player.REPEAT_MODE_OFF
+
     override fun setRepeatMode(mode: Int) {
-        mediaController?.repeatMode = mode
+        currentRepeatMode = mode
+        if (!isPlayingOnline) {
+            mediaController?.repeatMode = mode
+        }
     }
 
     override fun getRepeatMode(): Int {
-        return mediaController?.repeatMode ?: Player.REPEAT_MODE_OFF
+        return currentRepeatMode
     }
 
     override fun setShuffleEnabled(enabled: Boolean) {
@@ -1119,7 +1125,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
             val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
             Log.d("MUESO_SYNC", "seekToIndex online track '${track.title}' (videoId: $videoId)")
-            ytPlayerManager.playVideo(videoId, 0f)
+            mediaController?.repeatMode = Player.REPEAT_MODE_ONE
+            ytPlayerManager.reloadAndPlay(videoId, 0f)
 
             _playbackState.value = PlaybackState(
                 isPlaying = true,
@@ -1139,6 +1146,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
         ytPlayerManager.pause()
         mediaController?.volume = 1f
+        mediaController?.repeatMode = currentRepeatMode
 
         mediaController?.let { controller ->
             val hasMatchingItem = index in 0 until controller.mediaItemCount &&

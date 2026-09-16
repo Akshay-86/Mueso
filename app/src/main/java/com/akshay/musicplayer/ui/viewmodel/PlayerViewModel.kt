@@ -1363,17 +1363,21 @@ class PlayerViewModel(
     private var activeSponsorSegments: List<com.akshay.musicplayer.data.remote.SponsorSegment> = emptyList()
     private var activeSponsorTrackId: Long? = null
     private var isFetchingSponsorSegments = false
+    private var lastSkippedSegmentEndMs: Long = -1L
+    private var lastSponsorActionTime: Long = 0L
 
     private fun checkAndApplySponsorBlock(track: TrackEntity, currentPositionMs: Long, isPlaying: Boolean) {
-        val videoId = if (track.filePath.startsWith("online:")) {
-            track.filePath.removePrefix("online:")
-        } else if (track.artworkUrl != null && track.artworkUrl.contains("/vi/")) {
-            track.artworkUrl.substringAfter("/vi/").substringBefore("/")
-        } else ""
+        if (!enableSponsorBlock.value) return
+
+        val videoId = onlineRepository.extractVideoId(track).let {
+            if (it.length == 11 && !it.contains(" ")) it else ""
+        }
 
         if (videoId.isNotBlank() && activeSponsorTrackId != track.id) {
             activeSponsorTrackId = track.id
             activeSponsorSegments = emptyList()
+            lastSkippedSegmentEndMs = -1L
+            lastSponsorActionTime = 0L
             if (!isFetchingSponsorSegments) {
                 isFetchingSponsorSegments = true
                 viewModelScope.launch(Dispatchers.IO) {
@@ -1388,29 +1392,41 @@ class PlayerViewModel(
 
         if (isPlaying && activeSponsorSegments.isNotEmpty()) {
             val totalDur = if (playbackState.value.durationMs > 0L) playbackState.value.durationMs else track.duration
+            val now = System.currentTimeMillis()
+            if (now - lastSponsorActionTime < 1000L) return
+
             for (seg in activeSponsorSegments) {
-                val shouldSkipCategory = enableSponsorBlock.value && when (seg.category) {
+                val shouldSkipCategory = when (seg.category) {
                     "sponsor" -> skipSponsor.value
                     "selfpromo" -> skipSelfPromo.value
                     "interaction" -> skipInteraction.value
                     "intro", "outro" -> skipIntroOutro.value
-                    "music_offtopic", "filler" -> skipNonMusicOffTopic.value
-                    else -> true
+                    "music_offtopic", "filler", "preview" -> skipNonMusicOffTopic.value
+                    else -> false
                 }
                 if (!shouldSkipCategory) continue
 
-                val isOutro = seg.category == "outro" || (totalDur > 10_000L && seg.endMs >= totalDur - 3500L)
-                val isIntroAtStart = seg.startMs <= 1500L
+                val isOutro = (seg.category == "outro" && skipIntroOutro.value) ||
+                        ((seg.category == "music_offtopic" || seg.category == "filler") && skipNonMusicOffTopic.value && totalDur > 10_000L && seg.endMs >= totalDur - 3500L) ||
+                        (seg.category == "sponsor" && skipSponsor.value && totalDur > 10_000L && seg.endMs >= totalDur - 3500L)
+                val isIntroAtStart = (seg.category == "intro" || seg.category == "music_offtopic") && seg.startMs <= 1500L
 
                 if (isOutro && currentPositionMs in (seg.startMs - 300L)..(seg.endMs + 1000L)) {
-                    Log.d("MUESO_SPONSOR", "Auto-skipping outro segment from ${seg.startMs}ms for '${track.title}' -> playing next track")
-                    playNextTrack()
+                    lastSponsorActionTime = now
+                    Log.d("MUESO_SPONSOR", "Auto-skipping outro segment (${seg.category}) from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}' -> handling track completion")
+                    handleTrackCompletion()
                     break
                 } else if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
-                    Log.d("MUESO_SPONSOR", "Auto-skipping intro segment from 0ms to ${seg.endMs}ms for '${track.title}'")
+                    if (lastSkippedSegmentEndMs == seg.endMs) continue
+                    lastSponsorActionTime = now
+                    lastSkippedSegmentEndMs = seg.endMs
+                    Log.d("MUESO_SPONSOR", "Auto-skipping intro segment (${seg.category}) from 0ms to ${seg.endMs}ms for '${track.title}'")
                     mediaPlayerController.seekTo(seg.endMs)
                     break
                 } else if (!isIntroAtStart && currentPositionMs in (seg.startMs - 200L)..(seg.endMs - 300L)) {
+                    if (lastSkippedSegmentEndMs == seg.endMs) continue
+                    lastSponsorActionTime = now
+                    lastSkippedSegmentEndMs = seg.endMs
                     Log.d("MUESO_SPONSOR", "Auto-skipping SponsorBlock '${seg.category}' segment from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}'")
                     mediaPlayerController.seekTo(seg.endMs)
                     break
@@ -1704,35 +1720,61 @@ class PlayerViewModel(
 
 
 
+    private fun handleTrackCompletion() {
+        val currentIdx = getCurrentTrackIndex()
+
+        val currentTrackId = _playbackState.value.currentTrackId
+        if (_activeSleepMode.value == SleepTimerMode.AFTER_SONG && currentTrackId != null) {
+            checkSleepAfterSong(currentTrackId)
+            if (_activeSleepMode.value == null) {
+                return
+            }
+        }
+
+        // 1. Repeat Once (REPEAT_MODE_ONE): Replay current track from beginning
+        if (_repeatMode.value == Player.REPEAT_MODE_ONE) {
+            Log.d("MUESO_REPEAT", "Track completion with REPEAT_MODE_ONE. Replaying track at index $currentIdx.")
+            playTrackAtIndex(currentIdx)
+            return
+        }
+
+        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
+        val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
+
+        if (isPlaylist && currentIdx >= playlistEndIdx) {
+            if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST) {
+                Log.d("MUESO_PLAYLIST", "Track completion at playlist end with END_OF_PLAYLIST sleep timer. Pausing.")
+                mediaPlayerController.pause()
+                clearSleepTimer()
+                return
+            } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+                Log.d("MUESO_PLAYLIST", "Track completion at playlist end with REPEAT_MODE_ALL. Playing index 0.")
+                playTrackAtIndex(0)
+                return
+            }
+        }
+
+        if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST && currentIdx >= currentTracks.size - 1) {
+            mediaPlayerController.pause()
+            clearSleepTimer()
+            return
+        }
+
+        if (_repeatMode.value == Player.REPEAT_MODE_ALL && currentTracks.isNotEmpty() && currentIdx >= currentTracks.size - 1) {
+            Log.d("MUESO_REPEAT", "Track completion at queue end with REPEAT_MODE_ALL. Looping back to index 0.")
+            playTrackAtIndex(0)
+            return
+        }
+
+        playNextTrack()
+    }
+
     private fun observeMediaEvents() {
         viewModelScope.launch {
             mediaPlayerController.mediaEvents().collect { event ->
                 when (event) {
                     is PlayerEvent.TrackEnded -> {
-                        val currentIdx = getCurrentTrackIndex()
-                        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
-                        val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
-
-                        if (isPlaylist && currentIdx >= playlistEndIdx) {
-                            if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST) {
-                                Log.d("MUESO_PLAYLIST", "TrackEnded at playlist end with END_OF_PLAYLIST sleep timer. Pausing.")
-                                mediaPlayerController.pause()
-                                clearSleepTimer()
-                                return@collect
-                            } else if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
-                                Log.d("MUESO_PLAYLIST", "TrackEnded at playlist end with REPEAT_MODE_ALL. Playing index 0.")
-                                playTrackAtIndex(0)
-                                return@collect
-                            }
-                        }
-
-                        if (_activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST && currentIdx >= currentTracks.size - 1) {
-                            mediaPlayerController.pause()
-                            clearSleepTimer()
-                            return@collect
-                        }
-
-                        playNextTrack()
+                        handleTrackCompletion()
                     }
                     is PlayerEvent.PlaybackError -> {
                         val is403Error = event.message.contains("403", ignoreCase = true) ||
@@ -1804,8 +1846,15 @@ class PlayerViewModel(
         lastUserSkipTime = System.currentTimeMillis()
         val curTrackId = _playbackState.value.currentTrackId
         val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
-        val nextIdx = curIdx + 1
+        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
+        val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
 
+        if (isPlaylist && curIdx >= playlistEndIdx && _repeatMode.value == Player.REPEAT_MODE_ALL) {
+            playTrackAtIndex(0)
+            return
+        }
+
+        val nextIdx = curIdx + 1
         if (nextIdx in currentTracks.indices) {
             playTrackAtIndex(nextIdx)
         } else if (_repeatMode.value == Player.REPEAT_MODE_ALL && currentTracks.isNotEmpty()) {
@@ -1826,8 +1875,14 @@ class PlayerViewModel(
         lastUserSkipTime = System.currentTimeMillis()
         val curTrackId = _playbackState.value.currentTrackId
         val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
-        val prevIdx = curIdx - 1
+        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
 
+        if (isPlaylist && curIdx <= 0 && _repeatMode.value == Player.REPEAT_MODE_ALL) {
+            playTrackAtIndex(_playlistTrackCount.value - 1)
+            return
+        }
+
+        val prevIdx = curIdx - 1
         if (prevIdx in currentTracks.indices) {
             playTrackAtIndex(prevIdx)
         } else if (_repeatMode.value == Player.REPEAT_MODE_ALL && currentTracks.isNotEmpty()) {
@@ -1847,7 +1902,14 @@ class PlayerViewModel(
 
     private var originalUnshuffledTracks: List<TrackEntity>? = null
 
-    fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0) {
+    fun playQueue(tracks: List<TrackEntity>, startIndex: Int = 0, isPlaylist: Boolean = true) {
+        if (isPlaylist) {
+            _isPlaylistContext.value = true
+            _playlistTrackCount.value = tracks.size
+        } else {
+            _isPlaylistContext.value = false
+            _playlistTrackCount.value = 0
+        }
         originalUnshuffledTracks = null
         val target = if (startIndex in tracks.indices) tracks[startIndex] else null
         _lyricsOffsetMs.value = target?.let { sharedPreferences.getLong("lyrics_offset_${it.id}", 0L) } ?: 0L
@@ -1884,6 +1946,10 @@ class PlayerViewModel(
         cancelRestoration()
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
+        if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
+            _repeatMode.value = Player.REPEAT_MODE_OFF
+            mediaPlayerController.setRepeatMode(Player.REPEAT_MODE_OFF)
+        }
         lastRequestedTrackId = track.id
         val isOnlineQueryPlaceholder = track.filePath.startsWith("online:") &&
                 (track.filePath.removePrefix("online:").contains(" ") || track.filePath.removePrefix("online:").length != 11)
@@ -2040,11 +2106,25 @@ class PlayerViewModel(
     }
 
     // --- Repeat Mode ---
-    fun cycleRepeatMode() {
+    // Single button: Default OFF.
+    // 1st click: Repeat Once (REPEAT_MODE_ONE)
+    // 2nd click: Repeat All (REPEAT_MODE_ALL) for playlists; or OFF for infinite radio queue
+    // 3rd click: OFF
+    fun cycleRepeatMode(context: android.content.Context? = null) {
+        val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
         val newMode = when (_repeatMode.value) {
-            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> {
+                if (isPlaylist) {
+                    Player.REPEAT_MODE_ALL
+                } else {
+                    context?.let {
+                        android.widget.Toast.makeText(it, "Repeat All is unavailable in radio queue", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    Player.REPEAT_MODE_OFF
+                }
+            }
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_OFF
             else -> Player.REPEAT_MODE_OFF
         }
         _repeatMode.value = newMode

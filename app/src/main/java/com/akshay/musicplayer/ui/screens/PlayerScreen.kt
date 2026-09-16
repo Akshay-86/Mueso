@@ -419,7 +419,7 @@ fun PlayerPageContent(
                     isDownloaded = trackDlState?.isDownloaded == true,
                     onSleepTimerClick = { viewModel.showSleepTimerSheet() },
                     onShuffleClick = { viewModel.toggleShuffleMode() },
-                    onRepeatClick = { viewModel.cycleRepeatMode() },
+                    onRepeatClick = { viewModel.cycleRepeatMode(context) },
                     onQueueClick = { viewModel.toggleQueueSheet() },
                     onDownloadClick = {
                         viewModel.downloadOnlineTrack(context, track)

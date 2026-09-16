@@ -74,6 +74,7 @@
 
 - **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view.
 - **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position album art. Customized positions are persisted and synced per playlist track.
+- **🎨 Dynamic Theming & Pure Black AMOLED**: Pitch-black pure AMOLED dark mode for OLED battery savings, customizable vibrant accent color palettes, dynamic font scaling, and adjustable card corner radius.
 - **⚡ Native InnerTube Engine & YouTube Music Personalization**: Zero-overhead native Kotlin InnerTube client for ultra-fast streaming and account synchronization. Connect your YouTube Music account to stream your personalized library, custom playlists, and recommendations without third-party dependencies.
 - **🎤 Dedicated Artist Detail Pages**: Full-featured artist exploration screen featuring artist banner, subscriber count, bio, and organized sections for **Top Songs**, **Albums**, **Singles & EPs**, **Music Videos**, **Live Performances**, **Featured On**, and **Similar Artists**, plus instant **Radio** and **Shuffle** launch buttons.
 - **🔍 Multi-Category Search & LRU Caching**: Fast search across **All**, **Songs**, **Videos**, **Albums**, **Playlists**, and **Artists** with in-memory caching for instant tab switches without redundant network calls.
@@ -81,7 +82,7 @@
 - **🚀 Pure Native Audio Streaming & Continuous Background Playback**: High-performance ExoPlayer streaming with multi-strategy InnerTube extraction, proactive next-track prefetching, partial WakeLock, and battery-optimization guard for uninterrupted listening when the screen is off or in the background.
 - **🎵 Synced Lyrics & Interactive Candidate Picker**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, manual timing offset adjusters (+/- 500ms), and an interactive search dialog to match alternate lyrics.
 - **🟢 Spotify-to-YouTube Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and alternative selection.
-- **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, and intros/outros in real-time during online streaming.
+- **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, intros/outros, and filler in real-time during online streaming.
 - **📥 Offline Library & Quality-Aware Downloads**: Download audio tracks directly in High / Medium / Low quality with natively embedded ID3v2.3 (MP3) and MP4 Box (M4A) metadata tags, high-res cover art, and companion `.lrc` lyrics files.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers (timer duration, after song, or end of playlist).
@@ -111,13 +112,14 @@ Mueso is built as a **100% Native Kotlin** Android application adhering strictly
 | :--- | :--- |
 | **UI Framework** | Jetpack Compose (1.6+), Material 3 Design System |
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
+| **Headless Audio Engine** | android-youtube-player (Official IFrame wrapper for fallback audio streams) |
 | **Media Service** | AndroidX MediaSessionService & MediaController IPC |
-| **Online Client** | Native Kotlin InnerTube Client (YouTube Music API) |
+| **Online Client & Stream Resolver** | Native Kotlin InnerTube Client & Multi-Client Extraction Strategies (reference from Zuno) |
 | **Network Resilience** | Real-time ConnectivityManager Callback & StateFlow Auto-Recovery |
 | **State Management** | Kotlin Coroutines, StateFlow, SharedFlow, ViewModel |
 | **Database** | Room Persistence Library |
 | **Networking & HTTP** | OkHttp 3, Moshi JSON |
-| **Metadata Tagging** | Native Kotlin ID3v2.3 & MP4 Box Audio Tagger |
+| **Metadata Tagging** | JAudioTagger (Native Kotlin ID3v2.3 & MP4 Box Audio Tagger) |
 | **Lyrics API** | LRCLIB Synced Lyrics API |
 | **Cloud Backup** | Google Drive REST API & WorkManager Auto-Sync |
 | **Sponsor Filtering** | SponsorBlock Community API |
@@ -151,11 +153,14 @@ cd Mueso
 
 Mueso is built on top of amazing open-source technologies, tools, and community APIs:
 
-- [AndroidX Media3 ExoPlayer](https://developer.android.com/media/media3)
-- [Jetpack Compose](https://developer.android.com/jetpack/compose)
-- [SponsorBlock API](https://sponsor.ajay.app/)
-- [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)
-- [LRCLIB](https://lrclib.net/)
+- [Zuno](https://github.com/noFAYZ/zuno) - Open-source desktop YouTube Music client by [@noFAYZ](https://github.com/noFAYZ); foundational inspiration and reference for multi-client stream resolving strategies (iOS, Android, TV, Web Remix) and player options.
+- [AndroidX Media3 ExoPlayer](https://developer.android.com/media/media3) - Media playback, caching, and background session service.
+- [Jetpack Compose](https://developer.android.com/jetpack/compose) - Modern Android declarative UI framework.
+- [SponsorBlock API](https://sponsor.ajay.app/) - Crowd-sourced database for skipping non-music segments and sponsorships.
+- [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player) - YouTube IFrame player wrapper by Pierfrancesco Soffritti.
+- [LRCLIB](https://lrclib.net/) - Free and open community-driven synchronized lyrics provider.
+- [jaudiotagger](https://github.com/AdrienPoupa/jaudiotagger) - Pure Java audio metadata tagging library by Adrien Poupa.
+- [Coil](https://coil-kt.github.io/coil/) - Fast, lightweight image loading library for Android and Jetpack Compose.
 
 ---
 

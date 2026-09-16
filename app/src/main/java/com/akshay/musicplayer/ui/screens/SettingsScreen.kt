@@ -220,6 +220,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
+                            modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -247,9 +248,11 @@ fun SettingsScreen(
                             }
                         }
 
+                        Spacer(modifier = Modifier.width(12.dp))
+
                         if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
                             TextButton(onClick = { viewModel.signOutGoogle(context) }) {
-                                Text("Sign Out", color = AccentOrange, fontSize = 12.sp)
+                                Text("Sign Out", color = AccentOrange, fontSize = 12.sp, maxLines = 1, softWrap = false)
                             }
                         } else {
                             Button(
@@ -259,9 +262,16 @@ fun SettingsScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
                                 shape = RoundedCornerShape(20.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                             ) {
-                                Text("Sign In", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "Sign In",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
@@ -700,7 +710,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Shield,
                         checked = enableSponsorBlock,
                         isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.settingsManager.setEnableSponsorBlock(it) }
+                        onCheckedChange = { viewModel.setEnableSponsorBlock(it) }
                     )
                     
                     androidx.compose.animation.AnimatedVisibility(visible = enableSponsorBlock) {
@@ -1128,6 +1138,8 @@ private fun SettingsSelectorItem(
                 }
             }
 
+            Spacer(modifier = Modifier.width(8.dp))
+
             AnimatedContent(
                 targetState = currentValue,
                 transitionSpec = {
@@ -1141,6 +1153,7 @@ private fun SettingsSelectorItem(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -1334,6 +1347,7 @@ private fun AccentColorPickerItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1343,8 +1357,9 @@ private fun AccentColorPickerItem(
                     Text("Custom highlight color across the entire app", color = textSub, fontSize = 12.sp)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             val activeName = if (currentAccentId == "dynamic") "Material You" else com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId).name
-            Text(activeName, color = activeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(activeName, color = activeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         }
 
         LazyRow(
@@ -1730,6 +1745,7 @@ private fun FontScaleSelectorItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1739,11 +1755,14 @@ private fun FontScaleSelectorItem(
                     Text("Scale font size and UI proportions", color = textSub, fontSize = 12.sp)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = options.firstOrNull { it.first == currentScale }?.second ?: "Standard (100%)",
                 color = accentColor,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
@@ -1836,6 +1855,7 @@ private fun CornerRadiusSelectorItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1845,11 +1865,14 @@ private fun CornerRadiusSelectorItem(
                     Text("Border radius for cards, dialogs, and sheets", color = textSub, fontSize = 12.sp)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = options.firstOrNull { it.first == currentOption }?.second?.substringBefore(" ") ?: "Rounded",
                 color = accentColor,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
@@ -1925,6 +1948,7 @@ private fun LyricsFontSizeSelectorItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1934,11 +1958,14 @@ private fun LyricsFontSizeSelectorItem(
                     Text("Size of synced lyrics in player view", color = textSub, fontSize = 12.sp)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = options.firstOrNull { it.first == currentOption }?.second ?: "Standard",
                 color = accentColor,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
@@ -2085,6 +2112,7 @@ private fun SettingsFolderSelectorItem(
                     Text(subtitle, color = textSub, fontSize = 12.sp)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             TextButton(onClick = { showDialog = true }) {
                 Text(
                     text = displayFolder,
@@ -2092,6 +2120,7 @@ private fun SettingsFolderSelectorItem(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }

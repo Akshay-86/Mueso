@@ -490,7 +490,7 @@ class OnlineMusicRepository {
     // ==========================================
     suspend fun getSponsorSkipSegments(videoId: String): List<SponsorSegment> = withContext(Dispatchers.IO) {
         if (videoId.isBlank()) return@withContext emptyList()
-        val url = "https://sponsor.ajay.app/api/skipSegments?videoID=$videoId&categories=[\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"music_offtopic\"]"
+        val url = "https://sponsor.ajay.app/api/skipSegments?videoID=$videoId&categories=[\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"music_offtopic\",\"preview\",\"filler\"]"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mueso-Android-App/1.2")
