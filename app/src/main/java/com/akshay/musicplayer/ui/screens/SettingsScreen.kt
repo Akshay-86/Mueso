@@ -100,8 +100,21 @@ fun SettingsScreen(
     val skipIntroOutro by viewModel.skipIntroOutro.collectAsState()
     val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
 
+    // Audiophile & Appearance States
+    val losslessStreamingEnabled by viewModel.losslessStreamingEnabled.collectAsState()
+    val losslessServerUrl by viewModel.losslessServerUrl.collectAsState()
+    val isStudioMasterClarityEnabled by viewModel.isStudioMasterClarityEnabled.collectAsState()
+    val isBitPerfectEnabled by viewModel.isBitPerfectEnabled.collectAsState()
+    val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
+    val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
+    val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    val designSystem by viewModel.designSystem.collectAsState()
+    val dynamicNowPlayingEnabled by viewModel.dynamicNowPlayingEnabled.collectAsState()
+    val useCustomFont by viewModel.useCustomFont.collectAsState()
+
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
+    var showEqualizerSheet by remember { mutableStateOf(false) }
 
     val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
     val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
@@ -546,6 +559,44 @@ fun SettingsScreen(
                         accentColor = AccentOrange,
                         onOptionSelect = { viewModel.setLyricsFontSizeOption(it) }
                     )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsSelectorItem(
+                        title = "Player Layout Mode",
+                        subtitle = "Choose between Reels vertical swipe and classic square art view",
+                        icon = Icons.Default.ViewCarousel,
+                        currentValue = if (playerLayoutStyle == "classic") "Classic Player (Square Cover)" else "Reels Swiper (Vertical)",
+                        options = listOf("Reels Swiper (Vertical)", "Classic Player (Square Cover)"),
+                        isDarkMode = isDarkMode,
+                        onSelect = { viewModel.setPlayerLayoutStyle(if (it.startsWith("Classic")) "classic" else "reels") }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsSelectorItem(
+                        title = "Design System",
+                        subtitle = "Select between classic look and Material 3 Expressive tokens",
+                        icon = Icons.Default.Palette,
+                        currentValue = if (designSystem == "classic") "Classic Mueso" else "Material 3 Expressive",
+                        options = listOf("Material 3 Expressive", "Classic Mueso"),
+                        isDarkMode = isDarkMode,
+                        onSelect = { viewModel.setDesignSystem(if (it.startsWith("Classic")) "classic" else "expressive") }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Dynamic Artwork Accent",
+                        subtitle = "Adapt app accent color to match currently playing album art",
+                        icon = Icons.Default.ColorLens,
+                        checked = dynamicNowPlayingEnabled,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setDynamicNowPlayingEnabled(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Use Application Font",
+                        subtitle = "Bundled Google Sans Flex variable font for enhanced typography",
+                        icon = Icons.Default.TextFields,
+                        checked = useCustomFont,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setUseCustomFont(it) }
+                    )
                 }
             }
 
@@ -599,7 +650,71 @@ fun SettingsScreen(
                 }
             }
 
-            // ─── 4. Audio & Visual Quality ───
+            // ─── 4. Audiophile Lossless Engine ───
+            item {
+                Text(
+                    text = "Audiophile Lossless Engine",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .padding(vertical = 4.dp)
+                ) {
+                    SettingsToggleItem(
+                        title = "Hi-Res Lossless Streaming (FLAC)",
+                        subtitle = "Stream 24-bit/96kHz studio master audio via Lossless CDN with auto-fallback to YouTube",
+                        icon = Icons.Default.GraphicEq,
+                        checked = losslessStreamingEnabled,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Studio Master Clarity",
+                        subtitle = "Acoustic high-shelf harmonic excitation (+2.5dB air curve) for vocals and instruments",
+                        icon = Icons.Default.Speed,
+                        checked = isStudioMasterClarityEnabled,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Bit-Perfect Mode",
+                        subtitle = "Bypasses all software DSP and EQ for raw uncompressed PCM bitstream to USB DACs",
+                        icon = Icons.Default.Headphones,
+                        checked = isBitPerfectEnabled,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsToggleItem(
+                        title = "Audio Crossfade",
+                        subtitle = if (crossfadeEnabled) "Smooth fade transition: ${crossfadeSeconds}s" else "Disabled (gapless playback)",
+                        icon = Icons.Default.Shuffle,
+                        checked = crossfadeEnabled,
+                        isDarkMode = isDarkMode,
+                        onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
+                    )
+                    HorizontalDivider(color = dividerColor)
+                    SettingsClickableItem(
+                        title = "Equalizer & Audio DSP",
+                        subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
+                        icon = Icons.Default.Tune,
+                        isDarkMode = isDarkMode,
+                        onClick = { showEqualizerSheet = true }
+                    )
+                }
+            }
+
+            // ─── 5. Audio & Visual Quality ───
             item {
                 Text(
                     text = "Audio & Visual Quality",
@@ -1029,7 +1144,61 @@ fun SettingsScreen(
             onBackClick = { showAboutPage = false }
         )
     }
+
+    if (showEqualizerSheet) {
+        com.akshay.musicplayer.ui.components.EqualizerBottomSheet(
+            effectsController = viewModel.audioEffectsController,
+            isDarkMode = isDarkMode,
+            onDismiss = { showEqualizerSheet = false }
+        )
+    }
 }
+}
+
+@Composable
+private fun SettingsClickableItem(
+    title: String,
+    subtitle: String? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF555555),
+                modifier = Modifier.size(22.dp)
+            )
+            Column {
+                Text(text = title, color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                if (subtitle != null) {
+                    Text(text = subtitle, color = textSub, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = textSub,
+            modifier = Modifier.size(18.dp)
+        )
+    }
 }
 
 @Composable

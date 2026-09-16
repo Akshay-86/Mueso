@@ -232,6 +232,19 @@ class PlayerViewModel(
     val skipIntroOutro = settingsManager.skipIntroOutro
     val skipNonMusicOffTopic = settingsManager.skipNonMusicOffTopic
 
+    // Audiophile & Lossless Settings
+    val activeAudioFormat = mediaPlayerController.activeAudioFormat()
+    val losslessStreamingEnabled = settingsManager.losslessStreamingEnabled
+    val losslessServerUrl = settingsManager.losslessServerUrl
+    val isStudioMasterClarityEnabled = settingsManager.isStudioMasterClarityEnabled
+    val isBitPerfectEnabled = settingsManager.isBitPerfectEnabled
+    val crossfadeEnabled = settingsManager.crossfadeEnabled
+    val crossfadeSeconds = settingsManager.crossfadeSeconds
+    val playerLayoutStyle = settingsManager.playerLayoutStyle
+    val designSystem = settingsManager.designSystem
+    val dynamicNowPlayingEnabled = settingsManager.dynamicNowPlayingEnabled
+    val useCustomFont = settingsManager.useCustomFont
+
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setThemeMode(mode: String) = settingsManager.setThemeMode(mode)
     fun setUsePureBlack(enabled: Boolean) = settingsManager.setUsePureBlack(enabled)
@@ -259,6 +272,25 @@ class PlayerViewModel(
     fun setSkipInteraction(enabled: Boolean) = settingsManager.setSkipInteraction(enabled)
     fun setSkipIntroOutro(enabled: Boolean) = settingsManager.setSkipIntroOutro(enabled)
     fun setSkipNonMusicOffTopic(enabled: Boolean) = settingsManager.setSkipNonMusicOffTopic(enabled)
+
+    val audioEffectsController = com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(com.akshay.musicplayer.AppContainer.getContext())
+
+    fun setLosslessStreamingEnabled(enabled: Boolean) = settingsManager.setLosslessStreamingEnabled(enabled)
+    fun setLosslessServerUrl(url: String) = settingsManager.setLosslessServerUrl(url)
+    fun setStudioMasterClarityEnabled(enabled: Boolean) {
+        settingsManager.setStudioMasterClarityEnabled(enabled)
+        audioEffectsController.setClarityEnabled(enabled)
+    }
+    fun setBitPerfectEnabled(enabled: Boolean) {
+        settingsManager.setBitPerfectEnabled(enabled)
+        audioEffectsController.setBitPerfectEnabled(enabled)
+    }
+    fun setCrossfadeEnabled(enabled: Boolean) = settingsManager.setCrossfadeEnabled(enabled)
+    fun setCrossfadeSeconds(seconds: Int) = settingsManager.setCrossfadeSeconds(seconds)
+    fun setPlayerLayoutStyle(style: String) = settingsManager.setPlayerLayoutStyle(style)
+    fun setDesignSystem(system: String) = settingsManager.setDesignSystem(system)
+    fun setDynamicNowPlayingEnabled(enabled: Boolean) = settingsManager.setDynamicNowPlayingEnabled(enabled)
+    fun setUseCustomFont(enabled: Boolean) = settingsManager.setUseCustomFont(enabled)
 
     val searchQuery = searchManager.searchQuery
     val searchCategory = searchManager.searchCategory

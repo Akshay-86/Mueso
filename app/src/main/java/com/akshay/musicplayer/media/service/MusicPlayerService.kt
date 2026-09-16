@@ -256,7 +256,14 @@ class MusicPlayerService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
+        val effectsController = com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this)
+        effectsController.attachSession(player.audioSessionId)
+
         player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                effectsController.attachSession(audioSessionId)
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     acquireWakeLock()
@@ -412,6 +419,7 @@ class MusicPlayerService : MediaSessionService() {
         MediaSessionBridge.isServiceRunning = false
         releaseWakeLock()
         MediaSessionBridge.onOnlinePlayingChanged = null
+        com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this).release()
         mediaSession?.let {
             it.player.release()
             it.release()

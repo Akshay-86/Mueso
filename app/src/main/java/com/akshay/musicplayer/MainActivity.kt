@@ -150,6 +150,24 @@ class MainActivity : ComponentActivity() {
             val context = androidx.compose.ui.platform.LocalContext.current
             var showBatteryDialog by remember { mutableStateOf(false) }
 
+            val designSystem by playerViewModel.designSystem.collectAsState()
+            val dynamicNowPlayingEnabled by playerViewModel.dynamicNowPlayingEnabled.collectAsState()
+            val playbackState by playerViewModel.playbackState.collectAsState()
+            val currentTracks = playerViewModel.getQueueTracks()
+            val currentTrack = remember(playbackState.currentTrackId, currentTracks) {
+                currentTracks.firstOrNull { it.id == playbackState.currentTrackId }
+            }
+
+            var dynamicArtworkColor by remember { mutableStateOf<androidx.compose.ui.graphics.Color?>(null) }
+            LaunchedEffect(currentTrack?.id, dynamicNowPlayingEnabled) {
+                if (dynamicNowPlayingEnabled && currentTrack != null) {
+                    val colors = com.akshay.musicplayer.ui.utils.PlaylistColorExtractor.extractGradientColors(context, listOf(currentTrack))
+                    dynamicArtworkColor = colors?.firstOrNull()
+                } else {
+                    dynamicArtworkColor = null
+                }
+            }
+
             LaunchedEffect(Unit) {
                 val muesoPrefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
                 val alreadyPrompted = muesoPrefs.getBoolean("has_prompted_battery_optimization", false)
@@ -165,7 +183,9 @@ class MainActivity : ComponentActivity() {
                 accentColorId = accentColorId,
                 fontScaleOption = fontScaleOption,
                 cornerRadiusOption = cornerRadiusOption,
-                lyricsFontSizeOption = lyricsFontSizeOption
+                lyricsFontSizeOption = lyricsFontSizeOption,
+                designSystem = designSystem,
+                dynamicNowPlayingColor = dynamicArtworkColor
             ) {
                 if (showBatteryDialog) {
                     val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current

@@ -82,6 +82,38 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _skipNonMusicOffTopic = MutableStateFlow(sharedPreferences.getBoolean("skip_non_music_off_topic", true))
     val skipNonMusicOffTopic: StateFlow<Boolean> = _skipNonMusicOffTopic.asStateFlow()
 
+    // Audiophile & Lossless Settings
+    private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", true))
+    val losslessStreamingEnabled: StateFlow<Boolean> = _losslessStreamingEnabled.asStateFlow()
+
+    private val _losslessServerUrl = MutableStateFlow(sharedPreferences.getString("lossless_server_url", "https://clashflac.kanjijewels.com") ?: "https://clashflac.kanjijewels.com")
+    val losslessServerUrl: StateFlow<String> = _losslessServerUrl.asStateFlow()
+
+    private val _isStudioMasterClarityEnabled = MutableStateFlow(sharedPreferences.getBoolean("studio_master_clarity", false))
+    val isStudioMasterClarityEnabled: StateFlow<Boolean> = _isStudioMasterClarityEnabled.asStateFlow()
+
+    private val _isBitPerfectEnabled = MutableStateFlow(sharedPreferences.getBoolean("bit_perfect_mode", false))
+    val isBitPerfectEnabled: StateFlow<Boolean> = _isBitPerfectEnabled.asStateFlow()
+
+    private val _crossfadeEnabled = MutableStateFlow(sharedPreferences.getBoolean("crossfade_enabled", false))
+    val crossfadeEnabled: StateFlow<Boolean> = _crossfadeEnabled.asStateFlow()
+
+    private val _crossfadeSeconds = MutableStateFlow(sharedPreferences.getInt("crossfade_seconds", 5))
+    val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
+
+    // Layout & Theme Preferences
+    private val _playerLayoutStyle = MutableStateFlow(sharedPreferences.getString("player_layout_style", "reels") ?: "reels")
+    val playerLayoutStyle: StateFlow<String> = _playerLayoutStyle.asStateFlow()
+
+    private val _designSystem = MutableStateFlow(sharedPreferences.getString("design_system", "expressive") ?: "expressive")
+    val designSystem: StateFlow<String> = _designSystem.asStateFlow()
+
+    private val _dynamicNowPlayingEnabled = MutableStateFlow(sharedPreferences.getBoolean("dynamic_now_playing_enabled", true))
+    val dynamicNowPlayingEnabled: StateFlow<Boolean> = _dynamicNowPlayingEnabled.asStateFlow()
+
+    private val _useCustomFont = MutableStateFlow(sharedPreferences.getBoolean("use_custom_font", true))
+    val useCustomFont: StateFlow<Boolean> = _useCustomFont.asStateFlow()
+
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
         sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()
@@ -206,6 +238,56 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putBoolean("skip_non_music_off_topic", enabled).apply()
     }
 
+    fun setLosslessStreamingEnabled(enabled: Boolean) {
+        _losslessStreamingEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("lossless_streaming_enabled", enabled).apply()
+    }
+
+    fun setLosslessServerUrl(url: String) {
+        _losslessServerUrl.value = url
+        sharedPreferences.edit().putString("lossless_server_url", url).apply()
+    }
+
+    fun setStudioMasterClarityEnabled(enabled: Boolean) {
+        _isStudioMasterClarityEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("studio_master_clarity", enabled).apply()
+    }
+
+    fun setBitPerfectEnabled(enabled: Boolean) {
+        _isBitPerfectEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("bit_perfect_mode", enabled).apply()
+    }
+
+    fun setCrossfadeEnabled(enabled: Boolean) {
+        _crossfadeEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("crossfade_enabled", enabled).apply()
+    }
+
+    fun setCrossfadeSeconds(seconds: Int) {
+        _crossfadeSeconds.value = seconds
+        sharedPreferences.edit().putInt("crossfade_seconds", seconds).apply()
+    }
+
+    fun setPlayerLayoutStyle(style: String) {
+        _playerLayoutStyle.value = style
+        sharedPreferences.edit().putString("player_layout_style", style).apply()
+    }
+
+    fun setDesignSystem(system: String) {
+        _designSystem.value = system
+        sharedPreferences.edit().putString("design_system", system).apply()
+    }
+
+    fun setDynamicNowPlayingEnabled(enabled: Boolean) {
+        _dynamicNowPlayingEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("dynamic_now_playing_enabled", enabled).apply()
+    }
+
+    fun setUseCustomFont(enabled: Boolean) {
+        _useCustomFont.value = enabled
+        sharedPreferences.edit().putBoolean("use_custom_font", enabled).apply()
+    }
+
     fun reloadFromPreferences() {
         _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
         _themeMode.value = sharedPreferences.getString("theme_mode", "system") ?: "system"
@@ -230,5 +312,15 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _skipIntroOutro.value = sharedPreferences.getBoolean("skip_intro_outro", true)
         _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
+        _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", true)
+        _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", "https://clashflac.kanjijewels.com") ?: "https://clashflac.kanjijewels.com"
+        _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
+        _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
+        _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
+        _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
+        _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
+        _designSystem.value = sharedPreferences.getString("design_system", "expressive") ?: "expressive"
+        _dynamicNowPlayingEnabled.value = sharedPreferences.getBoolean("dynamic_now_playing_enabled", true)
+        _useCustomFont.value = sharedPreferences.getBoolean("use_custom_font", true)
     }
 }

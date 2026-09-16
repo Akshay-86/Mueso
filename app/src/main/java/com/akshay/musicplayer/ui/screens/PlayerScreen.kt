@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -314,6 +315,16 @@ fun PlayerPageContent(
     }
 
     var isLyricsExpanded by remember { mutableStateOf(false) }
+    var showSignalPathDialog by remember { mutableStateOf(false) }
+    var showAddToPlaylistSheet by remember { mutableStateOf(false) }
+    var showTrackMenuSheet by remember { mutableStateOf(false) }
+    var showEqualizerSheet by remember { mutableStateOf(false) }
+    val activeAudioFormat by viewModel.activeAudioFormat.collectAsState()
+    val isClarityActive by viewModel.isStudioMasterClarityEnabled.collectAsState()
+    val isBitPerfectActive by viewModel.isBitPerfectEnabled.collectAsState()
+    val isEqActive by viewModel.audioEffectsController.isEnabled.collectAsState()
+    val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
+    val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
 
     Box(modifier = modifier.fillMaxSize()) {
         // Full-screen immersive album art background
@@ -391,20 +402,44 @@ fun PlayerPageContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                SongInfo(
-                    track = track,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        SongInfo(
+                            track = track,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        com.akshay.musicplayer.ui.components.AudioQualityCapsule(
+                            audioFormat = activeAudioFormat,
+                            onClick = { showSignalPathDialog = true }
+                        )
+                        IconButton(
+                            onClick = { showTrackMenuSheet = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Track options",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
 
                 val context = androidx.compose.ui.platform.LocalContext.current
                 val isOnlineSong = track.filePath.startsWith("online:") || track.artworkUrl != null
                 val downloadStates by viewModel.downloadStates.collectAsState()
                 val trackDlState = downloadStates[track.id]
 
-                var showAddToPlaylistSheet by remember { mutableStateOf(false) }
-
-                val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
-                val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
 
                 OfflineActionsOverlay(
                     repeatMode = repeatMode,
@@ -434,12 +469,47 @@ fun PlayerPageContent(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                if (showTrackMenuSheet) {
+                    com.akshay.musicplayer.ui.components.TrackMenuBottomSheet(
+                        track = track,
+                        isDarkMode = isDarkMode,
+                        onGoToArtist = {
+                            viewModel.setSearchQuery(track.artist)
+                        },
+                        onGoToAlbum = {
+                            track.album?.let { viewModel.setSearchQuery(it) }
+                        },
+                        onShowSignalPath = { showSignalPathDialog = true },
+                        onShowEqualizer = { showEqualizerSheet = true },
+                        onAddToPlaylist = { showAddToPlaylistSheet = true },
+                        onDismiss = { showTrackMenuSheet = false }
+                    )
+                }
+
+                if (showEqualizerSheet) {
+                    com.akshay.musicplayer.ui.components.EqualizerBottomSheet(
+                        effectsController = viewModel.audioEffectsController,
+                        isDarkMode = isDarkMode,
+                        onDismiss = { showEqualizerSheet = false }
+                    )
+                }
+
                 if (showAddToPlaylistSheet) {
                     com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet(
                         track = track,
                         viewModel = viewModel,
                         isDarkMode = isDarkMode,
                         onDismiss = { showAddToPlaylistSheet = false }
+                    )
+                }
+
+                if (showSignalPathDialog) {
+                    com.akshay.musicplayer.ui.components.SignalPathDialog(
+                        audioFormat = activeAudioFormat,
+                        isEqualizerActive = isEqActive && !isBitPerfectActive,
+                        isClarityActive = isClarityActive,
+                        isBitPerfectActive = isBitPerfectActive,
+                        onDismiss = { showSignalPathDialog = false }
                     )
                 }
 
