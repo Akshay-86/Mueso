@@ -180,9 +180,10 @@ fun MainScreen(viewModel: PlayerViewModel) {
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            val isOnlineActive = pagerState.currentPage == 2
+            val isClassic = playerLayoutStyle == "classic"
+            val isOnlineActive = if (isClassic) classicNavTab == ClassicNavTab.EXPLORE else pagerState.currentPage == 2
 
-            if (playerLayoutStyle == "classic") {
+            if (isClassic) {
                 // ─── CLASSIC DUAL-MODE ARCHITECTURE ───
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(
@@ -215,7 +216,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     }
 
                     // Docked MiniPlayer directly above Bottom Navigation Bar
-                    if (currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null) {
+                    if (currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive) {
                         DockedMiniPlayer(
                             track = currentTrack,
                             playbackState = playbackState,
@@ -277,31 +278,42 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         )
                     }
                 }
+            }
 
-                val activeQueue by viewModel.activeQueue.collectAsState()
-                val hasTrackPlaying = activeQueue.isNotEmpty()
+            val activeQueue by viewModel.activeQueue.collectAsState()
+            val hasTrackPlaying = activeQueue.isNotEmpty() || currentTrack != null
 
-                // Top Navigation Bar with integrated search (hidden when viewing a playlist detail on active page)
-                val shouldHideTopBar = (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || (pagerState.currentPage == 2 && isOnlineDetailActive)
-                if (!shouldHideTopBar) {
-                    TopNavigationBarWithSearch(
-                        isOnlineActive = isOnlineActive,
-                        isSearchActive = isSearchActive,
-                        searchQuery = searchQuery,
-                        isDarkMode = isDarkMode,
-                        currentPage = pagerState.currentPage,
-                        hasTrackPlaying = hasTrackPlaying,
-                        onSearchClick = { isSearchActive = true },
-                        onSearchClose = {
-                            isSearchActive = false
-                            viewModel.setSearchQuery("")
-                        },
-                        onQueryChange = { viewModel.setSearchQuery(it) },
-                        onSettingsClick = { showSettingsScreen = true },
-                        googleAccount = googleAccount,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
-                }
+            // Top Navigation Bar with integrated search (hidden when viewing a playlist detail on active page, settings, or full player)
+            val shouldHideTopBar = if (isClassic) {
+                (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || isOnlineDetailActive || (classicNavTab == ClassicNavTab.SETTINGS) || isClassicPlayerExpanded
+            } else {
+                (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || (pagerState.currentPage == 2 && isOnlineDetailActive)
+            }
+
+            if (!shouldHideTopBar) {
+                TopNavigationBarWithSearch(
+                    isOnlineActive = isOnlineActive,
+                    isSearchActive = isSearchActive,
+                    searchQuery = searchQuery,
+                    isDarkMode = isDarkMode,
+                    currentPage = if (isClassic) (if (classicNavTab == ClassicNavTab.EXPLORE) 2 else 0) else pagerState.currentPage,
+                    hasTrackPlaying = hasTrackPlaying,
+                    onSearchClick = { isSearchActive = true },
+                    onSearchClose = {
+                        isSearchActive = false
+                        viewModel.setSearchQuery("")
+                    },
+                    onQueryChange = { viewModel.setSearchQuery(it) },
+                    onSettingsClick = {
+                        if (isClassic) {
+                            classicNavTab = ClassicNavTab.SETTINGS
+                        } else {
+                            showSettingsScreen = true
+                        }
+                    },
+                    googleAccount = googleAccount,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
             }
 
             // Floating search results dropdown
@@ -589,7 +601,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                                 viewModel.playTrack(track)
                                                 isSearchActive = false
                                                 viewModel.setSearchQuery("")
-                                                coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                                                navigateToPlayer()
                                             }
                                             .padding(8.dp),
                                         verticalAlignment = Alignment.CenterVertically,

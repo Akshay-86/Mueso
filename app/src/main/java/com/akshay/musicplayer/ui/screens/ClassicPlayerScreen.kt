@@ -68,6 +68,7 @@ import coil.request.ImageRequest
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet
 import com.akshay.musicplayer.ui.components.AudioQualityCapsule
+import com.akshay.musicplayer.ui.components.ClassicFullScreenLyricsView
 import com.akshay.musicplayer.ui.components.EqualizerBottomSheet
 import com.akshay.musicplayer.ui.components.LyricsView
 import com.akshay.musicplayer.ui.components.QueueBottomSheet
@@ -87,7 +88,12 @@ fun ClassicPlayerScreen(
     viewModel: PlayerViewModel,
     onCollapseClick: () -> Unit
 ) {
-    BackHandler(onBack = onCollapseClick)
+    var isLyricsVisible by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isLyricsVisible) {
+        isLyricsVisible = false
+    }
+    BackHandler(enabled = !isLyricsVisible, onBack = onCollapseClick)
 
     val context = LocalContext.current
     val accent = LocalAccentColor.current
@@ -111,7 +117,6 @@ fun ClassicPlayerScreen(
     val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
     val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
 
-    var isLyricsVisible by remember { mutableStateOf(false) }
     var showTrackMenuSheet by remember { mutableStateOf(false) }
     var showSignalPathDialog by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
@@ -130,12 +135,12 @@ fun ClassicPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
-            .statusBarsPadding()
-            .navigationBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
         ) {
             // ─── 1. Top Navigation Bar ───
@@ -183,7 +188,7 @@ fun ClassicPlayerScreen(
                 }
             }
 
-            // ─── 2. Center: Square Album Artwork OR Lyrics View ───
+            // ─── 2. Center: Square Album Artwork ───
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,41 +196,21 @@ fun ClassicPlayerScreen(
                     .padding(vertical = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (isLyricsVisible && enableLyrics) {
-                    LyricsView(
-                        lyrics = track.lyrics,
-                        currentPositionMs = playbackState.currentPositionMs,
-                        lyricsFetchStatus = trackLyricsStatus,
-                        lyricsOffsetMs = lyricsOffsetMs,
-                        trackTitle = track.title,
-                        trackArtist = track.artist,
-                        isSavedInUserPlaylist = viewModel.isTrackInUserPlaylists(track.id),
-                        isExpanded = true,
-                        onExpandedChange = { isLyricsVisible = it },
-                        onAdjustOffset = { viewModel.adjustLyricsOffset(it) },
-                        onResetOffset = { viewModel.resetLyricsOffset() },
-                        onSearchCandidates = { query -> viewModel.searchLrclibCandidates(query) },
-                        onApplyCandidate = { candidate -> viewModel.applyLrclibCandidate(track.id, candidate) },
-                        onSeekTo = { timestampMs -> viewModel.seekTo(timestampMs) },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    val artCorner = 20.dp
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .aspectRatio(1f)
-                            .shadow(20.dp, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.35f))
-                            .clip(RoundedCornerShape(artCorner))
-                            .background(if (isDarkMode) Color(0xFF1E1E28) else Color.LightGray)
-                    )
-                }
+                val artCorner = 20.dp
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .aspectRatio(1f)
+                        .shadow(20.dp, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.35f))
+                        .clip(RoundedCornerShape(artCorner))
+                        .background(if (isDarkMode) Color(0xFF1E1E28) else Color.LightGray)
+                )
             }
 
             // ─── 3. Bottom Controls Container ───
@@ -445,6 +430,27 @@ fun ClassicPlayerScreen(
                     }
                 }
             }
+        }
+
+        // ─── Full-Screen Synced Lyrics Overlay ───
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isLyricsVisible,
+            enter = androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = androidx.compose.animation.core.tween(300)
+            ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(250)),
+            exit = androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = androidx.compose.animation.core.tween(250)
+            ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            ClassicFullScreenLyricsView(
+                track = track,
+                playbackState = playbackState,
+                viewModel = viewModel,
+                onClose = { isLyricsVisible = false }
+            )
         }
     }
 
