@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
+import com.akshay.musicplayer.ui.theme.ThemePresets
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,7 +60,7 @@ import kotlinx.coroutines.launch
 
 private val AccentOrange: Color
     @Composable
-    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    get() = LocalAccentColor.current
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,7 +74,6 @@ fun SettingsScreen(
     val usePureBlack by viewModel.usePureBlack.collectAsState()
     val accentColorId by viewModel.accentColorId.collectAsState()
     val fontScaleOption by viewModel.fontScaleOption.collectAsState()
-    val cornerRadiusOption by viewModel.cornerRadiusOption.collectAsState()
     val lyricsFontSizeOption by viewModel.lyricsFontSizeOption.collectAsState()
 
     val googleAccount by viewModel.googleAccount.collectAsState()
@@ -108,8 +110,6 @@ fun SettingsScreen(
     val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
-    val designSystem by viewModel.designSystem.collectAsState()
-    val useCustomFont by viewModel.useCustomFont.collectAsState()
 
     var pendingLayoutChange by remember { mutableStateOf<String?>(null) }
     var showSpotifyImport by remember { mutableStateOf(false) }
@@ -124,9 +124,7 @@ fun SettingsScreen(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
     val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
-    val isExpressiveSettings = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
-    // M3 Expressive uses 24dp outer card corners; Classic uses 16dp
-    val cardCorner = if (isExpressiveSettings) 24.dp else 16.dp
+    val cardCorner = 16.dp
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -210,53 +208,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
             ) {
-
-            if (designSystem == "expressive") {
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = accentColor.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(accentColor),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Material 3 Expressive Active",
-                                    color = textPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "28dp Pill Shapes • Fluid Springs • Studio Visuals",
-                                    color = textSub,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ─── 1. Google Drive Cloud Backup & Restore Section ───
+                // ─── 1. Google Drive Cloud Backup & Restore Section ───
             item {
                 Text(
                     text = "Cloud Sync & Backup (Google Drive)",
@@ -594,13 +546,6 @@ fun SettingsScreen(
                         onScaleSelect = { viewModel.setFontScaleOption(it) }
                     )
                     HorizontalDivider(color = dividerColor)
-                    CornerRadiusSelectorItem(
-                        currentOption = cornerRadiusOption,
-                        isDarkMode = isDarkMode,
-                        accentColor = AccentOrange,
-                        onOptionSelect = { viewModel.setCornerRadiusOption(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
                     LyricsFontSizeSelectorItem(
                         currentOption = lyricsFontSizeOption,
                         isDarkMode = isDarkMode,
@@ -621,25 +566,6 @@ fun SettingsScreen(
                                 pendingLayoutChange = target
                             }
                         }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
-                        title = "Design System",
-                        subtitle = "Select between classic look and Material 3 Expressive tokens",
-                        icon = Icons.Default.Palette,
-                        currentValue = if (designSystem == "classic") "Classic Mueso" else "Material 3 Expressive",
-                        options = listOf("Material 3 Expressive", "Classic Mueso"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setDesignSystem(if (it.startsWith("Classic")) "classic" else "expressive") }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Use Application Font",
-                        subtitle = "Bundled Google Sans Flex variable font for enhanced typography",
-                        icon = Icons.Default.TextFields,
-                        checked = useCustomFont,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setUseCustomFont(it) }
                     )
                 }
             }
@@ -1297,7 +1223,12 @@ private fun SettingsClickableItem(
                 modifier = Modifier.size(22.dp)
             )
             Column {
-                Text(text = title, color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
                 if (subtitle != null) {
                     Text(text = subtitle, color = textSub, fontSize = 12.sp, lineHeight = 16.sp)
                 }
@@ -1375,7 +1306,12 @@ private fun SettingsToggleItem(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor)
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = accentColor,
+                uncheckedThumbColor = Color.Gray,
+                uncheckedTrackColor = Color.DarkGray
+            )
         )
     }
 }
@@ -1394,6 +1330,8 @@ private fun SettingsSelectorItem(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
     val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+    val containerShape = RoundedCornerShape(12.dp)
+    val pillShape = RoundedCornerShape(10.dp)
 
     Column(
         modifier = Modifier
@@ -1439,11 +1377,10 @@ private fun SettingsSelectorItem(
             }
         }
 
-        // Integrated Segmented Selection Row with smooth animated color & scale micro-animations
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(containerShape)
                 .background(containerBg)
                 .padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1473,20 +1410,10 @@ private fun SettingsSelectorItem(
                     label = "pillTextColor"
                 )
 
-                val scale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.0f else 0.97f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    ),
-                    label = "pillScale"
-                )
-
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .graphicsLayer(scaleX = scale, scaleY = scale)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(pillShape)
                         .background(bgColor)
                         .clickable { onSelect(option) }
                         .padding(vertical = 7.dp, horizontal = 2.dp),
@@ -1517,6 +1444,8 @@ private fun ThemeModeSelectorItem(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
     val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+    val containerShape = RoundedCornerShape(12.dp)
+    val pillShape = RoundedCornerShape(10.dp)
 
     val modes = listOf(
         Triple("system", "System", Icons.Default.BrightnessAuto),
@@ -1545,7 +1474,7 @@ private fun ThemeModeSelectorItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(containerShape)
                 .background(containerBg)
                 .padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1566,7 +1495,7 @@ private fun ThemeModeSelectorItem(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(pillShape)
                         .background(bgColor)
                         .clickable { onModeSelect(id) }
                         .padding(vertical = 8.dp),
@@ -1690,7 +1619,7 @@ private fun AccentColorPickerItem(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable { onAccentSelect(palette.id) }
                         .padding(vertical = 4.dp, horizontal = 2.dp)
                 ) {
@@ -1728,7 +1657,7 @@ private fun AccentColorPickerItem(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable { showCustomDialog = true }
                         .padding(vertical = 4.dp, horizontal = 2.dp)
                 ) {
@@ -2059,99 +1988,6 @@ private fun FontScaleSelectorItem(
 }
 
 @Composable
-private fun CornerRadiusSelectorItem(
-    currentOption: String,
-    isDarkMode: Boolean,
-    accentColor: Color,
-    onOptionSelect: (String) -> Unit
-) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
-
-    val options = listOf(
-        Pair("rounded", "Rounded (16dp)"),
-        Pair("squircle", "Squircle (10dp)"),
-        Pair("sharp", "Sharp (4dp)")
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.CropSquare, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("Corner Style", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Border radius for cards, dialogs, and sheets", color = textSub, fontSize = 12.sp)
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = options.firstOrNull { it.first == currentOption }?.second?.substringBefore(" ") ?: "Rounded",
-                color = accentColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { (id, label) ->
-                val isSelected = currentOption.equals(id, ignoreCase = true)
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "cornerBg"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "cornerText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bgColor)
-                        .clickable { onOptionSelect(id) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun LyricsFontSizeSelectorItem(
     currentOption: String,
     isDarkMode: Boolean,
@@ -2298,10 +2134,6 @@ private fun SettingsFolderSelectorItem(
                 )
             } catch (_: Exception) {}
 
-            val docId = try {
-                DocumentsContract.getTreeDocumentId(uri)
-            } catch (_: Exception) { null }
-
             onFolderSelect(uri.toString())
             showDialog = false
         }
@@ -2345,7 +2177,9 @@ private fun SettingsFolderSelectorItem(
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
-            TextButton(onClick = { showDialog = true }) {
+            TextButton(
+                onClick = { showDialog = true }
+            ) {
                 Text(
                     text = displayFolder,
                     color = AccentOrange,
@@ -2361,6 +2195,7 @@ private fun SettingsFolderSelectorItem(
         if (showDialog) {
             AlertDialog(
                 onDismissRequest = { showDialog = false },
+                shape = RoundedCornerShape(24.dp),
                 title = { Text("Choose Download Location", color = textPrimary, fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2421,7 +2256,9 @@ private fun SettingsFolderSelectorItem(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { showDialog = false }) {
+                    TextButton(
+                        onClick = { showDialog = false }
+                    ) {
                         Text("Close", color = textSub)
                     }
                 }

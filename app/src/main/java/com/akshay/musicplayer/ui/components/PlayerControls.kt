@@ -12,14 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -56,92 +53,25 @@ fun PlayerControls(
 
     val showLoading = isSeeking || isResolvingTrack
     val accentColor = LocalAccentColor.current
-    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
-
-    val playInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val isPlayPressed by playInteraction.collectIsPressedAsState()
-    val playScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isPlayPressed) 0.86f else 1.0f,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-        ),
-        label = "playScale"
-    )
-
-    val prevInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val isPrevPressed by prevInteraction.collectIsPressedAsState()
-    val prevScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isPrevPressed) 0.86f else 1.0f,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-        ),
-        label = "prevScale"
-    )
-
-    val nextInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val isNextPressed by nextInteraction.collectIsPressedAsState()
-    val nextScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isNextPressed) 0.86f else 1.0f,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-        ),
-        label = "nextScale"
-    )
 
     val playButton: @Composable () -> Unit = {
-        if (isExpressive) {
-            androidx.compose.material3.Surface(
-                onClick = onPlayPauseClick,
-                interactionSource = playInteraction,
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = accentColor,
-                shadowElevation = 8.dp,
-                modifier = Modifier
-                    .size(62.dp)
-                    .graphicsLayer {
-                        scaleX = playScale
-                        scaleY = playScale
-                    }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (showLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = Color.White,
-                            strokeWidth = 3.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(36.dp),
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-        } else {
-            IconButton(
-                onClick = onPlayPauseClick,
-                modifier = Modifier.size(48.dp)
-            ) {
-                if (showLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(30.dp),
-                        color = accentColor,
-                        strokeWidth = 3.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(36.dp),
-                        tint = Color.White
-                    )
-                }
+        IconButton(
+            onClick = onPlayPauseClick,
+            modifier = Modifier.size(48.dp)
+        ) {
+            if (showLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(30.dp),
+                    color = accentColor,
+                    strokeWidth = 3.dp
+                )
+            } else {
+                Icon(
+                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
+                    modifier = Modifier.size(36.dp),
+                    tint = Color.White
+                )
             }
         }
     }
@@ -159,9 +89,9 @@ fun PlayerControls(
             valueRange = 0f..playbackState.durationMs.toFloat().coerceAtLeast(1f),
             modifier = sliderModifier,
             colors = SliderDefaults.colors(
-                thumbColor = accentColor,
-                activeTrackColor = accentColor,
-                inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
             )
         )
     }
@@ -180,7 +110,7 @@ fun PlayerControls(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 68.dp),
+                        .padding(start = 8.dp, end = 60.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = formatTime(playbackState.currentPositionMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
@@ -201,53 +131,33 @@ fun PlayerControls(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    androidx.compose.material3.Surface(
+                    IconButton(
                         onClick = onPreviousClick,
-                        interactionSource = prevInteraction,
-                        shape = androidx.compose.foundation.shape.CircleShape,
-                        color = Color.White.copy(alpha = 0.15f),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .graphicsLayer {
-                                scaleX = prevScale
-                                scaleY = prevScale
-                            }
+                        modifier = Modifier.size(44.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "Previous",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
 
                     playButton()
 
-                    androidx.compose.material3.Surface(
+                    IconButton(
                         onClick = onNextClick,
-                        interactionSource = nextInteraction,
-                        shape = androidx.compose.foundation.shape.CircleShape,
-                        color = Color.White.copy(alpha = 0.15f),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .graphicsLayer {
-                                scaleX = nextScale
-                                scaleY = nextScale
-                            }
+                        modifier = Modifier.size(44.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "Next",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
             }
@@ -263,7 +173,7 @@ fun PlayerControls(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 68.dp, end = 8.dp),
+                        .padding(start = 60.dp, end = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = formatTime(playbackState.currentPositionMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))

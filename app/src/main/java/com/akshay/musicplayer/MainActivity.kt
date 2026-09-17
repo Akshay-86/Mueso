@@ -150,7 +150,6 @@ class MainActivity : ComponentActivity() {
             val context = androidx.compose.ui.platform.LocalContext.current
             var showBatteryDialog by remember { mutableStateOf(false) }
 
-            val designSystem by playerViewModel.designSystem.collectAsState()
             val playbackState by playerViewModel.playbackState.collectAsState()
 
             LaunchedEffect(Unit) {
@@ -168,8 +167,7 @@ class MainActivity : ComponentActivity() {
                 accentColorId = accentColorId,
                 fontScaleOption = fontScaleOption,
                 cornerRadiusOption = cornerRadiusOption,
-                lyricsFontSizeOption = lyricsFontSizeOption,
-                designSystem = designSystem
+                lyricsFontSizeOption = lyricsFontSizeOption
             ) {
                 if (showBatteryDialog) {
                     val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current

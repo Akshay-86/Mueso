@@ -46,7 +46,6 @@ import com.akshay.musicplayer.ui.components.ClassicBottomBar
 import com.akshay.musicplayer.ui.components.ClassicNavTab
 import com.akshay.musicplayer.ui.components.DockedMiniPlayer
 import com.akshay.musicplayer.ui.screens.ClassicPlayerScreen
-import com.akshay.musicplayer.ui.theme.ExpressiveMotion
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 
@@ -236,17 +235,17 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     )
                 }
 
-                // Full-screen Classic Player Expansion with fluid spring motion
+                // Full-screen Classic Player Expansion
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isClassicPlayerExpanded && currentTrack != null,
                     enter = androidx.compose.animation.slideInVertically(
                         initialOffsetY = { it },
-                        animationSpec = ExpressiveMotion.OffsetSpring
-                    ) + androidx.compose.animation.fadeIn(),
+                        animationSpec = androidx.compose.animation.core.tween(300)
+                    ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(300)),
                     exit = androidx.compose.animation.slideOutVertically(
                         targetOffsetY = { it },
-                        animationSpec = ExpressiveMotion.OffsetSpring
-                    ) + androidx.compose.animation.fadeOut()
+                        animationSpec = androidx.compose.animation.core.tween(250)
+                    ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250))
                 ) {
                     if (currentTrack != null) {
                         ClassicPlayerScreen(
@@ -873,7 +872,6 @@ fun TopNavigationBarWithSearch(
     val focusRequester = remember { FocusRequester() }
     val isPage1 = currentPage == 1
     val isPage1NoTrackLightMode = isPage1 && !isDarkMode && !hasTrackPlaying
-    val isExpressiveNav = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
 
     val textColor = when {
         isPage1NoTrackLightMode -> Color(0xFF1D1D1F)
@@ -982,14 +980,14 @@ fun TopNavigationBarWithSearch(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(if (isExpressiveNav) 28.dp else 16.dp))
-                    .background(searchBg)
-                    .padding(horizontal = 14.dp, vertical = if (isExpressiveNav) 12.dp else 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(searchBg)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                 Icon(
                     Icons.Default.Search,
                     contentDescription = null,

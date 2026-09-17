@@ -241,8 +241,6 @@ class PlayerViewModel(
     val crossfadeEnabled = settingsManager.crossfadeEnabled
     val crossfadeSeconds = settingsManager.crossfadeSeconds
     val playerLayoutStyle = settingsManager.playerLayoutStyle
-    val designSystem = settingsManager.designSystem
-    val useCustomFont = settingsManager.useCustomFont
 
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setThemeMode(mode: String) = settingsManager.setThemeMode(mode)
@@ -287,8 +285,6 @@ class PlayerViewModel(
     fun setCrossfadeEnabled(enabled: Boolean) = settingsManager.setCrossfadeEnabled(enabled)
     fun setCrossfadeSeconds(seconds: Int) = settingsManager.setCrossfadeSeconds(seconds)
     fun setPlayerLayoutStyle(style: String) = settingsManager.setPlayerLayoutStyle(style)
-    fun setDesignSystem(system: String) = settingsManager.setDesignSystem(system)
-    fun setUseCustomFont(enabled: Boolean) = settingsManager.setUseCustomFont(enabled)
 
     val searchQuery = searchManager.searchQuery
     val searchCategory = searchManager.searchCategory

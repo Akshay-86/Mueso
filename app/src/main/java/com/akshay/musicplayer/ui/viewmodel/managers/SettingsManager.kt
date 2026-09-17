@@ -109,12 +109,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _playerLayoutStyle = MutableStateFlow(sharedPreferences.getString("player_layout_style", "reels") ?: "reels")
     val playerLayoutStyle: StateFlow<String> = _playerLayoutStyle.asStateFlow()
 
-    private val _designSystem = MutableStateFlow(sharedPreferences.getString("design_system", "expressive") ?: "expressive")
-    val designSystem: StateFlow<String> = _designSystem.asStateFlow()
-
-    private val _useCustomFont = MutableStateFlow(sharedPreferences.getBoolean("use_custom_font", true))
-    val useCustomFont: StateFlow<Boolean> = _useCustomFont.asStateFlow()
-
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
         sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()
@@ -274,16 +268,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putString("player_layout_style", style).commit()
     }
 
-    fun setDesignSystem(system: String) {
-        _designSystem.value = system
-        sharedPreferences.edit().putString("design_system", system).commit()
-    }
-
-    fun setUseCustomFont(enabled: Boolean) {
-        _useCustomFont.value = enabled
-        sharedPreferences.edit().putBoolean("use_custom_font", enabled).apply()
-    }
-
     fun reloadFromPreferences() {
         _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
         _themeMode.value = sharedPreferences.getString("theme_mode", "system") ?: "system"
@@ -317,7 +301,5 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
         _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
         _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
-        _designSystem.value = sharedPreferences.getString("design_system", "expressive") ?: "expressive"
-        _useCustomFont.value = sharedPreferences.getBoolean("use_custom_font", true)
     }
 }

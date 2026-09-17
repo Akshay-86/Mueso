@@ -1,10 +1,5 @@
 package com.akshay.musicplayer.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -27,17 +22,14 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -50,12 +42,13 @@ import com.akshay.musicplayer.domain.models.ActiveAudioFormat
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.ui.state.PlaybackState
 import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 
 @Composable
 fun DockedMiniPlayer(
     track: TrackEntity?,
     playbackState: PlaybackState,
-    audioFormat: ActiveAudioFormat,
+    audioFormat: ActiveAudioFormat? = null,
     isDarkMode: Boolean = true,
     onExpandClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
@@ -66,8 +59,7 @@ fun DockedMiniPlayer(
 
     val context = LocalContext.current
     val accent = LocalAccentColor.current
-    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
-    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val isPureBlack = LocalIsPureBlack.current
     val bgColor = if (isPureBlack) Color(0xFF0F0F0F) else if (isDarkMode) Color(0xFF1E1E2C) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
@@ -76,24 +68,13 @@ fun DockedMiniPlayer(
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    val miniPlayerShape = if (isExpressive) RoundedCornerShape(28.dp) else RoundedCornerShape(18.dp)
-    val boxModifier = if (isExpressive) {
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .shadow(12.dp, miniPlayerShape, spotColor = accent.copy(alpha = 0.3f))
-            .clip(miniPlayerShape)
-            .background(bgColor)
-            .border(1.dp, if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f), miniPlayerShape)
-            .clickable(onClick = onExpandClick)
-    } else {
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(miniPlayerShape)
-            .background(bgColor)
-            .clickable(onClick = onExpandClick)
-    }
+    val miniPlayerShape = RoundedCornerShape(18.dp)
+    val boxModifier = modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp, vertical = 6.dp)
+        .clip(miniPlayerShape)
+        .background(bgColor)
+        .clickable(onClick = onExpandClick)
 
     Box(
         modifier = boxModifier
@@ -104,9 +85,9 @@ fun DockedMiniPlayer(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (isExpressive) 4.dp else 2.5.dp),
+                    .height(2.5.dp),
                 color = accent,
-                trackColor = accent.copy(alpha = if (isExpressive) 0.18f else 0.12f),
+                trackColor = accent.copy(alpha = 0.12f),
                 strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
             )
 
@@ -126,8 +107,8 @@ fun DockedMiniPlayer(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(if (isExpressive) 48.dp else 46.dp)
-                        .clip(RoundedCornerShape(if (isExpressive) 14.dp else 10.dp))
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
                 )
 
@@ -160,64 +141,40 @@ fun DockedMiniPlayer(
                         )
 
                         // Quality badge
-                        val badgeColor = when {
-                            audioFormat.isHiRes -> Color(0xFFFFB300)
-                            audioFormat.isLossless -> Color(0xFF00E5FF)
-                            else -> accent
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(badgeColor.copy(alpha = 0.15f))
-                                .padding(horizontal = 4.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = if (audioFormat.isLossless) "FLAC" else "HQ",
-                                color = badgeColor,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        if (audioFormat != null) {
+                            val badgeColor = when {
+                                audioFormat.isHiRes -> Color(0xFFFFB300)
+                                audioFormat.isLossless -> Color(0xFF00E5FF)
+                                else -> accent
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(badgeColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = if (audioFormat.isLossless) "FLAC" else "HQ",
+                                    color = badgeColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Play/Pause & Next Buttons with tactile spring feedback
-                val miniPlayInteraction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                val isMiniPlayPressed by miniPlayInteraction.collectIsPressedAsState()
-                val miniPlayScale by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = if (isMiniPlayPressed) 0.86f else 1.0f,
-                    animationSpec = androidx.compose.animation.core.spring(
-                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                    ),
-                    label = "miniPlayScale"
-                )
-
-                val miniNextInteraction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                val isMiniNextPressed by miniNextInteraction.collectIsPressedAsState()
-                val miniNextScale by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = if (isMiniNextPressed) 0.86f else 1.0f,
-                    animationSpec = androidx.compose.animation.core.spring(
-                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                    ),
-                    label = "miniNextScale"
-                )
+                // Play/Pause & Next Buttons
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = onPlayPauseClick,
-                        interactionSource = miniPlayInteraction,
                         modifier = Modifier
                             .size(42.dp)
-                            .graphicsLayer {
-                                scaleX = miniPlayScale
-                                scaleY = miniPlayScale
-                            }
                             .clip(CircleShape)
-                            .background(accent.copy(alpha = if (isExpressive) 0.22f else 0.15f))
+                            .background(accent.copy(alpha = 0.15f))
                     ) {
                         Icon(
                             imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -229,13 +186,7 @@ fun DockedMiniPlayer(
 
                     IconButton(
                         onClick = onNextClick,
-                        interactionSource = miniNextInteraction,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .graphicsLayer {
-                                scaleX = miniNextScale
-                                scaleY = miniNextScale
-                            }
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,

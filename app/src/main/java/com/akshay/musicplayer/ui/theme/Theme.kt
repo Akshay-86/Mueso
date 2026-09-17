@@ -16,9 +16,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
-val LocalDesignSystem = androidx.compose.runtime.compositionLocalOf { "classic" }
-val LocalIsExpressive = androidx.compose.runtime.compositionLocalOf { false }
-
 @Composable
 fun MusicPlayerTheme(
     themeMode: String = "dark",
@@ -27,7 +24,6 @@ fun MusicPlayerTheme(
     fontScaleOption: String = "standard",
     cornerRadiusOption: String = "rounded",
     lyricsFontSizeOption: String = "standard",
-    designSystem: String = "classic",
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -104,40 +100,29 @@ fun MusicPlayerTheme(
 
     val cornerRadius = CornerRadiusOption.fromId(cornerRadiusOption)
     val lyricsFontSize = LyricsFontSizeOption.fromId(lyricsFontSizeOption)
-    val isExpressive = designSystem.equals("expressive", ignoreCase = true)
 
-    val appShapes = if (isExpressive) {
-        androidx.compose.material3.Shapes(
+    val appShapes = when (cornerRadius) {
+        CornerRadiusOption.ROUNDED -> androidx.compose.material3.Shapes(
             extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
             small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-            medium = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+            medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
             extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
         )
-    } else {
-        when (cornerRadius) {
-            CornerRadiusOption.ROUNDED -> androidx.compose.material3.Shapes(
-                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
-            )
-            CornerRadiusOption.SQUIRCLE -> androidx.compose.material3.Shapes(
-                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-                small = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                medium = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-                large = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
-            )
-            CornerRadiusOption.SHARP -> androidx.compose.material3.Shapes(
-                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),
-                small = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-                medium = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-                large = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-            )
-        }
+        CornerRadiusOption.SQUIRCLE -> androidx.compose.material3.Shapes(
+            extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+            small = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            medium = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+            large = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+        )
+        CornerRadiusOption.SHARP -> androidx.compose.material3.Shapes(
+            extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),
+            small = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+            medium = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+            large = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+            extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        )
     }
 
     CompositionLocalProvider(
@@ -146,9 +131,7 @@ fun MusicPlayerTheme(
         LocalIsPureBlack provides isPureBlackActive,
         LocalCornerRadius provides cornerRadius,
         LocalLyricsFontSize provides lyricsFontSize,
-        LocalDensity provides scaledDensity,
-        LocalDesignSystem provides designSystem,
-        LocalIsExpressive provides isExpressive
+        LocalDensity provides scaledDensity
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
