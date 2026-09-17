@@ -28,7 +28,6 @@ fun MusicPlayerTheme(
     cornerRadiusOption: String = "rounded",
     lyricsFontSizeOption: String = "standard",
     designSystem: String = "classic",
-    dynamicNowPlayingColor: Color? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -43,25 +42,19 @@ fun MusicPlayerTheme(
     val isDynamic = accentColorId.equals("dynamic", ignoreCase = true) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val palette = ThemePresets.getPalette(accentColorId)
 
-    val basePrimary = if (isDynamic) {
+    val primaryColor = if (isDynamic) {
         if (isDark) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
     } else {
         palette.primary
     }
 
-    val baseSecondary = if (isDynamic) {
+    val secondaryColor = if (isDynamic) {
         if (isDark) dynamicDarkColorScheme(context).secondary else dynamicLightColorScheme(context).secondary
     } else {
         palette.secondary
     }
 
-    // Material 3 Expressive Dynamic Now Playing Accent Override
-    val primaryColor = dynamicNowPlayingColor ?: basePrimary
-    val secondaryColor = if (dynamicNowPlayingColor != null) dynamicNowPlayingColor.copy(alpha = 0.8f) else baseSecondary
-
-    val accentGradient = if (dynamicNowPlayingColor != null) {
-        Brush.horizontalGradient(listOf(dynamicNowPlayingColor, dynamicNowPlayingColor.copy(alpha = 0.7f)))
-    } else if (isDynamic) {
+    val accentGradient = if (isDynamic) {
         Brush.horizontalGradient(listOf(primaryColor, secondaryColor))
     } else {
         palette.gradient

@@ -29,6 +29,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +66,7 @@ fun DockedMiniPlayer(
 
     val context = LocalContext.current
     val accent = LocalAccentColor.current
+    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
     val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
     val bgColor = if (isPureBlack) Color(0xFF0F0F0F) else if (isDarkMode) Color(0xFF1E1E2C) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
@@ -70,13 +76,27 @@ fun DockedMiniPlayer(
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    Box(
-        modifier = modifier
+    val miniPlayerShape = if (isExpressive) RoundedCornerShape(28.dp) else RoundedCornerShape(18.dp)
+    val boxModifier = if (isExpressive) {
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .shadow(12.dp, miniPlayerShape, spotColor = accent.copy(alpha = 0.3f))
+            .clip(miniPlayerShape)
+            .background(bgColor)
+            .border(1.dp, if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f), miniPlayerShape)
+            .clickable(onClick = onExpandClick)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(miniPlayerShape)
             .background(bgColor)
             .clickable(onClick = onExpandClick)
+    }
+
+    Box(
+        modifier = boxModifier
     ) {
         Column {
             // Tiny progress indicator line on top
@@ -84,9 +104,10 @@ fun DockedMiniPlayer(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.5.dp),
+                    .height(if (isExpressive) 4.dp else 2.5.dp),
                 color = accent,
-                trackColor = accent.copy(alpha = 0.15f)
+                trackColor = accent.copy(alpha = if (isExpressive) 0.18f else 0.12f),
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
             )
 
             Row(
@@ -105,8 +126,8 @@ fun DockedMiniPlayer(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(if (isExpressive) 48.dp else 46.dp)
+                        .clip(RoundedCornerShape(if (isExpressive) 14.dp else 10.dp))
                         .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
                 )
 
@@ -162,26 +183,59 @@ fun DockedMiniPlayer(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Play/Pause & Next Buttons
+                // Play/Pause & Next Buttons with tactile spring feedback
+                val miniPlayInteraction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isMiniPlayPressed by miniPlayInteraction.collectIsPressedAsState()
+                val miniPlayScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isMiniPlayPressed) 0.86f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "miniPlayScale"
+                )
+
+                val miniNextInteraction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isMiniNextPressed by miniNextInteraction.collectIsPressedAsState()
+                val miniNextScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isMiniNextPressed) 0.86f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "miniNextScale"
+                )
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = onPlayPauseClick,
+                        interactionSource = miniPlayInteraction,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(42.dp)
+                            .graphicsLayer {
+                                scaleX = miniPlayScale
+                                scaleY = miniPlayScale
+                            }
                             .clip(CircleShape)
-                            .background(accent.copy(alpha = 0.15f))
+                            .background(accent.copy(alpha = if (isExpressive) 0.22f else 0.15f))
                     ) {
                         Icon(
                             imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
                             tint = accent,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
                     IconButton(
                         onClick = onNextClick,
-                        modifier = Modifier.size(38.dp)
+                        interactionSource = miniNextInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .graphicsLayer {
+                                scaleX = miniNextScale
+                                scaleY = miniNextScale
+                            }
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,

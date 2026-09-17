@@ -109,9 +109,9 @@ fun SettingsScreen(
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
     val designSystem by viewModel.designSystem.collectAsState()
-    val dynamicNowPlayingEnabled by viewModel.dynamicNowPlayingEnabled.collectAsState()
     val useCustomFont by viewModel.useCustomFont.collectAsState()
 
+    var pendingLayoutChange by remember { mutableStateOf<String?>(null) }
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
@@ -124,6 +124,9 @@ fun SettingsScreen(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
     val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+    val isExpressiveSettings = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
+    // M3 Expressive uses 24dp outer card corners; Classic uses 16dp
+    val cardCorner = if (isExpressiveSettings) 24.dp else 16.dp
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -208,6 +211,51 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
             ) {
 
+            if (designSystem == "expressive") {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = accentColor.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(accentColor),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Material 3 Expressive Active",
+                                    color = textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "28dp Pill Shapes • Fluid Springs • Studio Visuals",
+                                    color = textSub,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // ─── 1. Google Drive Cloud Backup & Restore Section ───
             item {
                 Text(
@@ -222,7 +270,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -513,7 +561,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -562,12 +610,17 @@ fun SettingsScreen(
                     HorizontalDivider(color = dividerColor)
                     SettingsSelectorItem(
                         title = "Player Layout Mode",
-                        subtitle = "Choose between Reels vertical swipe and classic square art view",
+                        subtitle = "Switch between Reels full-screen swipe and Classic player with bottom tabs",
                         icon = Icons.Default.ViewCarousel,
                         currentValue = if (playerLayoutStyle == "classic") "Classic Player (Square Cover)" else "Reels Swiper (Vertical)",
                         options = listOf("Reels Swiper (Vertical)", "Classic Player (Square Cover)"),
                         isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setPlayerLayoutStyle(if (it.startsWith("Classic")) "classic" else "reels") }
+                        onSelect = {
+                            val target = if (it.startsWith("Classic")) "classic" else "reels"
+                            if (target != playerLayoutStyle) {
+                                pendingLayoutChange = target
+                            }
+                        }
                     )
                     HorizontalDivider(color = dividerColor)
                     SettingsSelectorItem(
@@ -578,15 +631,6 @@ fun SettingsScreen(
                         options = listOf("Material 3 Expressive", "Classic Mueso"),
                         isDarkMode = isDarkMode,
                         onSelect = { viewModel.setDesignSystem(if (it.startsWith("Classic")) "classic" else "expressive") }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Dynamic Artwork Accent",
-                        subtitle = "Adapt app accent color to match currently playing album art",
-                        icon = Icons.Default.ColorLens,
-                        checked = dynamicNowPlayingEnabled,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setDynamicNowPlayingEnabled(it) }
                     )
                     HorizontalDivider(color = dividerColor)
                     SettingsToggleItem(
@@ -614,7 +658,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -664,7 +708,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -728,7 +772,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -767,7 +811,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -776,7 +820,7 @@ fun SettingsScreen(
                         subtitle = "Bit rate for offline audio tracks",
                         icon = Icons.Default.MusicNote,
                         currentValue = downloadQuality,
-                        options = listOf("Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
+                        options = listOf("Lossless (FLAC)", "Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
                         isDarkMode = isDarkMode,
                         onSelect = { viewModel.setDownloadQuality(it) }
                     )
@@ -815,7 +859,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -859,7 +903,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .clickable { showSpotifyImport = true }
                         .padding(16.dp),
@@ -902,7 +946,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1039,7 +1083,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .clickable { showAboutPage = true }
                         .padding(16.dp),
@@ -1074,7 +1118,7 @@ fun SettingsScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(cardCorner))
                                 .background(cardBg)
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1097,7 +1141,7 @@ fun SettingsScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(cardCorner))
                             .background(cardBg)
                             .pointerInput(Unit) {
                                 detectTapGestures(
@@ -1150,6 +1194,73 @@ fun SettingsScreen(
             effectsController = viewModel.audioEffectsController,
             isDarkMode = isDarkMode,
             onDismiss = { showEqualizerSheet = false }
+        )
+    }
+
+    if (pendingLayoutChange != null) {
+        val targetStyle = pendingLayoutChange!!
+        val targetName = if (targetStyle == "classic") "Classic Player (Square Cover & Bottom Navigation)" else "Reels Swiper (Vertical Full-Screen)"
+        AlertDialog(
+            onDismissRequest = { pendingLayoutChange = null },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = cardBg,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "App Restart Required",
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = "Switching to $targetName reinitializes the core navigation shell and layout architecture.\n\nMueso will restart immediately to apply this change cleanly.",
+                    color = textSub,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setPlayerLayoutStyle(targetStyle)
+                        pendingLayoutChange = null
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            val intent = activity.intent
+                            activity.finish()
+                            activity.startActivity(intent)
+                        } else {
+                            val pm = context.packageManager
+                            val intent = pm.getLaunchIntentForPackage(context.packageName)
+                            if (intent != null) {
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                context.startActivity(intent)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Restart Now", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLayoutChange = null }) {
+                    Text("Cancel", color = textSub)
+                }
+            }
         )
     }
 }
@@ -1339,6 +1450,8 @@ private fun SettingsSelectorItem(
         ) {
             options.forEach { option ->
                 val isSelected = option == currentValue ||
+                    (option.contains("FLAC", ignoreCase = true) && currentValue.contains("FLAC", ignoreCase = true)) ||
+                    (option.contains("Lossless", ignoreCase = true) && currentValue.contains("Lossless", ignoreCase = true)) ||
                     (option.contains("1080p") && currentValue.contains("1080p")) ||
                     (option.contains("320") && currentValue.contains("320")) ||
                     (option.contains("256") && currentValue.contains("256")) ||
@@ -1527,7 +1640,7 @@ private fun AccentColorPickerItem(
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
-            val activeName = if (currentAccentId == "dynamic") "Material You" else com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId).name
+            val activeName = com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId).name
             Text(activeName, color = activeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         }
 
@@ -1535,56 +1648,6 @@ private fun AccentColorPickerItem(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                item {
-                    val isSelected = currentAccentId.equals("dynamic", ignoreCase = true)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onAccentSelect("dynamic") }
-                            .padding(vertical = 4.dp, horizontal = 2.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.sweepGradient(
-                                        listOf(
-                                            Color(0xFF4285F4),
-                                            Color(0xFFEA4335),
-                                            Color(0xFFFBBC05),
-                                            Color(0xFF34A853),
-                                            Color(0xFF4285F4)
-                                        )
-                                    )
-                                )
-                                .then(
-                                    if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape)
-                                    else Modifier
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Dynamic",
-                            color = if (isSelected) activeAccent else textSub,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
 
             if (isCustomSelected) {
                 item {

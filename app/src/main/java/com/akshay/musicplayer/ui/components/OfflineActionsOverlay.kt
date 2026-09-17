@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.Icons
@@ -64,6 +66,7 @@ fun OfflineActionsOverlay(
     onAddToPlaylistClick: () -> Unit = {}
 ) {
     val accentColor = LocalAccentColor.current
+    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -90,10 +93,22 @@ fun OfflineActionsOverlay(
             )
         }
 
-        Row(
-            modifier = Modifier
+        val rowModifier = if (isExpressive) {
+            Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 16.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
+                .background(Color.Black.copy(alpha = 0.40f))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+        }
+
+        Row(
+            modifier = rowModifier,
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {

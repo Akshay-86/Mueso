@@ -40,7 +40,7 @@ class BackupManager(
             highRefreshRate = sharedPreferences.getBoolean("high_refresh_rate", false),
             audioQuality = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)",
             thumbnailQuality = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)",
-            downloadQuality = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)",
+            downloadQuality = sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)",
             playButtonPosition = sharedPreferences.getString("play_button_position", "Left") ?: "Left",
             enableLyrics = sharedPreferences.getBoolean("enable_lyrics", true),
             embedLyricsInDownload = sharedPreferences.getBoolean("embed_lyrics_in_download", true),

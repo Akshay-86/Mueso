@@ -1,5 +1,6 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,11 +18,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.domain.models.TrackEntity
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+
 @Composable
 fun SongInfo(
     track: TrackEntity,
+    onArtistClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -29,21 +37,34 @@ fun SongInfo(
     ) {
         Text(
             text = track.title,
-            style = MaterialTheme.typography.headlineMedium,
+            style = if (isExpressive) {
+                MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.3).sp
+                )
+            } else {
+                MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold
+                )
+            },
             color = Color.White,
-            fontWeight = FontWeight.Bold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = track.artist,
-            fontSize = 16.sp,
-            color = Color.White.copy(alpha = 0.6f),
+            fontSize = if (isExpressive) 17.sp else 16.sp,
+            fontWeight = if (isExpressive) FontWeight.Medium else FontWeight.Normal,
+            color = Color.White.copy(alpha = if (isExpressive) 0.85f else 0.6f),
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable { onArtistClick() }
+                .padding(vertical = 2.dp)
         )
     }
 }

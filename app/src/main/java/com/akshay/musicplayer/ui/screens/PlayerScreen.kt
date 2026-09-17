@@ -410,6 +410,7 @@ fun PlayerPageContent(
                     Box(modifier = Modifier.weight(1f)) {
                         SongInfo(
                             track = track,
+                            onArtistClick = { viewModel.openArtistByName(track.artist) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -474,7 +475,7 @@ fun PlayerPageContent(
                         track = track,
                         isDarkMode = isDarkMode,
                         onGoToArtist = {
-                            viewModel.setSearchQuery(track.artist)
+                            viewModel.openArtistByName(track.artist)
                         },
                         onGoToAlbum = {
                             track.album?.let { viewModel.setSearchQuery(it) }
@@ -506,9 +507,11 @@ fun PlayerPageContent(
                 if (showSignalPathDialog) {
                     com.akshay.musicplayer.ui.components.SignalPathDialog(
                         audioFormat = activeAudioFormat,
+                        track = track,
                         isEqualizerActive = isEqActive && !isBitPerfectActive,
                         isClarityActive = isClarityActive,
                         isBitPerfectActive = isBitPerfectActive,
+                        onOpenEqualizer = { showEqualizerSheet = true },
                         onDismiss = { showSignalPathDialog = false }
                     )
                 }

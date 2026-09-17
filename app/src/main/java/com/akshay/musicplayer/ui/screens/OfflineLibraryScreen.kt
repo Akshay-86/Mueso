@@ -56,6 +56,12 @@ import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import android.content.ContentUris
+import android.net.Uri
+import androidx.compose.ui.graphics.graphicsLayer
 
 private val AccentOrange: Color
     @Composable
@@ -156,15 +162,21 @@ fun OfflineLibraryScreen(
             }
         }
 
-        // Bottom center pill tabs
+        // Bottom center pill tabs — M3 NavigationBar-style
+        val isExpressiveLib = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(bottom = if (isExpressiveLib) 20.dp else 16.dp)
+                .clip(RoundedCornerShape(if (isExpressiveLib) 32.dp else 28.dp))
+                .background(
+                    if (isExpressiveLib)
+                        if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+                    else
+                        if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+                )
+                .padding(if (isExpressiveLib) 5.dp else 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isExpressiveLib) 3.dp else 4.dp)
         ) {
             listOf("Playlists" to 0, "All Songs" to 1).forEach { (title, index) ->
                 val isSelected = selectedTab == index
@@ -178,22 +190,35 @@ fun OfflineLibraryScreen(
                     animationSpec = tween(250),
                     label = "tabText"
                 )
+                val tabScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isSelected) 1.0f else 0.96f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "tabScale"
+                )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(24.dp))
+                        .graphicsLayer { scaleX = tabScale; scaleY = tabScale }
+                        .clip(RoundedCornerShape(if (isExpressiveLib) 28.dp else 24.dp))
                         .background(bgColor)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { viewModel.setOfflineLibraryTab(index) }
-                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                        .padding(
+                            horizontal = if (isExpressiveLib) 28.dp else 24.dp,
+                            vertical = if (isExpressiveLib) 12.dp else 10.dp
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = title,
                         color = textColor,
                         fontSize = 14.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        letterSpacing = if (isExpressiveLib && isSelected) 0.2.sp else 0.sp
                     )
                 }
             }
@@ -597,33 +622,64 @@ fun TrackListItem(
     val iconTint = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF3A3A3C)
     val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
     val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
 
-    Row(
-        modifier = Modifier
+    val rowModifier = if (isExpressive) {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+    } else {
+        Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 10.dp),
+            .padding(horizontal = 24.dp, vertical = 10.dp)
+    }
+
+    Row(
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Thumbnail icon
+        // Artwork thumbnail — real album art with MusicNote fallback
+        val artworkSize = if (isExpressive) 52.dp else 46.dp
+        val artworkCorner = if (isExpressive) 14.dp else 10.dp
+        val artModel = remember(track.albumId, track.artworkUrl) {
+            track.artworkUrl?.takeIf { it.isNotBlank() }
+                ?: ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"),
+                    track.albumId
+                )
+        }
         Box(
             modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .size(artworkSize)
+                .clip(RoundedCornerShape(artworkCorner))
                 .background(
                     if (isDarkMode)
-                        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.04f)))
+                        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.05f)))
                     else
-                        Brush.linearGradient(listOf(Color.Black.copy(alpha = 0.06f), Color.Black.copy(alpha = 0.03f)))
+                        Brush.linearGradient(listOf(Color.Black.copy(alpha = 0.08f), Color.Black.copy(alpha = 0.04f)))
                 ),
             contentAlignment = Alignment.Center
         ) {
+            // Fallback icon always drawn behind — only visible if art fails
             Icon(
                 Icons.Default.MusicNote,
                 contentDescription = null,
-                tint = if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f),
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f),
                 modifier = Modifier.size(22.dp)
+            )
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(artModel)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
         }
 

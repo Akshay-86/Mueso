@@ -7,6 +7,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AvTimer
@@ -124,6 +128,8 @@ fun ClassicPlayerScreen(
     val currentPosMs = if (isDraggingSlider) dragSliderValue.toLong() else playbackState.currentPositionMs
     val durationMs = playbackState.durationMs.coerceAtLeast(1L)
 
+    val isExpressive = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -134,49 +140,47 @@ fun ClassicPlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 24.dp)
         ) {
-            // ─── 1. Top Bar ───
+            // ─── 1. Top Navigation Bar ───
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onCollapseClick) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Collapse Player",
+                        contentDescription = "Collapse",
                         tint = textPrimary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "NOW PLAYING",
-                        color = textSecondary,
+                        text = if (isExpressive) "PLAYING EXPRESSIVE" else "NOW PLAYING",
+                        color = if (isExpressive) accent else textSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.5.sp
                     )
-                    if (!track.album.isNullOrBlank() && track.album != "<unknown>") {
-                        Text(
-                            text = track.album,
-                            color = textPrimary.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(
+                        text = track.album.ifBlank { "Mueso Master" },
+                        color = textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 IconButton(onClick = { showTrackMenuSheet = true }) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
+                        contentDescription = "Track Menu",
                         tint = textPrimary,
                         modifier = Modifier.size(24.dp)
                     )
@@ -210,6 +214,7 @@ fun ClassicPlayerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
+                    val artCorner = if (isExpressive) 32.dp else 24.dp
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
@@ -218,10 +223,10 @@ fun ClassicPlayerScreen(
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .fillMaxWidth(0.92f)
+                            .fillMaxWidth(if (isExpressive) 0.94f else 0.92f)
                             .aspectRatio(1f)
-                            .shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.35f))
-                            .clip(RoundedCornerShape(24.dp))
+                            .shadow(if (isExpressive) 28.dp else 24.dp, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.3f), spotColor = accent.copy(alpha = 0.4f))
+                            .clip(RoundedCornerShape(artCorner))
                             .background(if (isDarkMode) Color(0xFF1E1E28) else Color.LightGray)
                     )
                 }
@@ -255,7 +260,14 @@ fun ClassicPlayerScreen(
                             color = textSecondary,
                             fontSize = 15.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    viewModel.openArtistByName(track.artist)
+                                    onCollapseClick()
+                                }
+                                .padding(vertical = 2.dp)
                         )
                     }
 
@@ -307,13 +319,51 @@ fun ClassicPlayerScreen(
                     }
                 }
 
+                val playInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isPlayPressed by playInteraction.collectIsPressedAsState()
+                val playScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isPlayPressed) 0.86f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "classicPlayScale"
+                )
+
+                val prevInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isPrevPressed by prevInteraction.collectIsPressedAsState()
+                val prevScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isPrevPressed) 0.86f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "classicPrevScale"
+                )
+
+                val nextInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isNextPressed by nextInteraction.collectIsPressedAsState()
+                val nextScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isNextPressed) 0.86f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "classicNextScale"
+                )
+
                 // Main Playback Controls: Shuffle, Prev, Play/Pause, Next, Repeat
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { viewModel.toggleShuffleMode() }) {
+                    IconButton(
+                        onClick = { viewModel.toggleShuffleMode() },
+                        modifier = if (isExpressive && isShuffleEnabled) {
+                            Modifier.clip(CircleShape).background(accent.copy(alpha = 0.18f))
+                        } else Modifier
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Shuffle",
@@ -322,49 +372,108 @@ fun ClassicPlayerScreen(
                         )
                     }
 
-                    IconButton(onClick = { viewModel.playPreviousTrack() }) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous",
-                            tint = textPrimary,
-                            modifier = Modifier.size(34.dp)
-                        )
+                    if (isExpressive) {
+                        androidx.compose.material3.Surface(
+                            onClick = { viewModel.playPreviousTrack() },
+                            interactionSource = prevInteraction,
+                            shape = CircleShape,
+                            color = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                            modifier = Modifier
+                                .size(54.dp)
+                                .graphicsLayer {
+                                    scaleX = prevScale
+                                    scaleY = prevScale
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipPrevious,
+                                    contentDescription = "Previous",
+                                    tint = textPrimary,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(onClick = { viewModel.playPreviousTrack() }) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = textPrimary,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
                     }
 
-                    // Large Play/Pause Button
+                    // Large Hero Play/Pause Button
+                    val playButtonSize = if (isExpressive) 76.dp else 68.dp
                     Box(
                         modifier = Modifier
-                            .size(68.dp)
+                            .size(playButtonSize)
+                            .graphicsLayer {
+                                scaleX = playScale
+                                scaleY = playScale
+                            }
+                            .shadow(if (isExpressive) 16.dp else 8.dp, CircleShape, spotColor = accent.copy(alpha = 0.55f))
                             .clip(CircleShape)
-                            .background(accentGradient)
-                            .clip(CircleShape),
+                            .background(accentGradient),
                         contentAlignment = Alignment.Center
                     ) {
                         IconButton(
                             onClick = { viewModel.togglePlayPause() },
+                            interactionSource = playInteraction,
                             modifier = Modifier.fillMaxSize()
                         ) {
                             Icon(
                                 imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
                                 tint = Color.White,
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(if (isExpressive) 40.dp else 36.dp)
                             )
                         }
                     }
 
-                    IconButton(onClick = { viewModel.playNextTrack() }) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next",
-                            tint = textPrimary,
-                            modifier = Modifier.size(34.dp)
-                        )
+                    if (isExpressive) {
+                        androidx.compose.material3.Surface(
+                            onClick = { viewModel.playNextTrack() },
+                            interactionSource = nextInteraction,
+                            shape = CircleShape,
+                            color = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                            modifier = Modifier
+                                .size(54.dp)
+                                .graphicsLayer {
+                                    scaleX = nextScale
+                                    scaleY = nextScale
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipNext,
+                                    contentDescription = "Next",
+                                    tint = textPrimary,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(onClick = { viewModel.playNextTrack() }) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next",
+                                tint = textPrimary,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
                     }
 
                     val isRepeatOne = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
                     val isRepeatAll = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
-                    IconButton(onClick = { viewModel.cycleRepeatMode(context) }) {
+                    IconButton(
+                        onClick = { viewModel.cycleRepeatMode(context) },
+                        modifier = if (isExpressive && (isRepeatOne || isRepeatAll)) {
+                            Modifier.clip(CircleShape).background(accent.copy(alpha = 0.18f))
+                        } else Modifier
+                    ) {
                         Icon(
                             imageVector = if (isRepeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
                             contentDescription = "Repeat",
@@ -375,14 +484,30 @@ fun ClassicPlayerScreen(
                 }
 
                 // Quick Action Utilities: Lyrics, Sleep, Queue, EQ, Add to Playlist
-                Row(
-                    modifier = Modifier
+                val actionRowModifier = if (isExpressive) {
+                    Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .border(1.dp, if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f), RoundedCornerShape(32.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                }
+
+                Row(
+                    modifier = actionRowModifier,
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { isLyricsVisible = !isLyricsVisible }) {
+                    IconButton(
+                        onClick = { isLyricsVisible = !isLyricsVisible },
+                        modifier = if (isExpressive && isLyricsVisible) {
+                            Modifier.clip(CircleShape).background(accent.copy(alpha = 0.2f))
+                        } else Modifier
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Lyrics,
                             contentDescription = "Lyrics",
@@ -409,7 +534,12 @@ fun ClassicPlayerScreen(
                         )
                     }
 
-                    IconButton(onClick = { showEqualizerSheet = true }) {
+                    IconButton(
+                        onClick = { showEqualizerSheet = true },
+                        modifier = if (isExpressive && isEqActive && !isBitPerfectActive) {
+                            Modifier.clip(CircleShape).background(accent.copy(alpha = 0.2f))
+                        } else Modifier
+                    ) {
                         Icon(
                             imageVector = Icons.Default.GraphicEq,
                             contentDescription = "Equalizer",
@@ -436,7 +566,10 @@ fun ClassicPlayerScreen(
         TrackMenuBottomSheet(
             track = track,
             isDarkMode = isDarkMode,
-            onGoToArtist = { viewModel.setSearchQuery(track.artist) },
+            onGoToArtist = {
+                viewModel.openArtistByName(track.artist)
+                onCollapseClick()
+            },
             onGoToAlbum = { track.album?.let { viewModel.setSearchQuery(it) } },
             onShowSignalPath = { showSignalPathDialog = true },
             onShowEqualizer = { showEqualizerSheet = true },
@@ -456,9 +589,11 @@ fun ClassicPlayerScreen(
     if (showSignalPathDialog) {
         SignalPathDialog(
             audioFormat = activeAudioFormat,
+            track = track,
             isEqualizerActive = isEqActive && !isBitPerfectActive,
             isClarityActive = isClarityActive,
             isBitPerfectActive = isBitPerfectActive,
+            onOpenEqualizer = { showEqualizerSheet = true },
             onDismiss = { showSignalPathDialog = false }
         )
     }

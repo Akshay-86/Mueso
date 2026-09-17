@@ -242,7 +242,6 @@ class PlayerViewModel(
     val crossfadeSeconds = settingsManager.crossfadeSeconds
     val playerLayoutStyle = settingsManager.playerLayoutStyle
     val designSystem = settingsManager.designSystem
-    val dynamicNowPlayingEnabled = settingsManager.dynamicNowPlayingEnabled
     val useCustomFont = settingsManager.useCustomFont
 
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
@@ -289,7 +288,6 @@ class PlayerViewModel(
     fun setCrossfadeSeconds(seconds: Int) = settingsManager.setCrossfadeSeconds(seconds)
     fun setPlayerLayoutStyle(style: String) = settingsManager.setPlayerLayoutStyle(style)
     fun setDesignSystem(system: String) = settingsManager.setDesignSystem(system)
-    fun setDynamicNowPlayingEnabled(enabled: Boolean) = settingsManager.setDynamicNowPlayingEnabled(enabled)
     fun setUseCustomFont(enabled: Boolean) = settingsManager.setUseCustomFont(enabled)
 
     val searchQuery = searchManager.searchQuery
@@ -327,6 +325,86 @@ class PlayerViewModel(
                 }
             } catch (e: Exception) {
                 Log.e("PlayerViewModel", "Error loading artist $browseId", e)
+            } finally {
+                _isLoadingArtistPage.value = false
+            }
+        }
+    }
+
+    fun openArtistByName(artistName: String) {
+        val cleanName = artistName.trim().removeSuffix(" - Topic")
+        if (cleanName.isBlank()) return
+        loadArtistJob?.cancel()
+        _isLoadingArtistPage.value = true
+        _selectedArtistPage.value = null
+        loadArtistJob = viewModelScope.launch {
+            try {
+                // 1. Search online artists by cleanName
+                var artists = onlineRepository.searchArtists(cleanName)
+                var matchedArtist = artists.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
+                    ?: artists.firstOrNull { it.name.contains(cleanName, ignoreCase = true) }
+                    ?: artists.firstOrNull()
+
+                // 2. If not found, try extracting primary artist before comma, &, feat, ft
+                val primaryArtist = cleanName.split(Regex("[,&]|\\bfeat\\.?\\b|\\bft\\.?\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanName
+                if (matchedArtist == null && primaryArtist.isNotBlank() && !primaryArtist.equals(cleanName, ignoreCase = true)) {
+                    artists = onlineRepository.searchArtists(primaryArtist)
+                    matchedArtist = artists.firstOrNull { it.name.equals(primaryArtist, ignoreCase = true) }
+                        ?: artists.firstOrNull { it.name.contains(primaryArtist, ignoreCase = true) }
+                        ?: artists.firstOrNull()
+                }
+
+                if (matchedArtist != null && matchedArtist.id.isNotBlank()) {
+                    val page = onlineRepository.fetchArtistPage(matchedArtist.id)
+                    if (page != null) {
+                        _selectedArtistPage.value = page
+                    } else {
+                        _selectedArtistPage.value = com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage(
+                            id = matchedArtist.id,
+                            name = matchedArtist.name,
+                            thumbnailUrl = matchedArtist.thumbnailUrl,
+                            bannerUrl = matchedArtist.thumbnailUrl
+                        )
+                    }
+                } else {
+                    val targetQuery = if (primaryArtist.isNotBlank()) primaryArtist else cleanName
+                    val tracks = onlineRepository.searchOnlineTracks(targetQuery)
+                    val firstTrack = tracks.firstOrNull()
+                    _selectedArtistPage.value = com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage(
+                        id = "",
+                        name = targetQuery,
+                        thumbnailUrl = firstTrack?.artworkUrl,
+                        bannerUrl = firstTrack?.artworkUrl,
+                        topSongs = tracks.map { track ->
+                            com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack(
+                                videoId = onlineRepository.extractVideoId(track),
+                                title = track.title,
+                                artist = track.artist,
+                                durationSec = (track.duration / 1000).toInt(),
+                                artworkUrl = track.artworkUrl ?: ""
+                            )
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Error resolving artist '$cleanName'", e)
+                val targetQuery = cleanName.split(Regex("[,&]|\\bfeat\\.?\\b|\\bft\\.?\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanName
+                val fallbackTracks = try { onlineRepository.searchOnlineTracks(targetQuery) } catch (_: Exception) { emptyList() }
+                _selectedArtistPage.value = com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage(
+                    id = "",
+                    name = targetQuery,
+                    thumbnailUrl = fallbackTracks.firstOrNull()?.artworkUrl,
+                    bannerUrl = fallbackTracks.firstOrNull()?.artworkUrl,
+                    topSongs = fallbackTracks.map { track ->
+                        com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack(
+                            videoId = onlineRepository.extractVideoId(track),
+                            title = track.title,
+                            artist = track.artist,
+                            durationSec = (track.duration / 1000).toInt(),
+                            artworkUrl = track.artworkUrl ?: ""
+                        )
+                    }
+                )
             } finally {
                 _isLoadingArtistPage.value = false
             }

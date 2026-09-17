@@ -1,22 +1,18 @@
 package com.akshay.musicplayer.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
@@ -261,66 +257,29 @@ fun EqualizerBottomSheet(
                         letterSpacing = 1.sp
                     )
 
-                    // Horizontal display with vertical sliders
+                    // Horizontal display with wide, finger-friendly vertical touch faders
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         bandFreqs.forEachIndexed { index, freqHz ->
                             val levelDb = bandLevels.getOrNull(index) ?: 0
-                            val label = if (freqHz >= 1000) "${freqHz / 1000}k" else "$freqHz"
-
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.SpaceBetween,
+                            EqualizerFaderBar(
+                                freqHz = freqHz,
+                                levelDb = levelDb,
+                                minDb = minLevelDb,
+                                maxDb = maxLevelDb,
+                                enabled = isEqEnabled && !isBitPerfectEnabled,
+                                accentColor = accent,
+                                isDarkMode = isDarkMode,
+                                onLevelChange = { newLevel ->
+                                    effectsController.setBandLevel(index, newLevel)
+                                },
                                 modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = if (levelDb > 0) "+$levelDb" else "$levelDb",
-                                    color = if (levelDb != 0) accent else textSecondary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .height(130.dp)
-                                        .width(36.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Slider(
-                                        value = levelDb.toFloat(),
-                                        onValueChange = { newLevel ->
-                                            effectsController.setBandLevel(index, newLevel.toInt())
-                                        },
-                                        valueRange = minLevelDb.toFloat()..maxLevelDb.toFloat(),
-                                        enabled = isEqEnabled && !isBitPerfectEnabled,
-                                        modifier = Modifier
-                                            .graphicsLayer {
-                                                rotationZ = 270f
-                                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
-                                            }
-                                            .width(130.dp),
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = accent,
-                                            activeTrackColor = accent,
-                                            inactiveTrackColor = textSecondary.copy(alpha = 0.2f),
-                                            disabledThumbColor = textSecondary.copy(alpha = 0.3f),
-                                            disabledActiveTrackColor = textSecondary.copy(alpha = 0.2f)
-                                        )
-                                    )
-                                }
-
-                                Text(
-                                    text = label,
-                                    color = textPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                            )
                         }
                     }
                 }
@@ -426,5 +385,182 @@ fun EqualizerBottomSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EqualizerFaderBar(
+    freqHz: Int,
+    levelDb: Int,
+    minDb: Int,
+    maxDb: Int,
+    enabled: Boolean,
+    accentColor: Color,
+    isDarkMode: Boolean,
+    onLevelChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
+    val label = if (freqHz >= 1000) {
+        val k = freqHz / 1000f
+        if (k == k.toInt().toFloat()) "${k.toInt()}k" else "${k}k"
+    } else {
+        "$freqHz"
+    }
+
+    val totalRange = (maxDb - minDb).coerceAtLeast(1)
+    val fraction = ((levelDb - minDb).toFloat() / totalRange).coerceIn(0f, 1f)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+    ) {
+        // dB Label Badge
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    if (levelDb != 0 && enabled) accentColor.copy(alpha = 0.18f)
+                    else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+                )
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (levelDb > 0) "+${levelDb}dB" else "${levelDb}dB",
+                color = if (levelDb != 0 && enabled) accentColor else textSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+
+        // Vertical Fader Touch Area (Generous studio touch targets: 28dp capsule track, 52x36dp tactile knob)
+        BoxWithConstraints(
+            modifier = Modifier
+                .height(200.dp)
+                .fillMaxWidth()
+                .pointerInput(enabled, minDb, maxDb) {
+                    if (!enabled) return@pointerInput
+                    detectTapGestures { offset ->
+                        val thumbHeightPx = 36.dp.toPx()
+                        val availableTravel = (size.height - thumbHeightPx).coerceAtLeast(1f)
+                        val touchY = (offset.y - thumbHeightPx / 2f).coerceIn(0f, availableTravel)
+                        val frac = 1f - (touchY / availableTravel)
+                        val newLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
+                        onLevelChange(newLevel)
+                    }
+                }
+                .pointerInput(enabled, minDb, maxDb) {
+                    if (!enabled) return@pointerInput
+                    detectVerticalDragGestures { change, _ ->
+                        change.consume()
+                        val thumbHeightPx = 36.dp.toPx()
+                        val availableTravel = (size.height - thumbHeightPx).coerceAtLeast(1f)
+                        val touchY = (change.position.y - thumbHeightPx / 2f).coerceIn(0f, availableTravel)
+                        val frac = 1f - (touchY / availableTravel)
+                        val newLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
+                        onLevelChange(newLevel)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            val faderHeight = maxHeight
+            val thumbHeight = 36.dp
+            val travel = faderHeight - thumbHeight
+
+            // Thick Capsule Background Track (28dp wide!)
+            Box(
+                modifier = Modifier
+                    .width(28.dp)
+                    .height(faderHeight - 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isDarkMode) Color(0xFF1B1B26) else Color(0xFFE4E4EC))
+                    .border(
+                        1.dp,
+                        if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                        RoundedCornerShape(14.dp)
+                    )
+            )
+
+            // Center 0 dB Detent line
+            Box(
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(2.dp)
+                    .clip(CircleShape)
+                    .background(textSecondary.copy(alpha = 0.45f))
+            )
+
+            // Active Track Fill from center (0 dB) to thumb position
+            val centerOffset = travel / 2f
+            val thumbOffset = travel * (1f - fraction)
+            if (enabled && levelDb != 0) {
+                val fillTop = minOf(centerOffset, thumbOffset) + thumbHeight / 2f
+                val fillHeight = if (centerOffset > thumbOffset) centerOffset - thumbOffset else thumbOffset - centerOffset
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = fillTop)
+                        .width(28.dp)
+                        .height(fillHeight)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accentColor.copy(alpha = 0.85f))
+                )
+            }
+
+            // Draggable Tactile Fader Knob / Thumb (52dp wide x 36dp high)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = travel * (1f - fraction))
+                    .width(52.dp)
+                    .height(thumbHeight)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (enabled) {
+                            if (isDarkMode) Color(0xFF28283C) else Color.White
+                        } else {
+                            if (isDarkMode) Color(0xFF181822) else Color(0xFFE0E0E6)
+                        }
+                    )
+                    .border(
+                        width = 1.5.dp,
+                        color = if (enabled) accentColor else textSecondary.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                // Tactile horizontal LED glow strip & ridges on the fader knob
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(26.dp)
+                            .height(3.dp)
+                            .clip(CircleShape)
+                            .background(if (enabled) accentColor else textSecondary.copy(alpha = 0.4f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(18.dp)
+                            .height(2.dp)
+                            .clip(CircleShape)
+                            .background(if (enabled) accentColor.copy(alpha = 0.6f) else textSecondary.copy(alpha = 0.25f))
+                    )
+                }
+            }
+        }
+
+        // Frequency Label
+        Text(
+            text = label,
+            color = textPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

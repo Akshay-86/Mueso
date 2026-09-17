@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,36 +76,56 @@ fun ClassicBottomBar(
                     label = "tabColor"
                 )
 
+                val tabInteraction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val isPressed by tabInteraction.collectIsPressedAsState()
+                val tabScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (isPressed) 0.88f else 1.0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "tabScale"
+                )
+
                 Column(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onTabSelected(tab) }
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = tabInteraction,
+                            indication = null
+                        ) { onTabSelected(tab) }
+                        .graphicsLayer {
+                            scaleX = tabScale
+                            scaleY = tabScale
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    val pillShape = if (isExpressive) RoundedCornerShape(percent = 50) else CircleShape
                     Box(
                         modifier = Modifier
-                            .clip(if (isExpressive) RoundedCornerShape(20.dp) else CircleShape)
-                            .background(if (isSelected) accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .padding(horizontal = 14.dp, vertical = 4.dp),
+                            .clip(pillShape)
+                            .background(if (isSelected) accent.copy(alpha = if (isExpressive) 0.25f else 0.15f) else Color.Transparent)
+                            .padding(horizontal = if (isExpressive) 22.dp else 14.dp, vertical = if (isExpressive) 7.dp else 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = tab.icon,
                             contentDescription = tab.title,
                             tint = contentColor,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(if (isExpressive && isSelected) 25.dp else 22.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
                     Text(
                         text = tab.title,
                         color = contentColor,
                         fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                        letterSpacing = if (isExpressive && isSelected) 0.3.sp else 0.sp
                     )
                 }
             }

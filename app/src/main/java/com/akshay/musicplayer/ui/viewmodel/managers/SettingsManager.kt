@@ -43,7 +43,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)")
     val thumbnailQuality: StateFlow<String> = _thumbnailQuality.asStateFlow()
 
-    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)")
+    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)")
     val downloadQuality: StateFlow<String> = _downloadQuality.asStateFlow()
 
     private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")
@@ -86,7 +86,11 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", true))
     val losslessStreamingEnabled: StateFlow<Boolean> = _losslessStreamingEnabled.asStateFlow()
 
-    private val _losslessServerUrl = MutableStateFlow(sharedPreferences.getString("lossless_server_url", "https://clashflac.kanjijewels.com") ?: "https://clashflac.kanjijewels.com")
+    private val _losslessServerUrl = MutableStateFlow(
+        sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+    )
     val losslessServerUrl: StateFlow<String> = _losslessServerUrl.asStateFlow()
 
     private val _isStudioMasterClarityEnabled = MutableStateFlow(sharedPreferences.getBoolean("studio_master_clarity", false))
@@ -107,9 +111,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     private val _designSystem = MutableStateFlow(sharedPreferences.getString("design_system", "expressive") ?: "expressive")
     val designSystem: StateFlow<String> = _designSystem.asStateFlow()
-
-    private val _dynamicNowPlayingEnabled = MutableStateFlow(sharedPreferences.getBoolean("dynamic_now_playing_enabled", true))
-    val dynamicNowPlayingEnabled: StateFlow<Boolean> = _dynamicNowPlayingEnabled.asStateFlow()
 
     private val _useCustomFont = MutableStateFlow(sharedPreferences.getBoolean("use_custom_font", true))
     val useCustomFont: StateFlow<Boolean> = _useCustomFont.asStateFlow()
@@ -132,12 +133,12 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun setUsePureBlack(enabled: Boolean) {
         _usePureBlack.value = enabled
-        sharedPreferences.edit().putBoolean("use_pure_black", enabled).apply()
+        sharedPreferences.edit().putBoolean("use_pure_black", enabled).commit()
     }
 
     fun setAccentColorId(id: String) {
         _accentColorId.value = id
-        sharedPreferences.edit().putString("accent_color_id", id).apply()
+        sharedPreferences.edit().putString("accent_color_id", id).commit()
     }
 
     fun setFontScaleOption(option: String) {
@@ -270,17 +271,12 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun setPlayerLayoutStyle(style: String) {
         _playerLayoutStyle.value = style
-        sharedPreferences.edit().putString("player_layout_style", style).apply()
+        sharedPreferences.edit().putString("player_layout_style", style).commit()
     }
 
     fun setDesignSystem(system: String) {
         _designSystem.value = system
-        sharedPreferences.edit().putString("design_system", system).apply()
-    }
-
-    fun setDynamicNowPlayingEnabled(enabled: Boolean) {
-        _dynamicNowPlayingEnabled.value = enabled
-        sharedPreferences.edit().putBoolean("dynamic_now_playing_enabled", enabled).apply()
+        sharedPreferences.edit().putString("design_system", system).commit()
     }
 
     fun setUseCustomFont(enabled: Boolean) {
@@ -301,7 +297,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _highRefreshRate.value = sharedPreferences.getBoolean("high_refresh_rate", false)
         _audioQuality.value = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)"
         _thumbnailQuality.value = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
-        _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
+        _downloadQuality.value = sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
         _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
@@ -313,14 +309,15 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
         _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", true)
-        _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", "https://clashflac.kanjijewels.com") ?: "https://clashflac.kanjijewels.com"
+        _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
         _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
         _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
         _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
         _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
         _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
         _designSystem.value = sharedPreferences.getString("design_system", "expressive") ?: "expressive"
-        _dynamicNowPlayingEnabled.value = sharedPreferences.getBoolean("dynamic_now_playing_enabled", true)
         _useCustomFont.value = sharedPreferences.getBoolean("use_custom_font", true)
     }
 }

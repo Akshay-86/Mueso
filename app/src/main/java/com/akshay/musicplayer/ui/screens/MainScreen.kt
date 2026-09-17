@@ -720,7 +720,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = selectedArtistPage != null,
                 enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(tween(250)),
-                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(tween(200))
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(tween(200)),
+                modifier = Modifier.fillMaxSize()
             ) {
                 ArtistDetailScreen(
                     artistPage = selectedArtistPage,
@@ -745,7 +746,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = selectedOnlinePlaylist != null,
                 enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(tween(250)),
-                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(tween(200))
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(tween(200)),
+                modifier = Modifier.fillMaxSize()
             ) {
                 if (selectedOnlinePlaylist != null) {
                     val pl = selectedOnlinePlaylist!!
@@ -871,6 +873,7 @@ fun TopNavigationBarWithSearch(
     val focusRequester = remember { FocusRequester() }
     val isPage1 = currentPage == 1
     val isPage1NoTrackLightMode = isPage1 && !isDarkMode && !hasTrackPlaying
+    val isExpressiveNav = com.akshay.musicplayer.ui.theme.LocalIsExpressive.current
 
     val textColor = when {
         isPage1NoTrackLightMode -> Color(0xFF1D1D1F)
@@ -981,9 +984,9 @@ fun TopNavigationBarWithSearch(
                 Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(if (isExpressiveNav) 28.dp else 16.dp))
                     .background(searchBg)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = if (isExpressiveNav) 12.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {

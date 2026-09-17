@@ -248,13 +248,18 @@ class MusicPlayerService : MediaSessionService() {
             )
             .build()
 
+        val extractorsFactory = com.akshay.musicplayer.media.player.ClearDrmExtractorsFactory()
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+
+        player.addAnalyticsListener(androidx.media3.exoplayer.util.EventLogger())
 
         val effectsController = com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this)
         effectsController.attachSession(player.audioSessionId)
