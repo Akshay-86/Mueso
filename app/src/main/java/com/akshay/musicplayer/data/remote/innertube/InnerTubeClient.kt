@@ -1273,7 +1273,10 @@ class InnerTubeClient(
             if (radioTracks.isNotEmpty()) return@withContext radioTracks
         }
 
-        val cleanBrowseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+        val cleanBrowseId = when {
+            playlistId.startsWith("VL") || playlistId.startsWith("MPRE") || playlistId.startsWith("FEmusic") || playlistId.startsWith("UC") -> playlistId
+            else -> "VL$playlistId"
+        }
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("browseId", cleanBrowseId)
@@ -1328,7 +1331,10 @@ class InnerTubeClient(
             return@withContext cached
         }
 
-        val cleanBrowseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+        val cleanBrowseId = when {
+            playlistId.startsWith("VL") || playlistId.startsWith("MPRE") || playlistId.startsWith("FEmusic") || playlistId.startsWith("UC") -> playlistId
+            else -> "VL$playlistId"
+        }
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("browseId", cleanBrowseId)
@@ -1461,22 +1467,64 @@ class InnerTubeClient(
             ?.optJSONObject("sectionListRenderer")
             ?.optJSONArray("contents")
 
-        val sectionList = twoColumnSections ?: singleColumnSections ?: return emptyList()
+        val twoColumnTabs = json.optJSONObject("contents")
+            ?.optJSONObject("twoColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents")
 
-        for (i in 0 until sectionList.length()) {
-            val shelf = sectionList.optJSONObject(i)?.optJSONObject("musicPlaylistShelfRenderer")
-                ?: sectionList.optJSONObject(i)?.optJSONObject("musicShelfRenderer") ?: continue
+        val sectionList = twoColumnSections ?: singleColumnSections ?: twoColumnTabs
 
-            val items = shelf.optJSONArray("contents") ?: continue
-            for (j in 0 until items.length()) {
-                val item = items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+        if (sectionList != null) {
+            for (i in 0 until sectionList.length()) {
+                val shelf = sectionList.optJSONObject(i)?.optJSONObject("musicPlaylistShelfRenderer")
+                    ?: sectionList.optJSONObject(i)?.optJSONObject("musicShelfRenderer") ?: continue
+
+                val items = shelf.optJSONArray("contents") ?: continue
+                for (j in 0 until items.length()) {
+                    val item = items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                    val track = parseResponsiveListItem(item)
+                    if (track != null) {
+                        tracks.add(track)
+                    }
+                }
+            }
+        }
+
+        // Fallback: If sectionList didn't match, collect any musicResponsiveListItemRenderer across the payload
+        if (tracks.isEmpty()) {
+            val items = mutableListOf<JSONObject>()
+            collectJsonObjects(json, "musicResponsiveListItemRenderer", items)
+            for (item in items) {
                 val track = parseResponsiveListItem(item)
                 if (track != null) {
                     tracks.add(track)
                 }
             }
         }
-        return tracks
+
+        return tracks.distinctBy { it.videoId }
+    }
+
+    private fun collectJsonObjects(node: Any?, keyToFind: String, result: MutableList<JSONObject>, depth: Int = 0) {
+        if (depth > 12 || node == null) return
+        if (node is JSONObject) {
+            val target = node.optJSONObject(keyToFind)
+            if (target != null) {
+                result.add(target)
+            }
+            val keys = node.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                collectJsonObjects(node.opt(k), keyToFind, result, depth + 1)
+            }
+        } else if (node is org.json.JSONArray) {
+            for (i in 0 until node.length()) {
+                collectJsonObjects(node.opt(i), keyToFind, result, depth + 1)
+            }
+        }
     }
 
     // ==========================================

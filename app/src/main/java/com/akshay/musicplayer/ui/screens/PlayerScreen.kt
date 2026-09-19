@@ -508,6 +508,7 @@ fun PlayerPageContent(
                     com.akshay.musicplayer.ui.components.SignalPathDialog(
                         audioFormat = activeAudioFormat,
                         track = track,
+                        playbackState = playbackState,
                         isEqualizerActive = isEqActive && !isBitPerfectActive,
                         isClarityActive = isClarityActive,
                         isBitPerfectActive = isBitPerfectActive,

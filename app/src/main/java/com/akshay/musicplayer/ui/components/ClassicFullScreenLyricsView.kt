@@ -1,7 +1,12 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -26,6 +31,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -81,6 +88,7 @@ fun ClassicFullScreenLyricsView(
 
     // Search and tools state
     var isSearchInputActive by remember { mutableStateOf(false) }
+    var isOffsetAdjusterActive by remember { mutableStateOf(false) }
     var searchQuery by remember(track.title) { mutableStateOf(track.title) }
     var isSearchingCandidates by remember { mutableStateOf(false) }
     var candidateResults by remember { mutableStateOf<List<LrclibSearchResultItem>?>(null) }
@@ -135,7 +143,7 @@ fun ClassicFullScreenLyricsView(
                 .fillMaxSize()
                 .padding(horizontal = 20.dp)
         ) {
-            // ─── 1. Top Navigation Bar: Dismiss Arrow & Track Info ───
+            // ─── 1. Top Navigation Bar: Dismiss Arrow & Track Info & Action Buttons ───
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -160,7 +168,7 @@ fun ClassicFullScreenLyricsView(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -180,159 +188,241 @@ fun ClassicFullScreenLyricsView(
                     )
                 }
 
-                // Right: Quick Search Button
-                IconButton(
-                    onClick = {
-                        isSearchInputActive = !isSearchInputActive
-                        if (!isSearchInputActive) candidateResults = null
-                    },
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isSearchInputActive) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = "Search Lyrics Online",
-                        tint = if (isSearchInputActive || candidateResults != null) accent else textPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                // Right: Action Buttons (Sync Adjuster & Online Search)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Sync offset toggle button
+                    IconButton(
+                        onClick = {
+                            isOffsetAdjusterActive = !isOffsetAdjusterActive
+                            if (isOffsetAdjusterActive) isSearchInputActive = false
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Adjust Lyrics Sync",
+                            tint = if (isOffsetAdjusterActive || lyricsOffsetMs != 0L) accent else textPrimary.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Online lyrics search toggle button
+                    IconButton(
+                        onClick = {
+                            isSearchInputActive = !isSearchInputActive
+                            if (isSearchInputActive) {
+                                isOffsetAdjusterActive = false
+                            } else {
+                                candidateResults = null
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isSearchInputActive) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = "Search Lyrics Online",
+                            tint = if (isSearchInputActive || candidateResults != null) accent else textPrimary.copy(alpha = 0.8f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
-            // ─── 2. Persistent Tool Row: Left Sync Offset Pill + Right Search Bar / Button ───
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // ─── 2. Expandable Search Bar Panel ───
+            AnimatedVisibility(
+                visible = isSearchInputActive,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
-                if (isSearchInputActive) {
-                    // Expanded Search Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            textStyle = TextStyle(color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
-                            cursorBrush = SolidColor(accent),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = {
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = textPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        cursorBrush = SolidColor(accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            keyboardController?.hide()
+                            triggerSearch(searchQuery)
+                        }),
+                        decorationBox = { inner ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        "Search song title or artist...",
+                                        color = textSecondary,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                inner()
+                            }
+                        }
+                    )
+
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                searchQuery = ""
+                                candidateResults = null
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
+                    // Standalone Round Search Button
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(accent)
+                            .clickable {
                                 keyboardController?.hide()
                                 triggerSearch(searchQuery)
-                            }),
-                            decorationBox = { inner ->
-                                Box(contentAlignment = Alignment.CenterStart) {
-                                    if (searchQuery.isEmpty()) {
-                                        Text("Search song title or artist...", color = textSecondary, fontSize = 13.sp)
-                                    }
-                                    inner()
-                                }
-                            }
-                        )
-
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    searchQuery = ""
-                                    candidateResults = null
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = textSecondary, modifier = Modifier.size(16.dp))
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        // Standalone Round Search Button
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(accent)
-                                .clickable {
-                                    keyboardController?.hide()
-                                    triggerSearch(searchQuery)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSearchingCandidates) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                } else {
-                    // Default State: Left Standalone Offset Capsule
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Sync, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "Sync: ${if (lyricsOffsetMs >= 0) "+${lyricsOffsetMs / 1000.0}s" else "${lyricsOffsetMs / 1000.0}s"}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textPrimary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        TextButton(
-                            onClick = { viewModel.adjustLyricsOffset(-500L) },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                            modifier = Modifier.height(26.dp)
-                        ) {
-                            Text("-0.5s", fontSize = 11.sp, color = accent, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(
-                            onClick = { viewModel.adjustLyricsOffset(500L) },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                            modifier = Modifier.height(26.dp)
-                        ) {
-                            Text("+0.5s", fontSize = 11.sp, color = accent, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(
-                            onClick = { viewModel.resetLyricsOffset() },
-                            enabled = lyricsOffsetMs != 0L,
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                            modifier = Modifier.height(26.dp)
-                        ) {
-                            Text(
-                                "Reset",
-                                fontSize = 11.sp,
-                                color = if (lyricsOffsetMs != 0L) textPrimary else textSecondary.copy(alpha = 0.3f),
-                                fontWeight = FontWeight.Bold
+                        if (isSearchingCandidates) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
+                }
+            }
 
-                    // Right Standalone Search Button Pill
+            // ─── 3. Expandable Sync Offset Adjuster Panel ───
+            AnimatedVisibility(
+                visible = isOffsetAdjusterActive,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                            .clickable { isSearchInputActive = true }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(Icons.Default.Search, contentDescription = "Search Lyrics", tint = accent, modifier = Modifier.size(16.dp))
-                        Text("Search Lyrics", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "Sync: ${if (lyricsOffsetMs >= 0) "+${lyricsOffsetMs / 1000.0}s" else "${lyricsOffsetMs / 1000.0}s"}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textPrimary
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            onClick = { viewModel.adjustLyricsOffset(-500L) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = accent.copy(alpha = 0.15f),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("-0.5s", fontSize = 11.sp, color = accent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Surface(
+                            onClick = { viewModel.adjustLyricsOffset(500L) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = accent.copy(alpha = 0.15f),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+0.5s", fontSize = 11.sp, color = accent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (lyricsOffsetMs != 0L) {
+                            Surface(
+                                onClick = { viewModel.resetLyricsOffset() },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Reset", fontSize = 11.sp, color = textPrimary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { isOffsetAdjusterActive = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close Sync Adjuster",
+                                tint = textSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -415,9 +505,14 @@ fun ClassicFullScreenLyricsView(
                         itemsIndexed(lyrics.lines) { index, line ->
                             val isActive = index == activeIndex
                             val animatedAlpha by animateFloatAsState(
-                                targetValue = if (isActive) 1f else 0.35f,
-                                animationSpec = tween(220),
+                                targetValue = if (isActive) 1f else 0.32f,
+                                animationSpec = tween(250),
                                 label = "lyricsLineAlpha"
+                            )
+                            val animatedScale by animateFloatAsState(
+                                targetValue = if (isActive) 1.03f else 1.0f,
+                                animationSpec = tween(250),
+                                label = "lyricsLineScale"
                             )
                             val activeFontSize = (lyricsFont.activeSp + 4f).coerceAtLeast(24f).sp
                             val inactiveFontSize = (lyricsFont.inactiveSp * 1.05f).coerceAtLeast(16f).sp
@@ -426,12 +521,17 @@ fun ClassicFullScreenLyricsView(
                                 text = line.text,
                                 fontSize = if (isActive) activeFontSize else inactiveFontSize,
                                 lineHeight = if (isActive) (activeFontSize.value * 1.35f).sp else (inactiveFontSize.value * 1.35f).sp,
-                                letterSpacing = if (isActive) (-0.4).sp else 0.sp,
+                                letterSpacing = if (isActive) (-0.3).sp else 0.sp,
                                 color = if (isActive) textPrimary else textSecondary.copy(alpha = animatedAlpha),
                                 fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
                                 textAlign = TextAlign.Start,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .graphicsLayer {
+                                        scaleX = animatedScale
+                                        scaleY = animatedScale
+                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                    }
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable { viewModel.seekTo(line.timestampMs) }
                                     .padding(vertical = 4.dp, horizontal = 4.dp)

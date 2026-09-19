@@ -173,9 +173,11 @@ class OnlineMusicRepository {
             }
             val tracks = innerTube.getPlaylistTracks(browseId)
             if (tracks.isNotEmpty()) {
-                Log.d(TAG, "Successfully fetched ${tracks.size} real tracks for playlist '$browseId' via InnerTube")
+                Log.d(TAG, "Successfully fetched ${tracks.size} real tracks for playlist/album '$browseId' via InnerTube")
                 return@withContext tracks.map { it.toTrackEntity() }
             }
+            Log.w(TAG, "No tracks returned for browseId: '$browseId'")
+            return@withContext emptyList()
         }
 
         val cleanQuery = if (language.isNotBlank() && !query.lowercase().contains(language.lowercase())) {

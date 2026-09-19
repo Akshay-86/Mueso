@@ -342,7 +342,12 @@ class PlaylistManager(
                         )
                     )
                 }
-                if (cachedTracks.isNotEmpty()) {
+                val hasCorruptBrowseTracks = isBrowse && cachedTracks.any {
+                    it.title.contains("Browsing Around", ignoreCase = true) ||
+                    it.title.equals("Browse", ignoreCase = true) ||
+                    it.title.equals("Browsing", ignoreCase = true)
+                }
+                if (cachedTracks.isNotEmpty() && !hasCorruptBrowseTracks) {
                     Log.d("MUESO_CACHE", "Serving curated playlist '$query' from 24-hr local cache (0ms delay, ${cachedTracks.size} tracks)")
                     return cachedTracks
                 }

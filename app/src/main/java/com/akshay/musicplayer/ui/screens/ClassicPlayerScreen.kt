@@ -483,6 +483,7 @@ fun ClassicPlayerScreen(
         SignalPathDialog(
             audioFormat = activeAudioFormat,
             track = track,
+            playbackState = playbackState,
             isEqualizerActive = isEqActive && !isBitPerfectActive,
             isClarityActive = isClarityActive,
             isBitPerfectActive = isBitPerfectActive,
