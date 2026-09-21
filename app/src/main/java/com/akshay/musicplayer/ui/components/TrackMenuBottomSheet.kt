@@ -50,6 +50,8 @@ import com.akshay.musicplayer.ui.theme.LocalAccentColor
 fun TrackMenuBottomSheet(
     track: TrackEntity,
     isDarkMode: Boolean = true,
+    activePlaylistInfo: com.akshay.musicplayer.ui.screens.SelectedOnlinePlaylist? = null,
+    isPlaylistContext: Boolean = false,
     onGoToArtist: () -> Unit = {},
     onGoToAlbum: () -> Unit = {},
     onShowSignalPath: () -> Unit = {},
@@ -136,11 +138,25 @@ fun TrackMenuBottomSheet(
                 }
             )
 
-            if (!track.album.isNullOrBlank() && track.album != "<unknown>") {
+            val hasValidAlbum = !track.album.isNullOrBlank() &&
+                    track.album != "<unknown>" &&
+                    track.album != "YouTube Music" &&
+                    track.album != "Music Video" &&
+                    track.album != "Curated Playlist"
+            val hasDirectAlbum = !track.albumBrowseId.isNullOrBlank()
+            val isPlayingFromAlbumOrPlaylist = activePlaylistInfo != null || isPlaylistContext
+            val showGoToAlbum = hasDirectAlbum || isPlayingFromAlbumOrPlaylist || hasValidAlbum
+
+            if (showGoToAlbum) {
+                val albumTitle = when {
+                    hasValidAlbum -> track.album
+                    activePlaylistInfo != null -> activePlaylistInfo.title
+                    else -> "Current Album"
+                }
                 TrackMenuItem(
                     icon = Icons.Default.Album,
                     title = "Go to Album",
-                    subtitle = track.album,
+                    subtitle = albumTitle,
                     tint = accent,
                     textPrimary = textPrimary,
                     textSecondary = textSecondary,
@@ -152,19 +168,6 @@ fun TrackMenuBottomSheet(
             }
 
             TrackMenuItem(
-                icon = Icons.Default.Info,
-                title = "Technical Audio Specs",
-                subtitle = "Codec, bit-depth, sample rate & signal route",
-                tint = accent,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                onClick = {
-                    onDismiss()
-                    onShowSignalPath()
-                }
-            )
-
-            TrackMenuItem(
                 icon = Icons.Default.GraphicEq,
                 title = "Equalizer & DSP",
                 subtitle = "Bass boost, frequency bands & studio clarity",
@@ -174,37 +177,6 @@ fun TrackMenuBottomSheet(
                 onClick = {
                     onDismiss()
                     onShowEqualizer()
-                }
-            )
-
-            TrackMenuItem(
-                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                title = "Add to Playlist",
-                subtitle = "Save to your custom playlists",
-                tint = accent,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                onClick = {
-                    onDismiss()
-                    onAddToPlaylist()
-                }
-            )
-
-            TrackMenuItem(
-                icon = Icons.Default.Share,
-                title = "Share Song",
-                subtitle = "Share song title & artist",
-                tint = accent,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                onClick = {
-                    onDismiss()
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, track.title)
-                        putExtra(Intent.EXTRA_TEXT, "Listening to '${track.title}' by ${track.artist} on Mueso")
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
                 }
             )
         }

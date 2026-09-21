@@ -329,16 +329,19 @@ class PlaylistManager(
                 val cachedTracks = mutableListOf<TrackEntity>()
                 for (i in 0 until jsonArr.length()) {
                     val obj = jsonArr.getJSONObject(i)
+                    val albumStr = obj.optString("album", "Curated Playlist")
+                    val albumBId = obj.optString("albumBrowseId", "").takeIf { it.isNotBlank() }
                     cachedTracks.add(
                         TrackEntity(
                             id = obj.getLong("id"),
                             title = obj.getString("title"),
                             artist = obj.getString("artist"),
-                            album = "Curated Playlist",
+                            album = albumStr,
                             duration = obj.getLong("duration"),
                             albumId = 0L,
                             filePath = obj.getString("filePath"),
-                            artworkUrl = obj.optString("artworkUrl", "").takeIf { it.isNotBlank() }
+                            artworkUrl = obj.optString("artworkUrl", "").takeIf { it.isNotBlank() },
+                            albumBrowseId = albumBId
                         )
                     )
                 }
@@ -347,7 +350,9 @@ class PlaylistManager(
                     it.title.equals("Browse", ignoreCase = true) ||
                     it.title.equals("Browsing", ignoreCase = true)
                 }
-                if (cachedTracks.isNotEmpty() && !hasCorruptBrowseTracks) {
+                val hasStaleAlbumData = isBrowse && query.contains("MPRE", ignoreCase = true) &&
+                    cachedTracks.any { it.album == "Curated Playlist" || it.album == "YouTube Music" || it.albumBrowseId.isNullOrBlank() }
+                if (cachedTracks.isNotEmpty() && !hasCorruptBrowseTracks && !hasStaleAlbumData) {
                     Log.d("MUESO_CACHE", "Serving curated playlist '$query' from 24-hr local cache (0ms delay, ${cachedTracks.size} tracks)")
                     return cachedTracks
                 }
@@ -371,6 +376,8 @@ class PlaylistManager(
                     obj.put("id", t.id)
                     obj.put("title", t.title)
                     obj.put("artist", t.artist)
+                    obj.put("album", t.album)
+                    obj.put("albumBrowseId", t.albumBrowseId ?: "")
                     obj.put("filePath", t.filePath)
                     obj.put("artworkUrl", t.artworkUrl ?: "")
                     obj.put("duration", t.duration)

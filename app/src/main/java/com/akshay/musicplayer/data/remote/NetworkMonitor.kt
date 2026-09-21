@@ -107,6 +107,7 @@ object NetworkMonitor {
         _isOnline.value = newStatus
         if (!oldStatus && newStatus) {
             Log.i(TAG, ">>> INTERNET RESTORED! Triggering ${networkRestoredListeners.size} listeners <<<")
+            com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.clearAllCache()
             for (listener in networkRestoredListeners) {
                 try {
                     listener.invoke()

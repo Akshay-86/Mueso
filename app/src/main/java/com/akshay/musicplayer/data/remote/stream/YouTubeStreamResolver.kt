@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit
  */
 class YouTubeStreamResolver(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(GoogleVideoDns())
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -45,8 +46,14 @@ class YouTubeStreamResolver(
         Log.d(TAG, "Auth cookie updated (hasCookie=${!cookie.isNullOrBlank()})")
     }
 
+    fun hasAuthCookie(): Boolean = !authCookie.isNullOrBlank()
+
     fun invalidateCache(videoId: String) {
         streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
+    }
+
+    fun clearAllCache() {
+        streamCache.clear()
     }
 
     data class CachedStream(

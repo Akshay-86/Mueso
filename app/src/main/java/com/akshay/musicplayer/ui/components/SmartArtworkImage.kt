@@ -121,7 +121,7 @@ private fun extractArtworkData(context: Context, rawUriOrPath: String): Any? {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     val bm = context.contentResolver.loadThumbnail(uri, Size(1024, 1024), null)
-                    if (bm != null) return bm
+                    return bm
                 } catch (e: Exception) {
                     Log.d("MUESO_ARTWORK", "extractArtworkData: loadThumbnail failed on contentUri: ${e.message}")
                 }

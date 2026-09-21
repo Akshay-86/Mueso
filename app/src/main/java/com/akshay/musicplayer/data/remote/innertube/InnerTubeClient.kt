@@ -25,6 +25,12 @@ class InnerTubeClient(
         private const val CLIENT_VERSION = "1.20240101.01.00"
         private const val CLIENT_NAME = "WEB_REMIX"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        // Official LastWave InnerTube search filters (base64 protobuf)
+        const val SONG_SEARCH_FILTER = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
+        const val ARTIST_SEARCH_FILTER = "EgWKAQIgAWoKEAkQBRAKEAMQBA=="
+        const val ALBUM_SEARCH_FILTER = "EgWKAQIYAWoKEAkQBRAKEAMQBA=="
+        const val PLAYLIST_SEARCH_FILTER = "EgWKAQIoAWoKEAkQBRAKEAMQBA=="
     }
 
     private var authCookie: String? = null
@@ -149,37 +155,38 @@ class InnerTubeClient(
             val titleRuns = card.optJSONObject("title")?.optJSONArray("runs")
             val title = titleRuns?.optJSONObject(0)?.optString("text")
             val navEndpoint = titleRuns?.optJSONObject(0)?.optJSONObject("navigationEndpoint")
+                ?: card.optJSONObject("navigationEndpoint")
+                ?: card.optJSONObject("onTap")?.optJSONObject("watchEndpoint")
             val videoId = navEndpoint?.optJSONObject("watchEndpoint")?.optString("videoId")
+                ?: card.optJSONObject("playlistItemData")?.optString("videoId")
             val subRuns = card.optJSONObject("subtitle")?.optJSONArray("runs")
             var artist = "Unknown Artist"
             var durationSec = 0
             var itemType = "Song"
             if (subRuns != null) {
+                var channelArtist: String? = null
                 val candidateTexts = mutableListOf<String>()
                 for (k in 0 until subRuns.length()) {
                     val run = subRuns.optJSONObject(k) ?: continue
                     val text = run.optString("text", "").trim()
                     if (text.isBlank() || text == "•" || text == "|") continue
+                    val bId = run.optJSONObject("navigationEndpoint")
+                        ?.optJSONObject("browseEndpoint")?.optString("browseId")
+                    if (!bId.isNullOrBlank() && bId.startsWith("UC") && channelArtist == null) {
+                        channelArtist = text
+                    }
                     if (text.equals("Video", ignoreCase = true)) {
                         itemType = "Video"
                     } else if (text.equals("Song", ignoreCase = true) || text.equals("Single", ignoreCase = true)) {
                         itemType = "Song"
                     }
-                    if (text.matches(Regex("\\d+:\\d+"))) {
+                    if (text.matches(Regex("\\d+:\\d+(:\\d+)?"))) {
                         durationSec = parseDurationToSeconds(text)
-                    } else if (!text.equals("Song", ignoreCase = true) &&
-                        !text.equals("Video", ignoreCase = true) &&
-                        !text.equals("Single", ignoreCase = true) &&
-                        !text.equals("Album", ignoreCase = true) &&
-                        !text.contains("views", ignoreCase = true) &&
-                        !text.contains("plays", ignoreCase = true)
-                    ) {
+                    } else if (TextMatch.isLikelyArtistDetail(text)) {
                         candidateTexts.add(text)
                     }
                 }
-                if (candidateTexts.isNotEmpty()) {
-                    artist = candidateTexts[0]
-                }
+                artist = channelArtist ?: candidateTexts.firstOrNull() ?: "Unknown Artist"
             }
 
             val thumbList = card.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
@@ -277,58 +284,69 @@ class InnerTubeClient(
 
         if (videoId.isBlank()) return null
 
-        // Column 2: Artists, Album, Duration
+        // Column 2+: Artists, Album, Duration
         var artistName = "Unknown Artist"
         var albumName: String? = null
+        var albumBrowseId: String? = null
         var durationSec = 0
         var itemType = "Song"
         val artistRefs = mutableListOf<InnerTubeArtistRef>()
 
-        if (flexColumns.length() > 1) {
-            val col2 = flexColumns.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
-                ?.optJSONObject("text")?.optJSONArray("runs")
-            if (col2 != null) {
-                val runsList = mutableListOf<String>()
-                for (k in 0 until col2.length()) {
-                    val run = col2.optJSONObject(k) ?: continue
-                    val text = run.optString("text", "").trim()
-                    if (text == "•" || text == "|" || text.isBlank()) continue
-                    runsList.add(text)
+        for (colIdx in 1 until flexColumns.length()) {
+            val col = flexColumns.optJSONObject(colIdx)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                ?.optJSONObject("text")?.optJSONArray("runs") ?: continue
 
-                    if (text.equals("Video", ignoreCase = true)) {
-                        itemType = "Video"
-                    } else if (text.equals("Song", ignoreCase = true) || text.equals("Single", ignoreCase = true)) {
-                        itemType = "Song"
-                    }
+            val runsList = mutableListOf<String>()
+            for (k in 0 until col.length()) {
+                val run = col.optJSONObject(k) ?: continue
+                val text = run.optString("text", "").trim()
+                if (text == "•" || text == "|" || text.isBlank()) continue
+                runsList.add(text)
 
-                    val browseId = run.optJSONObject("navigationEndpoint")
-                        ?.optJSONObject("browseEndpoint")?.optString("browseId")
-                    if (!browseId.isNullOrBlank() && browseId.startsWith("UC")) {
+                if (text.equals("Video", ignoreCase = true)) {
+                    itemType = "Video"
+                } else if (text.equals("Song", ignoreCase = true) || text.equals("Single", ignoreCase = true)) {
+                    itemType = "Song"
+                }
+
+                val browseId = run.optJSONObject("navigationEndpoint")
+                    ?.optJSONObject("browseEndpoint")?.optString("browseId")
+                if (!browseId.isNullOrBlank()) {
+                    if (browseId.startsWith("UC")) {
                         artistRefs.add(InnerTubeArtistRef(browseId, text))
-                    }
-                }
-                val filteredRuns = runsList.filter { text ->
-                    !text.equals("Song", ignoreCase = true) &&
-                    !text.equals("Video", ignoreCase = true) &&
-                    !text.equals("Single", ignoreCase = true) &&
-                    !text.contains("views", ignoreCase = true) &&
-                    !text.contains("plays", ignoreCase = true)
-                }
-
-                // Explicitly find duration run matching timestamp pattern (m:ss or h:mm:ss)
-                val durRun = filteredRuns.find { it.matches(Regex("\\d+:\\d+(:\\d+)?")) }
-                if (durRun != null) {
-                    durationSec = parseDurationToSeconds(durRun)
-                }
-
-                val nonDurRuns = filteredRuns.filter { !it.matches(Regex("\\d+:\\d+(:\\d+)?")) }
-                if (nonDurRuns.isNotEmpty()) {
-                    artistName = nonDurRuns[0]
-                    if (nonDurRuns.size >= 2) {
-                        albumName = nonDurRuns[1]
+                    } else if (browseId.startsWith("MPRE") || browseId.startsWith("FEmusic")) {
+                        albumBrowseId = browseId
+                        albumName = text
                     }
                 }
             }
+            val filteredRuns = runsList.filter { text ->
+                !text.equals("Song", ignoreCase = true) &&
+                !text.equals("Video", ignoreCase = true) &&
+                !text.equals("Single", ignoreCase = true) &&
+                !text.contains("views", ignoreCase = true) &&
+                !text.contains("plays", ignoreCase = true)
+            }
+
+            // Explicitly find duration run matching timestamp pattern (m:ss or h:mm:ss)
+            val durRun = filteredRuns.find { it.matches(Regex("\\d+:\\d+(:\\d+)?")) }
+            if (durRun != null && durationSec == 0) {
+                durationSec = parseDurationToSeconds(durRun)
+            }
+
+            val nonDurRuns = filteredRuns.filter { TextMatch.isLikelyArtistDetail(it) }
+            if (nonDurRuns.isNotEmpty()) {
+                if (artistName == "Unknown Artist") {
+                    artistName = nonDurRuns[0]
+                }
+                if (albumName == null && nonDurRuns.size >= 2) {
+                    albumName = nonDurRuns[1]
+                }
+            }
+        }
+
+        if (artistRefs.isNotEmpty()) {
+            artistName = artistRefs.joinToString(", ") { it.name }
         }
 
         // Fixed column (often duration)
@@ -337,7 +355,7 @@ class InnerTubeClient(
             val durText = fixedColumns.optJSONObject(0)
                 ?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")
                 ?.optJSONObject("text")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-            if (!durText.isNullOrBlank()) {
+            if (!durText.isNullOrBlank() && durationSec == 0) {
                 durationSec = parseDurationToSeconds(durText)
             }
         }
@@ -354,6 +372,7 @@ class InnerTubeClient(
             artist = artistName,
             artists = artistRefs,
             album = albumName,
+            albumBrowseId = albumBrowseId,
             durationSec = durationSec,
             artworkUrl = getHighResArtworkUrl(artworkUrl),
             itemType = itemType
@@ -498,7 +517,23 @@ class InnerTubeClient(
         }
     }
 
-    suspend fun searchTracks(query: String): List<InnerTubeTrack> = search(query)
+    /**
+     * LastWave-architecture dual search: combines the top hero result,
+     * official release tracks (filtered by official song protobuf chip),
+     * and fallback results, deduped by videoId.
+     */
+    suspend fun searchSongs(query: String, limit: Int = 30): List<InnerTubeTrack> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        val filtered = runCatching { search(query, filter = SONG_SEARCH_FILTER) }.getOrDefault(emptyList())
+        val unfiltered = runCatching { search(query, filter = null) }.getOrDefault(emptyList())
+        val combined = (unfiltered.take(1) + filtered + unfiltered)
+            .distinctBy { it.videoId }
+            .filter { it.videoId.isNotBlank() }
+            .take(limit)
+        combined
+    }
+
+    suspend fun searchTracks(query: String): List<InnerTubeTrack> = searchSongs(query)
 
     suspend fun searchPlaylists(query: String, filter: String? = null): List<InnerTubePlaylist> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
@@ -506,7 +541,7 @@ class InnerTubeClient(
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("query", query)
-            put("params", filter ?: "Eg-KAQwIABAAGAEgACgB")
+            put("params", filter ?: PLAYLIST_SEARCH_FILTER)
         }
 
         try {
@@ -522,13 +557,16 @@ class InnerTubeClient(
         }
     }
 
+    suspend fun searchAlbums(query: String): List<InnerTubePlaylist> =
+        searchPlaylists(query, filter = ALBUM_SEARCH_FILTER)
+
     suspend fun searchArtists(query: String): List<InnerTubeArtist> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
 
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("query", query)
-            put("params", "EgWKAQIgAWoSEAQQCRADEAUQEBAKEBUQERAO")
+            put("params", ARTIST_SEARCH_FILTER)
         }
 
         try {
@@ -1301,11 +1339,23 @@ class InnerTubeClient(
                     playlistDescriptions[cleanId] = desc
                     playlistDescriptions[playlistId] = desc
                 }
-                if (parsed.isEmpty() && playlistId.contains("RD")) {
+                val isAlbum = cleanBrowseId.startsWith("MPRE")
+                val headerTitle = if (isAlbum) parseAlbumHeaderTitle(json) else null
+                val resultTracks = if (isAlbum) {
+                    parsed.map { track ->
+                        track.copy(
+                            album = headerTitle ?: track.album,
+                            albumBrowseId = cleanBrowseId
+                        )
+                    }
+                } else {
+                    parsed
+                }
+                if (resultTracks.isEmpty() && playlistId.contains("RD")) {
                     val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
                     return@withContext getRadioTracks(videoId)
                 }
-                return@withContext parsed
+                return@withContext resultTracks
             }
         } catch (e: Exception) {
             Log.e(TAG, "getPlaylistTracks failed for playlistId: $playlistId", e)
@@ -1315,6 +1365,46 @@ class InnerTubeClient(
             }
             return@withContext emptyList()
         }
+    }
+
+    private fun parseAlbumHeaderTitle(json: JSONObject): String? {
+        val twoColumnTabs = json.optJSONObject("contents")
+            ?.optJSONObject("twoColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents")
+
+        val singleColumnTabs = json.optJSONObject("contents")
+            ?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents")
+
+        val secList = twoColumnTabs ?: singleColumnTabs
+        if (secList != null) {
+            for (i in 0 until secList.length()) {
+                val header = secList.optJSONObject(i)?.optJSONObject("musicResponsiveHeaderRenderer")
+                    ?: secList.optJSONObject(i)?.optJSONObject("musicDetailHeaderRenderer")
+                if (header != null) {
+                    val titleObj = header.opt("title")
+                    val title = extractRunsText(titleObj)
+                    if (!title.isNullOrBlank()) return title
+                }
+            }
+        }
+
+        val items = mutableListOf<JSONObject>()
+        collectJsonObjects(json, "musicResponsiveHeaderRenderer", items)
+        collectJsonObjects(json, "musicDetailHeaderRenderer", items)
+        for (item in items) {
+            val title = extractRunsText(item.opt("title"))
+            if (!title.isNullOrBlank()) return title
+        }
+        return null
     }
 
     private val playlistDescriptions = java.util.concurrent.ConcurrentHashMap<String, String>()

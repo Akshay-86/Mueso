@@ -42,8 +42,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
 import com.akshay.musicplayer.media.player.AudioEffectsController
 import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,10 +56,20 @@ fun EqualizerBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent = LocalAccentColor.current
-    val sheetBg = if (isDarkMode) Color(0xFF14141E) else Color(0xFFF9F9FB)
-    val cardBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFEEEEF2)
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
-    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
+    val isPureBlack = LocalIsPureBlack.current
+    val sheetBg = when {
+        isPureBlack -> Color(0xFF000000)
+        isDarkMode -> Color(0xFF14141E)
+        else -> Color(0xFFF9F9FB)
+    }
+    val cardBg = when {
+        isPureBlack -> Color(0xFF0C0C0C)
+        isDarkMode -> Color(0xFF1F1F2E)
+        else -> Color(0xFFEEEEF2)
+    }
+    val cardBorder = if (isPureBlack) BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)) else null
+    val textPrimary = if (isDarkMode || isPureBlack) Color.White else Color(0xFF111115)
+    val textSecondary = if (isDarkMode || isPureBlack) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
 
     val isEqEnabled by effectsController.isEnabled.collectAsState()
     val presetName by effectsController.presetName.collectAsState()
@@ -222,6 +234,11 @@ fun EqualizerBottomSheet(
                                     if (isSelected) accent
                                     else cardBg
                                 )
+                                .then(
+                                    if (isPureBlack && !isSelected) {
+                                        Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                                    } else Modifier
+                                )
                                 .clickable(enabled = !isBitPerfectEnabled) {
                                     effectsController.setEqualizerEnabled(true)
                                     effectsController.applyPreset(preset)
@@ -243,6 +260,7 @@ fun EqualizerBottomSheet(
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = cardBorder,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -275,6 +293,7 @@ fun EqualizerBottomSheet(
                                 enabled = isEqEnabled && !isBitPerfectEnabled,
                                 accentColor = accent,
                                 isDarkMode = isDarkMode,
+                                isPureBlack = isPureBlack,
                                 onLevelChange = { newLevel ->
                                     effectsController.setBandLevel(index, newLevel)
                                 },
@@ -289,6 +308,7 @@ fun EqualizerBottomSheet(
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = cardBorder,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -397,11 +417,12 @@ private fun EqualizerFaderBar(
     enabled: Boolean,
     accentColor: Color,
     isDarkMode: Boolean,
+    isPureBlack: Boolean = false,
     onLevelChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
-    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
+    val textPrimary = if (isDarkMode || isPureBlack) Color.White else Color(0xFF111115)
+    val textSecondary = if (isDarkMode || isPureBlack) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
     val label = if (freqHz >= 1000) {
         val k = freqHz / 1000f
         if (k == k.toInt().toFloat()) "${k.toInt()}k" else "${k}k"
@@ -423,6 +444,7 @@ private fun EqualizerFaderBar(
                 .clip(RoundedCornerShape(8.dp))
                 .background(
                     if (levelDb != 0 && enabled) accentColor.copy(alpha = 0.18f)
+                    else if (isPureBlack) Color.White.copy(alpha = 0.06f)
                     else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
                 )
                 .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -476,10 +498,20 @@ private fun EqualizerFaderBar(
                     .width(28.dp)
                     .height(faderHeight - 8.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (isDarkMode) Color(0xFF1B1B26) else Color(0xFFE4E4EC))
+                    .background(
+                        when {
+                            isPureBlack -> Color(0xFF141414)
+                            isDarkMode -> Color(0xFF1B1B26)
+                            else -> Color(0xFFE4E4EC)
+                        }
+                    )
                     .border(
                         1.dp,
-                        if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                        when {
+                            isPureBlack -> Color.White.copy(alpha = 0.08f)
+                            isDarkMode -> Color.White.copy(alpha = 0.08f)
+                            else -> Color.Black.copy(alpha = 0.06f)
+                        },
                         RoundedCornerShape(14.dp)
                     )
             )
@@ -520,9 +552,17 @@ private fun EqualizerFaderBar(
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (enabled) {
-                            if (isDarkMode) Color(0xFF28283C) else Color.White
+                            when {
+                                isPureBlack -> Color(0xFF222222)
+                                isDarkMode -> Color(0xFF28283C)
+                                else -> Color.White
+                            }
                         } else {
-                            if (isDarkMode) Color(0xFF181822) else Color(0xFFE0E0E6)
+                            when {
+                                isPureBlack -> Color(0xFF121212)
+                                isDarkMode -> Color(0xFF181822)
+                                else -> Color(0xFFE0E0E6)
+                            }
                         }
                     )
                     .border(

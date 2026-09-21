@@ -66,7 +66,7 @@ fun ClassicBottomBar(
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ClassicNavTab.values().forEach { tab ->
+            ClassicNavTab.entries.forEach { tab ->
                 val isSelected = tab == currentTab
                 val contentColor by animateColorAsState(
                     targetValue = if (isSelected) accent else inactiveColor,

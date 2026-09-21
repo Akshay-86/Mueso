@@ -18,7 +18,7 @@ class MusicSessionCallback : MediaSession.Callback {
             .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
             .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
             .add(Player.COMMAND_GET_TIMELINE)
-            .add(Player.COMMAND_GET_MEDIA_ITEMS_METADATA)
+            .add(Player.COMMAND_GET_METADATA)
             .build()
             
         return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)

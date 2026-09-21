@@ -213,15 +213,11 @@ class OnlineMusicRepository {
     // ==========================================
     suspend fun searchOnlineTracks(query: String, category: String = "All"): List<TrackEntity> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val filterParam = when (category.trim().lowercase()) {
-            "songs", "song" -> "EgWKAQIIAWoSEAQQCRADEAUQEBAKEBUQERAO"
-            "videos", "video" -> "EgWKAQIQAWoSEAQQCRADEAUQEBAKEBUQERAO"
-            "albums", "album" -> "EgWKAQIYAWoSEAQQCRADEAUQEBAKEBUQERAO"
-            "playlists", "playlist" -> "EgeKAQQoAEABahIQBBAJEAMQBRAQEAoQFRAREA4%3D"
-            "artists", "artist" -> "EgWKAQIgAWoSEAQQCRADEAUQEBAKEBUQERAO"
-            else -> null
+        val results = when (category.trim().lowercase()) {
+            "all", "songs", "song" -> innerTube.searchSongs(query)
+            "videos", "video" -> innerTube.search(query, filter = "EgWKAQIQAWoKEAkQBRAKEAMQBA==")
+            else -> innerTube.searchSongs(query)
         }
-        val results = innerTube.search(query, filter = filterParam)
         if (results.isNotEmpty()) {
             Log.d(TAG, "Search for '$query' (category: $category) returned ${results.size} tracks via InnerTube")
             return@withContext results.map { it.toTrackEntity() }
@@ -239,11 +235,32 @@ class OnlineMusicRepository {
         return@withContext innerTube.searchPlaylists(query, filter)
     }
 
+    suspend fun searchAlbums(query: String): List<com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        return@withContext innerTube.searchAlbums(query)
+    }
+
     suspend fun fetchArtistPage(browseId: String): com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage? = withContext(Dispatchers.IO) {
         if (browseId.isBlank()) return@withContext null
         return@withContext innerTube.getArtistPage(browseId)
     }
 
+    fun invalidateStreamCache(videoId: String) {
+        com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
+        streamResolver.invalidateCache(videoId)
+    }
+
+    fun clearAllStreamCache() {
+        com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.clearAllCache()
+        streamResolver.clearAllCache()
+    }
+
+    suspend fun resolveStreamUrl(
+        videoId: String,
+        context: android.content.Context? = null,
+        forceRefresh: Boolean = false,
+        audioQuality: String? = null
+    ): String = getStreamUrl(videoId, context, forceRefresh, audioQuality)
 
     suspend fun getStreamUrl(
         videoId: String,
@@ -259,14 +276,6 @@ class OnlineMusicRepository {
             if (forceRefresh) {
                 com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
                 streamResolver.invalidateCache(videoId)
-                // When force-refreshing (usually after a 403 or playback error), try the headless BotGuard extractor first
-                if (effectiveContext != null) {
-                    val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(effectiveContext, videoId)
-                    if (!extracted.isNullOrBlank() && extracted.startsWith("http")) {
-                        Log.d(TAG, "Resolved fresh audio stream via Headless WebView on refresh for videoId=$videoId")
-                        return@withContext extracted
-                    }
-                }
             } else {
                 // 1. Check in-memory cache from active playback or previous extraction
                 val cached = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(videoId)
@@ -276,21 +285,33 @@ class OnlineMusicRepository {
                 }
             }
 
-            // 2. Prioritize fast direct StreamResolver (Zuno multi-client strategies: iOS, Android, TV, Web Remix)
-            val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
-            if (!resolved.isNullOrBlank() && resolved.startsWith("http")) {
-                Log.d(TAG, "Resolved audio stream for videoId=$videoId (quality=$effectiveQuality) via StreamResolver (length=${resolved.length})")
-                com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(videoId, resolved)
-                return@withContext resolved
+            // 2. If authenticated, try fast authenticated YouTube Music stream resolver directly
+            if (streamResolver.hasAuthCookie()) {
+                val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
+                if (!resolved.isNullOrBlank() && resolved.startsWith("http")) {
+                    Log.d(TAG, "Resolved authenticated audio stream for videoId=$videoId via StreamResolver")
+                    com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(videoId, resolved)
+                    return@withContext resolved
+                }
             }
 
-            // 3. Fallback to Headless Web Extraction (bundled JS decipherer in WebView) if direct strategies fail
+            // 3. Prioritize bundled Headless WebView BotGuard extractor (Innertube.js decipher).
+            // This produces signed WEB_REMIX streams with valid PO tokens that play continuously
+            // in ExoPlayer without 403 Forbidden errors or 1MB chunk limits.
             if (effectiveContext != null) {
                 val extracted = com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.extractAudioStream(effectiveContext, videoId)
                 if (!extracted.isNullOrBlank() && extracted.startsWith("http")) {
-                    Log.d(TAG, "Resolved audio stream via Headless WebView for videoId=$videoId")
+                    Log.d(TAG, "Resolved audio stream via Headless WebView for videoId=$videoId (length=${extracted.length})")
                     return@withContext extracted
                 }
+            }
+
+            // 4. Fallback to StreamResolver (Zuno multi-client strategies: iOS, Android, TV) if WebView is unavailable
+            val resolved = streamResolver.resolveAudioStream(videoId, effectiveQuality)
+            if (!resolved.isNullOrBlank() && resolved.startsWith("http")) {
+                Log.d(TAG, "Resolved audio stream for videoId=$videoId (quality=$effectiveQuality) via StreamResolver fallback (length=${resolved.length})")
+                com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.cacheStreamUrl(videoId, resolved)
+                return@withContext resolved
             }
         } catch (e: Exception) {
             Log.w(TAG, "Stream resolution error for $videoId", e)

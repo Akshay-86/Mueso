@@ -12,7 +12,8 @@ data class TrackEntity(
     val lyrics: LyricsData? = null,
     val socialMetrics: SocialMetrics? = null,
     val dateModified: Long = 0L,
-    val isVideo: Boolean = false
+    val isVideo: Boolean = false,
+    val albumBrowseId: String? = null
 )
 
 data class LyricsData(

@@ -28,7 +28,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.AvTimer
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MoreVert
@@ -116,6 +120,17 @@ fun ClassicPlayerScreen(
     val lyricsFetchStatusMap by viewModel.lyricsFetchStatus.collectAsState()
     val trackLyricsStatus = lyricsFetchStatusMap[track.id] ?: com.akshay.musicplayer.ui.viewmodel.LyricsFetchStatus.IDLE
     val lyricsOffsetMs by viewModel.lyricsOffsetMs.collectAsState()
+
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    val trackDlState = downloadStates[track.id]
+    val isDownloading = trackDlState?.isDownloading == true
+    val isDownloaded = trackDlState?.isDownloaded == true
+    val downloadProgress = trackDlState?.progress ?: 0f
+
+    val activeQueue by viewModel.activeQueue.collectAsState()
+    val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
+    val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
+    val activePlaylistInfo by viewModel.currentPlayingPlaylist.collectAsState()
 
     var showTrackMenuSheet by remember { mutableStateOf(false) }
     var showSignalPathDialog by remember { mutableStateOf(false) }
@@ -410,14 +425,51 @@ fun ClassicPlayerScreen(
                     }
 
                     IconButton(
-                        onClick = { showEqualizerSheet = true }
+                        onClick = {
+                            if (isDownloading) {
+                                viewModel.cancelDownload(track.id)
+                            } else if (!isDownloaded) {
+                                viewModel.downloadOnlineTrack(context, track)
+                            }
+                        }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = "Equalizer",
-                            tint = if (isEqActive && !isBitPerfectActive) accent else textSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        when {
+                            isDownloading -> {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { if (downloadProgress > 0f) downloadProgress else 0.5f },
+                                        modifier = Modifier.size(20.dp),
+                                        color = accent,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel Download",
+                                        tint = accent,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                            }
+                            isDownloaded -> {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Downloaded",
+                                    tint = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download Song",
+                                    tint = textSecondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
                     }
 
                     IconButton(onClick = { showAddToPlaylistSheet = true }) {
@@ -459,11 +511,17 @@ fun ClassicPlayerScreen(
         TrackMenuBottomSheet(
             track = track,
             isDarkMode = isDarkMode,
+            activePlaylistInfo = activePlaylistInfo,
+            isPlaylistContext = isPlaylistContext,
             onGoToArtist = {
                 viewModel.openArtistByName(track.artist)
                 onCollapseClick()
             },
-            onGoToAlbum = { track.album?.let { viewModel.setSearchQuery(it) } },
+            onGoToAlbum = {
+                viewModel.openAlbumForCurrentTrack(track) {
+                    onCollapseClick()
+                }
+            },
             onShowSignalPath = { showSignalPathDialog = true },
             onShowEqualizer = { showEqualizerSheet = true },
             onAddToPlaylist = { showAddToPlaylistSheet = true },
@@ -494,8 +552,10 @@ fun ClassicPlayerScreen(
 
     if (showQueueSheet) {
         QueueBottomSheet(
-            tracks = viewModel.getQueueTracks(),
+            tracks = activeQueue,
             currentTrackId = playbackState.currentTrackId,
+            isPlaylistContext = isPlaylistContext,
+            playlistTrackCount = playlistTrackCount,
             isDarkMode = isDarkMode,
             onTrackClick = { index ->
                 viewModel.playTrackAtIndex(index)
@@ -512,8 +572,9 @@ fun ClassicPlayerScreen(
         val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
         val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
         SleepTimerBottomSheet(
-            tracks = viewModel.getQueueTracks(),
+            tracks = activeQueue,
             currentTrackId = playbackState.currentTrackId,
+            isPlaylistContext = isPlaylistContext,
             activeSleepMode = activeSleepMode,
             activeTimerMinutes = sleepTimerMinutesLeft,
             activeSleepSongId = sleepAfterSongId,

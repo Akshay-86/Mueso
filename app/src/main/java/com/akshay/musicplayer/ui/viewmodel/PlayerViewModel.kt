@@ -37,6 +37,7 @@ import com.akshay.musicplayer.ui.viewmodel.managers.PlaylistManager
 import com.akshay.musicplayer.ui.viewmodel.managers.SpotifyImportManager
 import com.akshay.musicplayer.data.remote.SpotifyImportRepository
 import com.akshay.musicplayer.media.notification.NotificationHelper
+import com.akshay.musicplayer.ui.screens.SelectedOnlinePlaylist
 
 enum class LyricsFetchStatus {
     IDLE,
@@ -688,6 +689,71 @@ class PlayerViewModel(
     private val _playlistTrackCount = MutableStateFlow(0)
     val playlistTrackCount: StateFlow<Int> = _playlistTrackCount.asStateFlow()
 
+    private val _currentPlayingPlaylist = MutableStateFlow<SelectedOnlinePlaylist?>(null)
+    val currentPlayingPlaylist: StateFlow<SelectedOnlinePlaylist?> = _currentPlayingPlaylist.asStateFlow()
+
+    private val _selectedOnlinePlaylist = MutableStateFlow<SelectedOnlinePlaylist?>(null)
+    val selectedOnlinePlaylist: StateFlow<SelectedOnlinePlaylist?> = _selectedOnlinePlaylist.asStateFlow()
+
+    fun setSelectedOnlinePlaylist(pl: SelectedOnlinePlaylist?) {
+        _selectedOnlinePlaylist.value = pl
+    }
+
+    fun closeSelectedOnlinePlaylist() {
+        _selectedOnlinePlaylist.value = null
+    }
+
+    fun openAlbumForCurrentTrack(track: TrackEntity, onOpened: () -> Unit = {}) {
+        val directAlbumId = track.albumBrowseId?.takeIf { it.isNotBlank() }
+        if (directAlbumId != null) {
+            val albumTitle = track.album.takeIf {
+                !it.isNullOrBlank() && it != "<unknown>" && it != "YouTube Music" && it != "Music Video" && it != "Curated Playlist"
+            } ?: "Album"
+            _selectedOnlinePlaylist.value = SelectedOnlinePlaylist(
+                id = directAlbumId,
+                title = albumTitle,
+                subtitle = track.artist,
+                artworkUrl = track.artworkUrl
+            )
+            onOpened()
+            return
+        }
+
+        val activePl = _currentPlayingPlaylist.value
+        if (activePl != null) {
+            _selectedOnlinePlaylist.value = activePl
+            onOpened()
+            return
+        }
+
+        val albumName = track.album.takeIf {
+            !it.isNullOrBlank() && it != "<unknown>" && it != "YouTube Music" && it != "Music Video" && it != "Curated Playlist"
+        } ?: return
+
+        viewModelScope.launch {
+            try {
+                val query = "$albumName ${track.artist}".trim()
+                val albums = onlineRepository.searchPlaylists(query, "EgWKAQIYAWoSEAQQCRADEAUQEBAKEBUQERAO")
+                val matched = albums.firstOrNull { it.title.equals(albumName, ignoreCase = true) }
+                    ?: albums.firstOrNull { it.title.contains(albumName, ignoreCase = true) }
+
+                if (matched != null) {
+                    _selectedOnlinePlaylist.value = SelectedOnlinePlaylist(
+                        id = matched.id,
+                        title = matched.title,
+                        subtitle = matched.subtitle,
+                        artworkUrl = matched.artworkUrl
+                    )
+                    onOpened()
+                } else {
+                    Log.w("MUESO_ALBUM", "No matching album found for query '$query' (album '$albumName')")
+                }
+            } catch (e: Exception) {
+                Log.e("MUESO_ALBUM", "Failed to open album for track '${track.title}': ${e.message}")
+            }
+        }
+    }
+
     /** Read the restored track index synchronously — used for initial pager page */
     fun getRestoredTrackIndex(): Int {
         val lastTrackId = sharedPreferences.getLong("last_track_id", -1L)
@@ -879,10 +945,15 @@ class PlayerViewModel(
 
 
 
-    fun playOnlinePlaylist(tracks: List<TrackEntity>, startIndex: Int = 0) {
+    fun playOnlinePlaylist(
+        tracks: List<TrackEntity>,
+        startIndex: Int = 0,
+        playlistInfo: SelectedOnlinePlaylist? = null
+    ) {
         if (tracks.isEmpty()) return
         _isPlaylistContext.value = true
         _playlistTrackCount.value = tracks.size
+        _currentPlayingPlaylist.value = playlistInfo
         playQueue(tracks, startIndex)
     }
 
@@ -1518,7 +1589,10 @@ class PlayerViewModel(
                 val isIntroAtStart = (seg.category == "intro" || seg.category == "music_offtopic") && seg.startMs <= 1500L
 
                 if (isOutro && currentPositionMs in (seg.startMs - 300L)..(seg.endMs + 1000L)) {
+                    if (lastSkippedSegmentEndMs == seg.endMs) continue
                     lastSponsorActionTime = now
+                    lastSkippedSegmentEndMs = seg.endMs
+                    activeSponsorSegments = emptyList()
                     Log.d("MUESO_SPONSOR", "Auto-skipping outro segment (${seg.category}) from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}' -> handling track completion")
                     handleTrackCompletion()
                     break
@@ -1568,6 +1642,20 @@ class PlayerViewModel(
                         currentTracks = nList
                         mediaPlayerController.updateTrackInQueue(nextIndex, resolvedNext)
                     }
+                }
+                val vid = onlineRepository.extractVideoId(resolvedNext).ifBlank { resolvedNext.filePath.removePrefix("online:") }
+                if (vid.isNotBlank() && vid.length == 11) {
+                    onlineRepository.resolveStreamUrl(vid, com.akshay.musicplayer.AppContainer.getContext())
+                }
+            }
+        } else {
+            val vid = onlineRepository.extractVideoId(nextTrack).ifBlank { nextTrack.filePath.removePrefix("online:") }
+            if (vid.isNotBlank() && vid.length == 11 && lastPrefetchedNextIndex != nextIndex) {
+                lastPrefetchedNextIndex = nextIndex
+                activeNextStreamJob?.cancel()
+                activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                    Log.d("MUESO_QUEUE", "Warming stream URL for next track at index $nextIndex: ${nextTrack.title} ($vid)")
+                    onlineRepository.resolveStreamUrl(vid, com.akshay.musicplayer.AppContainer.getContext())
                 }
             }
         }
@@ -1826,7 +1914,16 @@ class PlayerViewModel(
 
 
 
+    private var lastTrackCompletionTime: Long = 0L
+
     private fun handleTrackCompletion() {
+        val now = System.currentTimeMillis()
+        if (now - lastTrackCompletionTime < 1500L) {
+            Log.d("MUESO_SYNC", "Ignoring duplicate rapid track completion within 1.5s")
+            return
+        }
+        lastTrackCompletionTime = now
+
         val currentIdx = getCurrentTrackIndex()
 
         val currentTrackId = _playbackState.value.currentTrackId
@@ -2015,6 +2112,7 @@ class PlayerViewModel(
         } else {
             _isPlaylistContext.value = false
             _playlistTrackCount.value = 0
+            _currentPlayingPlaylist.value = null
         }
         originalUnshuffledTracks = null
         val target = if (startIndex in tracks.indices) tracks[startIndex] else null
@@ -2052,6 +2150,7 @@ class PlayerViewModel(
         cancelRestoration()
         _isPlaylistContext.value = false
         _playlistTrackCount.value = 0
+        _currentPlayingPlaylist.value = null
         if (_repeatMode.value == Player.REPEAT_MODE_ALL) {
             _repeatMode.value = Player.REPEAT_MODE_OFF
             mediaPlayerController.setRepeatMode(Player.REPEAT_MODE_OFF)
@@ -2334,10 +2433,10 @@ class PlayerViewModel(
         playQueue(shuffled, 0)
     }
 
-    fun playOnlineShuffle(tracks: List<TrackEntity>) {
+    fun playOnlineShuffle(tracks: List<TrackEntity>, playlistInfo: SelectedOnlinePlaylist? = null) {
         if (tracks.isEmpty()) return
         val shuffled = tracks.shuffled()
-        playOnlinePlaylist(shuffled, 0)
+        playOnlinePlaylist(shuffled, 0, playlistInfo)
     }
 
     fun startMix(tracks: List<TrackEntity>) {

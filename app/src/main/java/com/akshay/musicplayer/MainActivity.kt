@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
         AppContainer.initialize(applicationContext)
+        com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.init(applicationContext)
 
         // Setup ViewModel
         setupViewModel()
@@ -250,6 +251,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {
@@ -281,7 +283,7 @@ class MainActivity : ComponentActivity() {
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                    val controller = ExoPlayerController(appContext)
+                    val controller = ExoPlayerController.getInstance(appContext)
                     return PlayerViewModel(
                         getLocalTracksUseCase,
                         controller,
@@ -469,7 +471,12 @@ class MainActivity : ComponentActivity() {
         playerViewModel.saveCurrentPlaybackPosition()
         super.onDestroy()
         if (isFinishing) {
-            mediaPlayerController.release()
+            val isPlaying = mediaPlayerController.playbackState().value.isPlaying ||
+                    com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying ||
+                    com.akshay.musicplayer.media.service.MediaSessionBridge.isServiceRunning
+            if (!isPlaying) {
+                mediaPlayerController.release()
+            }
         }
     }
 }

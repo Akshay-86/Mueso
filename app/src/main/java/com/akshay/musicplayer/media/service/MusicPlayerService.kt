@@ -31,6 +31,7 @@ class MusicPlayerService : MediaSessionService() {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var isForegroundServiceStarted = false
     private var isServiceDestroying = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
 
     private fun acquireWakeLock() {
@@ -198,16 +199,25 @@ class MusicPlayerService : MediaSessionService() {
             .build()
 
         val okHttpClient = okhttp3.OkHttpClient.Builder()
+            .dns(com.akshay.musicplayer.data.remote.stream.GoogleVideoDns())
             .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
-                val urlStr = originalRequest.url.toString()
+                val url = originalRequest.url
+                val urlStr = url.toString()
                 val requestBuilder = originalRequest.newBuilder()
 
                 if (urlStr.contains("googlevideo.com")) {
+                    val ipParam = url.queryParameter("ip")
+                    val family = when {
+                        ipParam == null -> null
+                        ipParam.contains(":") -> 6
+                        else -> 4
+                    }
+                    val isMobile = urlStr.contains("c=IOS") || urlStr.contains("c=ANDROID")
                     val ua = when {
                         urlStr.contains("c=IOS") -> "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)"
                         urlStr.contains("c=ANDROID") -> "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip"
@@ -215,19 +225,36 @@ class MusicPlayerService : MediaSessionService() {
                         else -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                     }
                     requestBuilder.header("User-Agent", ua)
-                    // Mobile clients must not send browser origin/referer to googlevideo CDN
-                    requestBuilder.removeHeader("Origin")
-                    requestBuilder.removeHeader("Referer")
+                    if (isMobile) {
+                        // Mobile clients must not send browser origin/referer to googlevideo CDN
+                        requestBuilder.removeHeader("Origin")
+                        requestBuilder.removeHeader("Referer")
+                    } else {
+                        requestBuilder.header("Origin", "https://music.youtube.com")
+                        requestBuilder.header("Referer", "https://music.youtube.com/")
+                    }
+
+                    // ExoPlayer does not set Range header when loading from start (position 0).
+                    // Ensuring a Range header is present avoids CDN 403 errors.
+                    if (originalRequest.header("Range") == null) {
+                        requestBuilder.header("Range", "bytes=0-")
+                    }
+
+                    val finalReq = requestBuilder.build()
+                    val response = com.akshay.musicplayer.data.remote.stream.GoogleVideoDnsHelper.withPreferredFamily(family) {
+                        chain.proceed(finalReq)
+                    }
+                    if (!response.isSuccessful && response.code == 403) {
+                        val errBody = try { response.peekBody(1024).string() } catch (_: Exception) { "none" }
+                        android.util.Log.w("MUESO_HTTP", "HTTP 403 from googlevideo! Family=$family, IP=$ipParam, UA=$ua, Body: $errBody")
+                        com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.clearAllCache()
+                    }
+                    response
                 } else {
                     requestBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                    val finalReq = requestBuilder.build()
+                    chain.proceed(finalReq)
                 }
-
-                val finalReq = requestBuilder.build()
-                val response = chain.proceed(finalReq)
-                if (!response.isSuccessful && response.code == 403) {
-                    android.util.Log.w("MUESO_HTTP", "HTTP 403 from googlevideo for: ${finalReq.url}")
-                }
-                response
             }
             .build()
 
@@ -327,6 +354,29 @@ class MusicPlayerService : MediaSessionService() {
                     return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)
                 }
 
+                override fun onPlayerCommandRequest(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    playerCommand: Int
+                ): Int {
+                    if (controller.packageName == packageName) {
+                        MediaSessionBridge.isSyncing = true
+                    }
+                    return androidx.media3.session.SessionResult.RESULT_SUCCESS
+                }
+
+                override fun onPlayerInteractionFinished(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    playerCommands: Player.Commands
+                ) {
+                    if (controller.packageName == packageName) {
+                        mainHandler.postDelayed({
+                            MediaSessionBridge.isSyncing = false
+                        }, 200L)
+                    }
+                }
+
                 override fun onPlaybackResumption(
                     mediaSession: MediaSession,
                     controller: MediaSession.ControllerInfo
@@ -348,6 +398,19 @@ class MusicPlayerService : MediaSessionService() {
                 }
             })
             .build()
+
+        MediaSessionBridge.onQueueOrCommandsChanged = {
+            val session = mediaSession
+            if (session != null) {
+                mainHandler.post {
+                    try {
+                        onUpdateNotification(session, false)
+                    } catch (e: Exception) {
+                        Log.w("MusicPlayerService", "Failed to update notification on commands change: ${e.message}")
+                    }
+                }
+            }
+        }
     }
 
     private fun createNotificationChannel() {
@@ -424,6 +487,7 @@ class MusicPlayerService : MediaSessionService() {
         MediaSessionBridge.isServiceRunning = false
         releaseWakeLock()
         MediaSessionBridge.onOnlinePlayingChanged = null
+        MediaSessionBridge.onQueueOrCommandsChanged = null
         com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this).release()
         mediaSession?.let {
             it.player.release()
@@ -457,6 +521,7 @@ object MediaSessionBridge {
     var onPauseRequested: (() -> Unit)? = null
     var hasNextItem: (() -> Boolean)? = null
     var hasPreviousItem: (() -> Boolean)? = null
+    var onQueueOrCommandsChanged: (() -> Unit)? = null
 }
 
 class MusicForwardingPlayer(

@@ -187,6 +187,7 @@ fun VerticalPagerScreen(
 
     val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
     val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
+    val activePlaylistInfo by viewModel.currentPlayingPlaylist.collectAsState()
 
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val playButtonPosition by viewModel.playButtonPosition.collectAsState()
@@ -325,6 +326,8 @@ fun PlayerPageContent(
     val isEqActive by viewModel.audioEffectsController.isEnabled.collectAsState()
     val isShuffleEnabled by viewModel.isShuffleModeEnabled.collectAsState()
     val upcomingQueueSize by viewModel.upcomingTrackCountState.collectAsState()
+    val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
+    val activePlaylistInfo by viewModel.currentPlayingPlaylist.collectAsState()
 
     Box(modifier = modifier.fillMaxSize()) {
         // Full-screen immersive album art background
@@ -474,11 +477,13 @@ fun PlayerPageContent(
                     com.akshay.musicplayer.ui.components.TrackMenuBottomSheet(
                         track = track,
                         isDarkMode = isDarkMode,
+                        activePlaylistInfo = activePlaylistInfo,
+                        isPlaylistContext = isPlaylistContext,
                         onGoToArtist = {
                             viewModel.openArtistByName(track.artist)
                         },
                         onGoToAlbum = {
-                            track.album?.let { viewModel.setSearchQuery(it) }
+                            viewModel.openAlbumForCurrentTrack(track)
                         },
                         onShowSignalPath = { showSignalPathDialog = true },
                         onShowEqualizer = { showEqualizerSheet = true },
