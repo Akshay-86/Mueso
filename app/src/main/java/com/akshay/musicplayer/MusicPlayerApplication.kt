@@ -38,5 +38,10 @@ class MusicPlayerApplication : Application() {
 
         AppContainer.initialize(this)
         com.akshay.musicplayer.data.remote.NetworkMonitor.initialize(this)
+        try {
+            com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.init(this)
+        } catch (e: Exception) {
+            android.util.Log.e("MusicPlayerApp", "Failed to pre-initialize OnlineStreamExtractor", e)
+        }
     }
 }

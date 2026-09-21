@@ -43,7 +43,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)")
     val thumbnailQuality: StateFlow<String> = _thumbnailQuality.asStateFlow()
 
-    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)")
+    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)")
     val downloadQuality: StateFlow<String> = _downloadQuality.asStateFlow()
 
     private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")
@@ -64,7 +64,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     }
 
     // SponsorBlock Settings
-    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", false))
+    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", true))
     val enableSponsorBlock: StateFlow<Boolean> = _enableSponsorBlock.asStateFlow()
     
     private val _skipSponsor = MutableStateFlow(sharedPreferences.getBoolean("skip_sponsor", true))
@@ -81,6 +81,44 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     private val _skipNonMusicOffTopic = MutableStateFlow(sharedPreferences.getBoolean("skip_non_music_off_topic", true))
     val skipNonMusicOffTopic: StateFlow<Boolean> = _skipNonMusicOffTopic.asStateFlow()
+
+    // Audiophile & Lossless Settings
+    private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", false))
+    val losslessStreamingEnabled: StateFlow<Boolean> = _losslessStreamingEnabled.asStateFlow()
+
+    private val _losslessServerUrl = MutableStateFlow(
+        sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+    )
+    val losslessServerUrl: StateFlow<String> = _losslessServerUrl.asStateFlow()
+
+    private val _isStudioMasterClarityEnabled = MutableStateFlow(sharedPreferences.getBoolean("studio_master_clarity", false))
+    val isStudioMasterClarityEnabled: StateFlow<Boolean> = _isStudioMasterClarityEnabled.asStateFlow()
+
+    private val _isBitPerfectEnabled = MutableStateFlow(sharedPreferences.getBoolean("bit_perfect_mode", false))
+    val isBitPerfectEnabled: StateFlow<Boolean> = _isBitPerfectEnabled.asStateFlow()
+
+    private val _crossfadeEnabled = MutableStateFlow(sharedPreferences.getBoolean("crossfade_enabled", false))
+    val crossfadeEnabled: StateFlow<Boolean> = _crossfadeEnabled.asStateFlow()
+
+    private val _crossfadeSeconds = MutableStateFlow(sharedPreferences.getInt("crossfade_seconds", 5))
+    val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
+
+    // Layout & Theme Preferences
+    private val _playerLayoutStyle = MutableStateFlow(sharedPreferences.getString("player_layout_style", "reels") ?: "reels")
+    val playerLayoutStyle: StateFlow<String> = _playerLayoutStyle.asStateFlow()
+
+    private val prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            "bit_perfect_mode" -> _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
+            "studio_master_clarity" -> _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
+        }
+    }
+
+    init {
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefChangeListener)
+    }
 
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
@@ -100,12 +138,12 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun setUsePureBlack(enabled: Boolean) {
         _usePureBlack.value = enabled
-        sharedPreferences.edit().putBoolean("use_pure_black", enabled).apply()
+        sharedPreferences.edit().putBoolean("use_pure_black", enabled).commit()
     }
 
     fun setAccentColorId(id: String) {
         _accentColorId.value = id
-        sharedPreferences.edit().putString("accent_color_id", id).apply()
+        sharedPreferences.edit().putString("accent_color_id", id).commit()
     }
 
     fun setFontScaleOption(option: String) {
@@ -206,6 +244,41 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putBoolean("skip_non_music_off_topic", enabled).apply()
     }
 
+    fun setLosslessStreamingEnabled(enabled: Boolean) {
+        _losslessStreamingEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("lossless_streaming_enabled", enabled).apply()
+    }
+
+    fun setLosslessServerUrl(url: String) {
+        _losslessServerUrl.value = url
+        sharedPreferences.edit().putString("lossless_server_url", url).apply()
+    }
+
+    fun setStudioMasterClarityEnabled(enabled: Boolean) {
+        _isStudioMasterClarityEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("studio_master_clarity", enabled).apply()
+    }
+
+    fun setBitPerfectEnabled(enabled: Boolean) {
+        _isBitPerfectEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("bit_perfect_mode", enabled).apply()
+    }
+
+    fun setCrossfadeEnabled(enabled: Boolean) {
+        _crossfadeEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("crossfade_enabled", enabled).apply()
+    }
+
+    fun setCrossfadeSeconds(seconds: Int) {
+        _crossfadeSeconds.value = seconds
+        sharedPreferences.edit().putInt("crossfade_seconds", seconds).apply()
+    }
+
+    fun setPlayerLayoutStyle(style: String) {
+        _playerLayoutStyle.value = style
+        sharedPreferences.edit().putString("player_layout_style", style).commit()
+    }
+
     fun reloadFromPreferences() {
         _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
         _themeMode.value = sharedPreferences.getString("theme_mode", "system") ?: "system"
@@ -219,16 +292,25 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _highRefreshRate.value = sharedPreferences.getBoolean("high_refresh_rate", false)
         _audioQuality.value = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)"
         _thumbnailQuality.value = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
-        _downloadQuality.value = sharedPreferences.getString("download_quality", "Standard (256 kbps)") ?: "Standard (256 kbps)"
+        _downloadQuality.value = sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
         _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
-        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", false)
+        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", true)
         _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)
         _skipSelfPromo.value = sharedPreferences.getBoolean("skip_self_promo", true)
         _skipInteraction.value = sharedPreferences.getBoolean("skip_interaction", true)
         _skipIntroOutro.value = sharedPreferences.getBoolean("skip_intro_outro", true)
         _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
+        _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", false)
+        _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+        _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
+        _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
+        _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
+        _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
+        _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
     }
 }

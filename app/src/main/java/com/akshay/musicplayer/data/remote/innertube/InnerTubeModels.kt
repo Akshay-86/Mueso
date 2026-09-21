@@ -8,6 +8,7 @@ data class InnerTubeTrack(
     val artist: String,
     val artists: List<InnerTubeArtistRef> = emptyList(),
     val album: String? = null,
+    val albumBrowseId: String? = null,
     val durationSec: Int = 0,
     val artworkUrl: String? = null,
     val isExplicit: Boolean = false,
@@ -30,7 +31,8 @@ data class InnerTubeTrack(
             albumId = 0L,
             filePath = "online:$videoId",
             artworkUrl = artworkUrl?.takeIf { it.isNotBlank() } ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg",
-            isVideo = isVid
+            isVideo = isVid,
+            albumBrowseId = albumBrowseId
         )
     }
 }

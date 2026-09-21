@@ -71,10 +71,30 @@ object OnlineStreamExtractor {
         streamCache.remove(videoId)
     }
 
+    fun clearAllCache() {
+        streamCache.clear()
+    }
+
     fun cleanStreamUrl(url: String): String {
-        return url.replace(Regex("[?&]range=[0-9]+-[0-9]+"), "")
-            .replace(Regex("[?&]rn=[0-9]+"), "")
-            .replace(Regex("[?&]rbuf=[0-9]+"), "")
+        if (url.isBlank() || !url.startsWith("http")) return url
+        return try {
+            val uri = Uri.parse(url)
+            val paramNames = uri.queryParameterNames
+            if (!paramNames.contains("range") && !paramNames.contains("rn") && !paramNames.contains("rbuf")) {
+                return url
+            }
+            val builder = uri.buildUpon().clearQuery()
+            for (name in paramNames) {
+                if (name != "range" && name != "rn" && name != "rbuf") {
+                    for (value in uri.getQueryParameters(name)) {
+                        builder.appendQueryParameter(name, value)
+                    }
+                }
+            }
+            builder.build().toString()
+        } catch (_: Exception) {
+            url
+        }
     }
 
     fun extractClen(url: String): Long? {
@@ -85,8 +105,21 @@ object OnlineStreamExtractor {
         }
     }
 
+    fun init(context: Context) {
+        if (persistentWebView != null) return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            ensureInitialized(context)
+        } else {
+            mainHandler.post { ensureInitialized(context) }
+        }
+    }
+
     private fun ensureInitialized(context: Context) {
         if (persistentWebView != null) return
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { ensureInitialized(context) }
+            return
+        }
 
         try {
             val wv = WebView(context.applicationContext)

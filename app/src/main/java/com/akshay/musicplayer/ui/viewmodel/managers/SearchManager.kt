@@ -113,21 +113,21 @@ class SearchManager(
                     "albums", "album" -> {
                         _searchResults.value = emptyList()
                         _artistResults.value = emptyList()
-                        val albums = onlineRepository.searchPlaylists(query.trim(), "EgWKAQIYAWoSEAQQCRADEAUQEBAKEBUQERAO")
+                        val albums = onlineRepository.searchAlbums(query.trim())
                         _playlistResults.value = albums
                         searchCache[cacheKey] = CachedCategoryResult(playlists = albums)
                     }
                     "playlists", "playlist" -> {
                         _searchResults.value = emptyList()
                         _artistResults.value = emptyList()
-                        val playlists = onlineRepository.searchPlaylists(query.trim(), "EgeKAQQoAEABahIQBBAJEAMQBRAQEAoQFRAREA4%3D")
+                        val playlists = onlineRepository.searchPlaylists(query.trim(), com.akshay.musicplayer.data.remote.innertube.InnerTubeClient.PLAYLIST_SEARCH_FILTER)
                         _playlistResults.value = playlists
                         searchCache[cacheKey] = CachedCategoryResult(playlists = playlists)
                     }
                     "all" -> {
                         val tracksDeferred = async { onlineRepository.searchOnlineTracks(query.trim(), "All") }
                         val artistsDeferred = async { onlineRepository.searchArtists(query.trim()) }
-                        val albumsDeferred = async { onlineRepository.searchPlaylists(query.trim(), "EgWKAQIYAWoSEAQQCRADEAUQEBAKEBUQERAO") }
+                        val albumsDeferred = async { onlineRepository.searchAlbums(query.trim()) }
 
                         val onlineResults = tracksDeferred.await()
                         val localIds = localMatches.map { it.id }.toSet()

@@ -32,4 +32,6 @@ interface MediaPlayerController {
     fun clearUpcomingQueue(fromIndex: Int)
     fun isWaitingForNetwork(): Boolean = false
     fun retryPendingNetworkTrack() {}
+    fun activeAudioFormat(): StateFlow<com.akshay.musicplayer.domain.models.ActiveAudioFormat>
+    fun getOnlinePlayerView(): android.view.View? = null
 }

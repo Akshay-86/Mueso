@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit
  */
 class YouTubeStreamResolver(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(GoogleVideoDns())
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -34,9 +35,17 @@ class YouTubeStreamResolver(
 
         // Standard YouTube API key (public, used by youtube.com itself)
         private val INNERTUBE_API_KEY = String(android.util.Base64.decode("QUl6YVN5QU9fRkoyU2xxVThRNFNURUhMR0NpbHdfWTlfMTFxY1c4", android.util.Base64.DEFAULT))
-    }
 
-    private val streamCache = ConcurrentHashMap<String, CachedStream>()
+        private val streamCache = ConcurrentHashMap<String, CachedStream>()
+
+        fun invalidateCache(videoId: String) {
+            streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
+        }
+
+        fun clearAllCache() {
+            streamCache.clear()
+        }
+    }
 
     private var authCookie: String? = null
 
@@ -45,9 +54,11 @@ class YouTubeStreamResolver(
         Log.d(TAG, "Auth cookie updated (hasCookie=${!cookie.isNullOrBlank()})")
     }
 
-    fun invalidateCache(videoId: String) {
-        streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
-    }
+    fun hasAuthCookie(): Boolean = !authCookie.isNullOrBlank()
+
+    fun invalidateCache(videoId: String) = Companion.invalidateCache(videoId)
+
+    fun clearAllCache() = Companion.clearAllCache()
 
     data class CachedStream(
         val url: String,

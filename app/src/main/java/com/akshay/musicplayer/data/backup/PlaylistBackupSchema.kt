@@ -22,7 +22,7 @@ data class BackupSettings(
     val highRefreshRate: Boolean = false,
     val audioQuality: String = "Medium (160 kbps)",
     val thumbnailQuality: String = "Medium (480p)",
-    val downloadQuality: String = "Standard (256 kbps)",
+    val downloadQuality: String = "Lossless (FLAC)",
     val playButtonPosition: String = "Left",
     val enableLyrics: Boolean = true,
     val embedLyricsInDownload: Boolean = true,

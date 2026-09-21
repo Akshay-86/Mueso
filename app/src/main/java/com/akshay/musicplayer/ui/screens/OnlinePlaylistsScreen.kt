@@ -918,14 +918,14 @@ fun OnlinePlaylistsScreen(
                     onBackClick = { selectedPlaylist = null },
                     onPlayAllClick = {
                         if (playlistTracks.isNotEmpty()) {
-                            viewModel.playOnlinePlaylist(playlistTracks, 0)
+                            viewModel.playOnlinePlaylist(playlistTracks, 0, pl)
                             selectedPlaylist = null
                             onNavigateToPlayer()
                         }
                     },
                     onShuffleClick = {
                         if (playlistTracks.isNotEmpty()) {
-                            viewModel.playOnlineShuffle(playlistTracks)
+                            viewModel.playOnlineShuffle(playlistTracks, pl)
                             selectedPlaylist = null
                             onNavigateToPlayer()
                         }
@@ -943,7 +943,7 @@ fun OnlinePlaylistsScreen(
                         }
                     },
                     onTrackClick = { index ->
-                        viewModel.playOnlinePlaylist(playlistTracks, index)
+                        viewModel.playOnlinePlaylist(playlistTracks, index, pl)
                         selectedPlaylist = null
                         onNavigateToPlayer()
                     },

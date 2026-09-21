@@ -32,6 +32,7 @@ import com.akshay.musicplayer.media.notification.NotificationHelper
 
 class DownloadManager(
     private val onlineRepository: OnlineMusicRepository,
+    private val losslessRepository: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository = com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository(),
     private val getDownloadFolder: () -> String,
     private val getCurrentTrack: () -> TrackEntity? = { null },
     private val getSavedLyrics: (Long) -> LyricsData? = { null },
@@ -106,12 +107,47 @@ class DownloadManager(
             var savedDestFile: File? = null
 
             try {
-                val dlQuality = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
-                    .getString("download_quality", "Standard (256 kbps)")
+                val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+                val dlQuality = prefs.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
+                val isFlacRequested = dlQuality.contains("FLAC", ignoreCase = true) ||
+                        dlQuality.contains("Lossless", ignoreCase = true)
+
+                val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+                    ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+                losslessRepository.updateServerBaseUrl(customServer)
+
+                var downloadUrl: String? = null
+                var isFlacDownload = false
+                var resolvedBitDepth = 16
+                var resolvedSampleRateHz = 44100
+                var resolvedCodec = "FLAC"
+
+                // 1. Prioritize Bit-Perfect Lossless FLAC Download
+                if (isFlacRequested) {
+                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                    Log.i("MUESO_DOWNLOAD", "Attempting Lossless FLAC resolution for '${track.title}' by '${track.artist}'")
+                    val losslessResult = losslessRepository.resolveLosslessStream(track.title, track.artist, durationSec)
+                    if (losslessResult != null && losslessResult.streamUrl.startsWith("http")) {
+                        downloadUrl = losslessResult.streamUrl
+                        isFlacDownload = downloadUrl.contains(".flac", ignoreCase = true) || losslessResult.codec.contains("FLAC", ignoreCase = true)
+                        resolvedBitDepth = losslessResult.bitDepth
+                        resolvedSampleRateHz = losslessResult.sampleRateHz
+                        resolvedCodec = losslessResult.codec
+                        Log.i("MUESO_DOWNLOAD", "Resolved Lossless FLAC download for '${track.title}' (codec=$resolvedCodec, ${resolvedBitDepth}-bit/${resolvedSampleRateHz}Hz)")
+                    }
+                }
+
+                // 2. Fallback to YouTube audio stream if FLAC is not available or lossy requested
                 val videoId = if (track.filePath.startsWith("online:")) track.filePath.removePrefix("online:") else null
-                val downloadUrl = if (videoId != null) onlineRepository.getStreamUrl(videoId, context, audioQuality = dlQuality) else track.filePath
-                
-                if (!downloadUrl.startsWith("http")) {
+                if (downloadUrl.isNullOrBlank()) {
+                    if (videoId != null) {
+                        downloadUrl = onlineRepository.getStreamUrl(videoId, context, audioQuality = dlQuality)
+                    } else if (track.filePath.startsWith("http")) {
+                        downloadUrl = track.filePath
+                    }
+                }
+
+                if (downloadUrl.isNullOrBlank() || !downloadUrl.startsWith("http")) {
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Stream URL unavailable"))
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Failed to get audio stream for download", Toast.LENGTH_SHORT).show()
@@ -126,9 +162,13 @@ class DownloadManager(
                     .followSslRedirects(true)
                     .build()
 
-                val ext = if (downloadUrl.contains("mime=audio%2Fmp4") || downloadUrl.contains(".m4a") || downloadUrl.contains("mime=video%2Fmp4")) ".m4a" else ".mp3"
+                val ext = when {
+                    isFlacDownload -> ".flac"
+                    downloadUrl.contains("mime=audio%2Fmp4") || downloadUrl.contains(".m4a") || downloadUrl.contains("mime=video%2Fmp4") -> ".m4a"
+                    else -> ".mp3"
+                }
                 val sanitizedTitle = track.title.replace(Regex("[^a-zA-Z0-9._ -]"), "_").trim()
-                
+
                 val createdTempFile = File(context.cacheDir, "temp_dl_${track.id}$ext")
                 tempFile = createdTempFile
                 activeTempFiles[track.id] = createdTempFile
@@ -155,7 +195,10 @@ class DownloadManager(
                         }
                     },
                     onRefreshUrl = {
-                        if (videoId != null) {
+                        if (isFlacDownload) {
+                            val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                            losslessRepository.resolveLosslessStream(track.title, track.artist, durationSec)?.streamUrl
+                        } else if (videoId != null) {
                             onlineRepository.getStreamUrl(videoId, context, forceRefresh = true, audioQuality = dlQuality)
                         } else null
                     }
@@ -205,7 +248,11 @@ class DownloadManager(
                         android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                     } else treeUri
 
-                    val mimeType = if (ext.equals(".mp3", ignoreCase = true)) "audio/mpeg" else "audio/mp4"
+                    val mimeType = when {
+                        ext.equals(".flac", ignoreCase = true) -> "audio/flac"
+                        ext.equals(".mp3", ignoreCase = true) -> "audio/mpeg"
+                        else -> "audio/mp4"
+                    }
                     val createdAudioUri = android.provider.DocumentsContract.createDocument(
                         context.contentResolver,
                         parentDocUri,
@@ -245,10 +292,17 @@ class DownloadManager(
                     activeTempFiles.remove(track.id)
                     tempFile = null
 
+                    val formatLabel = when {
+                        isFlacDownload && (resolvedBitDepth > 16 || resolvedSampleRateHz > 48000) -> "Hi-Res FLAC (${resolvedBitDepth}-bit/${resolvedSampleRateHz / 1000}kHz)"
+                        isFlacDownload -> "Lossless FLAC"
+                        else -> null
+                    }
+                    val toastMsg = if (formatLabel != null) "Saved \"${track.title}\" ($formatLabel)" else "Saved \"${track.title}\""
+
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
                     totalDownloadedInBatch++
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Saved \"${track.title}\"", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                     }
                     return@launch
                 }
@@ -294,14 +348,26 @@ class DownloadManager(
                     }
                 }
 
-                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null) { path, uri ->
+                val mediaMime = when {
+                    ext.equals(".flac", ignoreCase = true) -> "audio/flac"
+                    ext.equals(".mp3", ignoreCase = true) -> "audio/mpeg"
+                    else -> "audio/mp4"
+                }
+                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf(mediaMime)) { path, uri ->
                     Log.d("MUESO_DOWNLOAD", "MediaScanner scanned $path -> $uri")
                 }
+
+                val formatLabel = when {
+                    isFlacDownload && (resolvedBitDepth > 16 || resolvedSampleRateHz > 48000) -> "Hi-Res FLAC (${resolvedBitDepth}-bit/${resolvedSampleRateHz / 1000}kHz)"
+                    isFlacDownload -> "Lossless FLAC"
+                    else -> null
+                }
+                val toastMsg = if (formatLabel != null) "Saved \"${track.title}\" ($formatLabel) to ${actualDir.name}" else "Saved \"${track.title}\" to ${actualDir.name}"
 
                 _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f))
                 totalDownloadedInBatch++
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Saved \"${track.title}\" to ${actualDir.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: CancellationException) {
                 Log.d("MUESO_DOWNLOAD", "Download cancelled for track ${track.title}")

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -22,6 +23,7 @@ import android.util.Size
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -56,6 +58,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private val _mediaEvents = MutableSharedFlow<PlayerEvent>()
     private var currentTrackId: Long? = null
     private var positionUpdateJob: Job? = null
+    private var onlineResolutionJob: Job? = null
+    @Volatile private var lastValidPositionMs: Long = 0L
     private var pendingRestore: (() -> Unit)? = null
     private var artworkLoadJob: Job? = null
     @Volatile private var isRestoring = false
@@ -64,9 +68,19 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     // Online YouTube Player for streaming tracks that cannot be resolved as raw HTTP streams
     private val ytPlayerManager = OnlineYouTubePlayerManager(context)
     private var isPlayingOnline = false
+    private var isPlayingLosslessOnline = false
+    private var isPlayingDirectOnline = false
     private var currentOnlineTrack: TrackEntity? = null
     private var tracksQueue: List<TrackEntity> = emptyList()
     private var currentQueueIndex: Int = 0
+
+    private var isRestoringOnlineLossless = false
+    private var pendingAutoPlayOnResolve = false
+
+    private val losslessRepo = com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository()
+    private val _activeAudioFormat = MutableStateFlow(com.akshay.musicplayer.domain.models.ActiveAudioFormat())
+    override fun activeAudioFormat(): StateFlow<com.akshay.musicplayer.domain.models.ActiveAudioFormat> = _activeAudioFormat.asStateFlow()
+    override fun getOnlinePlayerView(): android.view.View? = ytPlayerManager.playerView
 
     private var isSyncingToMediaSession = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -116,14 +130,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 }
                 handlePositionUpdates(mediaController?.isPlaying == true)
                 if (playbackState == Player.STATE_ENDED) {
-                    scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
+                    handleTrackEnded()
                 }
                 return
             }
             updatePlaybackState()
             handlePositionUpdates(mediaController?.isPlaying == true)
             if (playbackState == Player.STATE_ENDED) {
-                scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
+                handleTrackEnded()
             }
         }
 
@@ -160,7 +174,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             if (newIndex >= 0) {
                 currentQueueIndex = newIndex
                 val currentTrack = tracksQueue[newIndex]
-                if (currentTrack.filePath.startsWith("online:")) {
+                if (currentTrack.filePath.startsWith("online:") && !isPlayingLosslessOnline && !isPlayingDirectOnline) {
                     Log.d("MUESO_SYNC", "ExoPlayer transitioned into online track '${currentTrack.title}'. Handing off to online player.")
                     seekToIndex(newIndex)
                     return
@@ -182,26 +196,60 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
             super.onPlayerError(error)
             Log.e("MUESO_SYNC", "ExoPlayer onPlayerError: ${error.message} [code=${error.errorCode}: ${error.errorCodeName}]", error)
+
+            val curTrack = tracksQueue.getOrNull(currentQueueIndex) ?: currentOnlineTrack
+            val videoId = if (curTrack != null) onlineRepo.extractVideoId(curTrack) else ""
+            val isOnlineStream = curTrack != null && (curTrack.filePath.startsWith("http") || curTrack.filePath.startsWith("online:") || isPlayingLosslessOnline || isPlayingDirectOnline) && videoId.isNotBlank()
+            val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+
+            // Capture the playback position BEFORE updatePlaybackState() resets it to 0
+            val savedPos = maxOf(mediaController?.currentPosition ?: 0L, lastValidPositionMs, _playbackState.value.currentPositionMs)
+
             updatePlaybackState()
             handlePositionUpdates(false)
 
-            // If an online stream fails in ExoPlayer (e.g. 403 Forbidden, expired stream, or network error),
-            // seamlessly fall back to the embedded YouTube player or stage for network recovery
-            val curTrack = tracksQueue.getOrNull(currentQueueIndex)
-            val videoId = if (curTrack != null) onlineRepo.extractVideoId(curTrack) else ""
-            val isOnlineStream = curTrack != null && (curTrack.filePath.startsWith("http") || curTrack.filePath.startsWith("online:")) && videoId.isNotBlank()
-            val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
-
             if (isOnlineStream && isNetDown) {
-                Log.w("MUESO_NET", "ExoPlayer stream error while offline on '${curTrack?.title}'. Queuing for network recovery.")
-                handleOnlineTrackNetworkError(curTrack!!, mediaController?.currentPosition ?: 0L)
+                Log.w("MUESO_NET", "ExoPlayer stream error while offline on '${curTrack?.title}'. Queuing for network recovery at ${savedPos}ms.")
+                isPlayingLosslessOnline = false
+                isPlayingDirectOnline = false
+                handleOnlineTrackNetworkError(curTrack!!, savedPos)
                 return
             }
 
-            if (isOnlineStream) {
-                Log.w("MUESO_SYNC", "ExoPlayer stream error on '${curTrack?.title}'. Falling back to YouTube player!")
+            if (isOnlineStream && curTrack != null) {
+                onlineRepo.invalidateStreamCache(videoId)
+
+                val shouldRetry = lastErrorTrackId != curTrack.id || trackErrorRetryCount < 2
+                if (shouldRetry) {
+                    if (lastErrorTrackId != curTrack.id) {
+                        lastErrorTrackId = curTrack.id
+                        trackErrorRetryCount = 1
+                    } else {
+                        trackErrorRetryCount++
+                    }
+                    Log.w("MUESO_STREAM", "ExoPlayer stream error on '${curTrack.title}', attempt $trackErrorRetryCount/2: force-refreshing stream...")
+                    scope.launch(Dispatchers.IO) {
+                        val freshUrl = onlineRepo.resolveStreamUrl(videoId, context, forceRefresh = true)
+                        withContext(Dispatchers.Main) {
+                            if (currentTrackId == curTrack.id && freshUrl.isNotBlank() && freshUrl.startsWith("http")) {
+                                Log.i("MUESO_STREAM", "Retrying direct online stream with fresh URL for '${curTrack.title}'...")
+                                playDirectOnlineStreamInExoPlayer(curTrack, freshUrl, mediaController?.currentPosition ?: 0L)
+                                return@withContext
+                            }
+                            Log.w("MUESO_SYNC", "Direct stream retry failed for '${curTrack.title}', falling back to YouTube web player")
+                            isPlayingLosslessOnline = false
+                            isPlayingDirectOnline = false
+                            fallbackToOnlinePlayer(curTrack, videoId)
+                        }
+                    }
+                    return
+                }
+
+                Log.w("MUESO_SYNC", "ExoPlayer retries exhausted on '${curTrack.title}'. Falling back to YouTube web player!")
+                isPlayingLosslessOnline = false
+                isPlayingDirectOnline = false
                 scope.launch(Dispatchers.Main) {
-                    fallbackToOnlinePlayer(curTrack!!, videoId)
+                    fallbackToOnlinePlayer(curTrack, videoId)
                 }
                 return
             }
@@ -426,10 +474,10 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
                 updateArtworkForCurrentTrack(track)
             } finally {
-                mainHandler.post {
+                mainHandler.postDelayed({
                     isSyncingToMediaSession = false
                     com.akshay.musicplayer.media.service.MediaSessionBridge.isSyncing = false
-                }
+                }, 400L)
             }
         }
     }
@@ -467,11 +515,13 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         pendingNetworkRetryIndex = currentQueueIndex
         val actualPosMs = maxOf(
             positionMs,
+            lastValidPositionMs,
             pendingNetworkRetryPosMs,
             ytPlayerManager.currentPositionMs,
             _playbackState.value.currentPositionMs
         )
         pendingNetworkRetryPosMs = actualPosMs
+        lastValidPositionMs = actualPosMs
         Log.w("MUESO_NET", "Online playback stalled due to network issue for '${track.title}' at ${actualPosMs}ms. Waiting for network...")
 
         syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = actualPosMs)
@@ -503,10 +553,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         val targetIndex = if (pendingNetworkRetryIndex in tracksQueue.indices) pendingNetworkRetryIndex else currentQueueIndex
         val posMs = maxOf(
             pendingNetworkRetryPosMs,
+            lastValidPositionMs,
             ytPlayerManager.currentPositionMs,
             _playbackState.value.currentPositionMs
         )
-        Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms (ytPos=${ytPlayerManager.currentPositionMs}, statePos=${_playbackState.value.currentPositionMs}, savedPos=$pendingNetworkRetryPosMs) ===")
+        Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms (savedPos=$pendingNetworkRetryPosMs, lastValid=$lastValidPositionMs) ===")
 
         isWaitingForNetwork = false
         networkRetryJob?.cancel()
@@ -521,20 +572,30 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             }
 
             if (videoId.isNotBlank()) {
-                isPlayingOnline = true
                 currentOnlineTrack = track
                 currentQueueIndex = targetIndex
                 currentTrackId = track.id
-                val resumeSec = (posMs / 1000f).coerceAtLeast(0f)
-                Log.i("MUESO_NET", "Resuming online track $videoId at ${resumeSec}s")
-                ytPlayerManager.reloadAndPlay(videoId, resumeSec)
-                syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = posMs)
-                _playbackState.value = PlaybackState(
-                    isPlaying = true,
-                    currentTrackId = track.id,
-                    currentPositionMs = posMs,
-                    durationMs = track.duration.coerceAtLeast(0L)
-                )
+
+                val streamUrl = withContext(Dispatchers.IO) {
+                    onlineRepo.resolveStreamUrl(videoId, context, forceRefresh = true)
+                }
+
+                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                    Log.i("MUESO_NET", "Resuming online track '${track.title}' directly in ExoPlayer at ${posMs}ms")
+                    playDirectOnlineStreamInExoPlayer(track, streamUrl, startPositionMs = posMs, autoPlay = true)
+                } else {
+                    val resumeSec = (posMs / 1000f).coerceAtLeast(0f)
+                    Log.w("MUESO_NET", "Direct stream resolution failed on retry. Falling back to WebView player at ${resumeSec}s")
+                    isPlayingOnline = true
+                    ytPlayerManager.reloadAndPlay(videoId, resumeSec)
+                    syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = posMs)
+                    _playbackState.value = PlaybackState(
+                        isPlaying = true,
+                        currentTrackId = track.id,
+                        currentPositionMs = posMs,
+                        durationMs = track.duration.coerceAtLeast(0L)
+                    )
+                }
             } else {
                 seekToIndex(targetIndex)
             }
@@ -594,8 +655,270 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private fun getActiveOutputDeviceName(): String {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "Phone Speaker"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            for (device in devices) {
+                when (device.type) {
+                    AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> return "USB DAC / Audio"
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> {
+                        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) device.productName?.toString() else null
+                        return if (!name.isNullOrBlank()) "Bluetooth ($name)" else "Bluetooth Audio"
+                    }
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> return "Wired Headphones"
+                }
+            }
+        }
+        return "Phone Speaker"
+    }
+
+    private fun playLosslessTrackInExoPlayer(
+        track: TrackEntity,
+        losslessResult: com.akshay.musicplayer.domain.models.LosslessStreamResult,
+        startPositionMs: Long = 0L,
+        autoPlay: Boolean = true
+    ) {
+        isPlayingOnline = false
+        isPlayingLosslessOnline = true
+        isPlayingDirectOnline = false
+        currentOnlineTrack = track
+        currentTrackId = track.id
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
+        ytPlayerManager.pause()
+        mediaController?.volume = 1f
+
+        val streamUrl = losslessResult.streamUrl
+        Log.i("MUESO_LOSSLESS", "playLosslessTrackInExoPlayer: streamUrl=$streamUrl, startPos=${startPositionMs}ms, autoPlay=$autoPlay, controller.volume=${mediaController?.volume}")
+        val mediaItemBuilder = MediaItem.Builder()
+            .setMediaId(track.id.toString())
+            .setUri(Uri.parse(streamUrl))
+
+        if (streamUrl.contains(".mp4", ignoreCase = true) || streamUrl.contains("/mp4", ignoreCase = true)) {
+            mediaItemBuilder.setMimeType(MimeTypes.AUDIO_MP4)
+        } else if (streamUrl.contains(".flac", ignoreCase = true)) {
+            mediaItemBuilder.setMimeType(MimeTypes.AUDIO_FLAC)
+        }
+
+        val mediaItem = mediaItemBuilder
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album.ifBlank { losslessResult.album ?: "Lossless Master" })
+                    .setArtworkUri(getBestArtworkUri(track))
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build()
+            )
+            .build()
+
+        val effectiveDuration = if (losslessResult.durationSeconds > 0) losslessResult.durationSeconds * 1000L else track.duration.coerceAtLeast(0L)
+
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                controller.repeatMode = currentRepeatMode
+                controller.setMediaItem(mediaItem, startPositionMs)
+                controller.prepare()
+                if (autoPlay) {
+                    controller.play()
+                }
+
+                _playbackState.value = PlaybackState(
+                    isPlaying = autoPlay,
+                    currentTrackId = track.id,
+                    currentPositionMs = startPositionMs,
+                    durationMs = effectiveDuration
+                )
+
+                updateArtworkForCurrentTrack(track)
+            }
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            pendingRestore = action
+        }
+
+        val isHiRes = losslessResult.bitDepth > 16 || losslessResult.sampleRateHz > 48000
+        val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+        val isBitPerfect = prefs.getBoolean("bit_perfect_mode", false)
+
+        _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+            codec = losslessResult.codec,
+            bitDepth = losslessResult.bitDepth,
+            sampleRateHz = losslessResult.sampleRateHz,
+            bitrateKbps = losslessResult.bitrateKbps,
+            isLossless = true,
+            isHiRes = isHiRes,
+            sourceName = losslessResult.source,
+            audioOutputDevice = getActiveOutputDeviceName(),
+            isBitPerfect = isBitPerfect
+        )
+    }
+
+    private fun playDirectOnlineStreamInExoPlayer(
+        track: TrackEntity,
+        streamUrl: String,
+        startPositionMs: Long = 0L,
+        autoPlay: Boolean = true
+    ) {
+        isPlayingOnline = false
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = true
+        currentOnlineTrack = track
+        currentTrackId = track.id
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
+        ytPlayerManager.pause()
+        mediaController?.volume = 1f
+
+        Log.i("MUESO_STREAM", "playDirectOnlineStreamInExoPlayer: streamUrl=${streamUrl.take(60)}..., startPos=${startPositionMs}ms, autoPlay=$autoPlay, controller.volume=${mediaController?.volume}")
+        val mediaItemBuilder = MediaItem.Builder()
+            .setMediaId(track.id.toString())
+            .setUri(Uri.parse(streamUrl))
+
+        if (streamUrl.contains(".mp4", ignoreCase = true) || streamUrl.contains("audio/mp4", ignoreCase = true) || streamUrl.contains("mime=audio%2Fmp4", ignoreCase = true)) {
+            mediaItemBuilder.setMimeType(MimeTypes.AUDIO_MP4)
+        } else if (streamUrl.contains(".webm", ignoreCase = true) || streamUrl.contains("audio/webm", ignoreCase = true) || streamUrl.contains("mime=audio%2Fwebm", ignoreCase = true)) {
+            mediaItemBuilder.setMimeType(MimeTypes.AUDIO_WEBM)
+        }
+
+        val mediaItem = mediaItemBuilder
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album.ifBlank { "YouTube Music" })
+                    .setArtworkUri(getBestArtworkUri(track))
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build()
+            )
+            .build()
+
+        val effectiveDuration = track.duration.coerceAtLeast(0L)
+
+        val action: () -> Unit = {
+            mediaController?.let { controller ->
+                controller.repeatMode = currentRepeatMode
+                controller.setMediaItem(mediaItem, startPositionMs)
+                controller.prepare()
+                if (autoPlay) {
+                    controller.play()
+                }
+
+                _playbackState.value = PlaybackState(
+                    isPlaying = autoPlay,
+                    currentTrackId = track.id,
+                    currentPositionMs = startPositionMs,
+                    durationMs = effectiveDuration
+                )
+                lastValidPositionMs = startPositionMs
+
+                updateArtworkForCurrentTrack(track)
+            }
+        }
+
+        if (mediaController != null) {
+            action()
+        } else {
+            pendingRestore = action
+        }
+
+        val isOpus = streamUrl.contains("webm", ignoreCase = true) || streamUrl.contains("opus", ignoreCase = true)
+        _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+            codec = if (isOpus) "OPUS" else "AAC",
+            bitDepth = 16,
+            sampleRateHz = 44100,
+            bitrateKbps = if (isOpus) 160 else 130,
+            isLossless = false,
+            isHiRes = false,
+            sourceName = "YouTube Music",
+            audioOutputDevice = getActiveOutputDeviceName(),
+            isBitPerfect = false
+        )
+    }
+
+    private fun restoreViaOnlineYouTubePlayer(track: TrackEntity, startPositionMs: Long) {
+        isPlayingOnline = true
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
+        currentOnlineTrack = track
+        currentTrackId = track.id
+
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = startPositionMs
+
+        val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+        val startSec = (startPositionMs / 1000f).coerceAtLeast(0f)
+        Log.d("MUESO_RESTORE", "restoreViaOnlineYouTubePlayer online track '${track.title}' (videoId: $videoId) at ${startSec}s via YouTube")
+        ytPlayerManager.cueVideo(videoId, startSec)
+
+        _playbackState.value = PlaybackState(
+            isPlaying = false,
+            currentTrackId = track.id,
+            currentPositionMs = startPositionMs,
+            durationMs = track.duration.coerceAtLeast(0L)
+        )
+
+        syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = startPositionMs)
+
+        _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+            codec = "OPUS",
+            bitDepth = 16,
+            sampleRateHz = 48000,
+            bitrateKbps = 160,
+            isLossless = false,
+            isHiRes = false,
+            sourceName = "YouTube Music",
+            audioOutputDevice = getActiveOutputDeviceName(),
+            isBitPerfect = false
+        )
+    }
+
+    private fun playViaOnlineYouTubePlayer(track: TrackEntity) {
+        isPlayingOnline = true
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
+        currentOnlineTrack = track
+        currentTrackId = track.id
+
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+
+        val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+        Log.d("MUESO_SYNC", "Playing online track '${track.title}' via OnlineYouTubePlayerManager (videoId: $videoId)")
+        ytPlayerManager.playVideo(videoId, 0f)
+
+        _playbackState.value = PlaybackState(
+            isPlaying = true,
+            currentTrackId = track.id,
+            currentPositionMs = 0L,
+            durationMs = track.duration.coerceAtLeast(0L)
+        )
+
+        syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = 0L)
+
+        _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+            codec = "OPUS",
+            bitDepth = 16,
+            sampleRateHz = 48000,
+            bitrateKbps = 160,
+            isLossless = false,
+            isHiRes = false,
+            sourceName = "YouTube Music",
+            audioOutputDevice = getActiveOutputDeviceName(),
+            isBitPerfect = false
+        )
+    }
+
     private fun fallbackToOnlinePlayer(track: TrackEntity, videoId: String) {
         isPlayingOnline = true
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
         currentOnlineTrack = track
         currentTrackId = track.id
 
@@ -660,8 +983,23 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         ytPlayerManager.onTrackEnded = {
             if (isPlayingOnline) {
-                Log.d("MUESO_SYNC", "YouTubePlayer onTrackEnded -> advancing to next track")
+                val endedTrackId = currentTrackId
+                Log.d("MUESO_SYNC", "YouTubePlayer onTrackEnded -> advancing to next track (endedTrackId=$endedTrackId)")
                 scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
+
+                if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
+                    Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
+                    mainHandler.postDelayed({
+                        seekToIndex(currentQueueIndex)
+                    }, 300L)
+                } else {
+                    mainHandler.postDelayed({
+                        if (isPlayingOnline && currentTrackId == endedTrackId && !ytPlayerManager.isPlaying) {
+                            Log.i("MUESO_SYNC", "Executing autonomous queue progression from YouTubePlayer onTrackEnded...")
+                            seekToNext()
+                        }
+                    }, 600L)
+                }
             }
         }
 
@@ -778,6 +1116,10 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }, ContextCompat.getMainExecutor(context))
     }
 
+    private fun notifyQueueOrCommandsChanged() {
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onQueueOrCommandsChanged?.invoke()
+    }
+
     private fun handlePositionUpdates(isPlaying: Boolean) {
         positionUpdateJob?.cancel()
         if (isPlaying && !isPlayingOnline) {
@@ -790,17 +1132,83 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private var lastTrackEndedTime: Long = 0L
+
+    private fun handleTrackEnded() {
+        val now = System.currentTimeMillis()
+        if (now - lastTrackEndedTime < 1200L) {
+            Log.d("MUESO_SYNC", "Ignoring duplicate rapid handleTrackEnded within 1.2s")
+            return
+        }
+        lastTrackEndedTime = now
+        val endedTrackId = currentTrackId
+        Log.i("MUESO_SYNC", "ExoPlayer reached STATE_ENDED on trackId=$endedTrackId (isDirectOnline=$isPlayingDirectOnline, isLossless=$isPlayingLosslessOnline)")
+        scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
+
+        if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+            if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
+                Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
+                mainHandler.postDelayed({
+                    seekToIndex(currentQueueIndex)
+                }, 300L)
+                return
+            }
+
+            // Autonomous background progression fallback:
+            // If the UI/ViewModel did not advance to the next track within 600ms (e.g. screen is locked or Activity is backgrounded/stopped),
+            // advance the queue autonomously directly in the controller!
+            mainHandler.postDelayed({
+                if ((isPlayingDirectOnline || isPlayingLosslessOnline) && currentTrackId == endedTrackId && mediaController?.isPlaying == false) {
+                    Log.i("MUESO_SYNC", "Executing autonomous queue progression for next track in background...")
+                    seekToNext()
+                }
+            }, 600L)
+        }
+    }
+
     private fun updatePlaybackState() {
         if (isPlayingOnline) return
 
         val controller = mediaController
         if (controller != null) {
+            val curPos = controller.currentPosition
+            if (curPos > 0L) {
+                lastValidPositionMs = curPos
+            }
+            val dur = controller.duration.coerceAtLeast(0L)
             _playbackState.value = PlaybackState(
                 isPlaying = controller.isPlaying,
                 currentTrackId = currentTrackId,
-                currentPositionMs = controller.currentPosition,
-                durationMs = controller.duration.coerceAtLeast(0L)
+                currentPositionMs = curPos,
+                durationMs = dur
             )
+            if (dur > 0L && currentOnlineTrack != null && currentOnlineTrack?.id == currentTrackId && currentOnlineTrack?.duration != dur) {
+                currentOnlineTrack = currentOnlineTrack?.copy(duration = dur)
+            }
+            applyCrossfadeIfEnabled(controller, curPos, dur)
+        }
+    }
+
+    private fun applyCrossfadeIfEnabled(controller: MediaController, curPos: Long, dur: Long) {
+        if (dur <= 0L) return
+        val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+        val crossfadeEnabled = prefs.getBoolean("crossfade_enabled", false)
+        if (!crossfadeEnabled) {
+            if (controller.volume < 1.0f) controller.volume = 1.0f
+            return
+        }
+        val crossfadeSec = prefs.getInt("crossfade_seconds", 3).coerceIn(1, 12)
+        val fadeMs = crossfadeSec * 1000L
+        val remainingMs = dur - curPos
+
+        if (curPos < fadeMs) {
+            val vol = (curPos.toFloat() / fadeMs).coerceIn(0.1f, 1.0f)
+            controller.volume = vol
+        } else if (remainingMs in 0..fadeMs) {
+            val vol = (remainingMs.toFloat() / fadeMs).coerceIn(0.05f, 1.0f)
+            controller.volume = vol
+        } else {
+            if (controller.volume < 1.0f) controller.volume = 1.0f
         }
     }
 
@@ -813,36 +1221,65 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         val safeIndex = startIndex.coerceIn(0, tracks.size - 1)
         tracksQueue = tracks
         currentQueueIndex = safeIndex
+        notifyQueueOrCommandsChanged()
         val track = tracks[safeIndex]
         currentTrackId = track.id
         Log.d("MUESO_SYNC", "ExoPlayer setPlaylistAndPlay: starting at index=$safeIndex, trackId=$currentTrackId, path=${track.filePath.take(30)}")
 
         val isOnline = isOnlineTrack(track)
         if (isOnline) {
-            isPlayingOnline = true
-            currentOnlineTrack = track
+            val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
+            if (isNetDown) {
+                Log.w("MUESO_NET", "setPlaylistAndPlay: online track '${track.title}' requested while offline. Staging for network restoration.")
+                currentOnlineTrack = track
+                currentTrackId = track.id
+                handleOnlineTrackNetworkError(track, 0L)
+                return
+            }
 
-            com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+            val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+            val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
+            val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+                ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+            losslessRepo.updateServerBaseUrl(customServer)
 
-            val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
-            Log.d("MUESO_SYNC", "Playing online track '${track.title}' via OnlineYouTubePlayerManager (videoId: $videoId)")
-            ytPlayerManager.playVideo(videoId, 0f)
+            scope.launch(Dispatchers.IO) {
+                if (isLosslessEnabled) {
+                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                    val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
+                    if (losslessResult != null && currentTrackId == track.id) {
+                        withContext(Dispatchers.Main) {
+                            if (currentTrackId == track.id) {
+                                Log.i("MUESO_LOSSLESS", "Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
+                                playLosslessTrackInExoPlayer(track, losslessResult)
+                            }
+                        }
+                        return@launch
+                    }
+                }
 
-            _playbackState.value = PlaybackState(
-                isPlaying = true,
-                currentTrackId = track.id,
-                currentPositionMs = 0L,
-                durationMs = track.duration.coerceAtLeast(0L)
-            )
-
-            syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = 0L)
+                // Lossless not matched or disabled -> resolve YouTube direct audio stream
+                val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
+                withContext(Dispatchers.Main) {
+                    if (currentTrackId == track.id) {
+                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                            Log.i("MUESO_STREAM", "Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
+                            playDirectOnlineStreamInExoPlayer(track, streamUrl)
+                        } else {
+                            Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                            playViaOnlineYouTubePlayer(track)
+                        }
+                    }
+                }
+            }
             return
         }
 
         // Local or direct HTTP track -> ExoPlayer
         isPlayingOnline = false
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
         currentOnlineTrack = null
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
@@ -850,6 +1287,22 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
         ytPlayerManager.pause()
         mediaController?.volume = 1f
+
+        val ext = track.filePath.substringAfterLast(".", "").uppercase()
+        val isFlac = ext == "FLAC"
+        val isWav = ext == "WAV"
+        val isBitPerfect = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE).getBoolean("bit_perfect_mode", false)
+        _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+            codec = if (ext.isNotBlank()) ext else "MP3",
+            bitDepth = if (isFlac || isWav) 24 else 16,
+            sampleRateHz = 44100,
+            bitrateKbps = if (isFlac) 1411 else 320,
+            isLossless = isFlac || isWav,
+            isHiRes = isFlac,
+            sourceName = "Local Storage",
+            audioOutputDevice = getActiveOutputDeviceName(),
+            isBitPerfect = isBitPerfect
+        )
 
         val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
         val mediaItems = tracks.map { t ->
@@ -900,24 +1353,19 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (tracks.isEmpty()) return
         tracksQueue = tracks
         currentQueueIndex = startIndex
+        notifyQueueOrCommandsChanged()
         val track = tracks.getOrNull(startIndex) ?: return
         currentTrackId = track.id
         Log.d("MUESO_RESTORE", "ExoPlayerController.restoreQueue called: totalTracks=${tracks.size}, startIndex=$startIndex, startPositionMs=${startPositionMs}ms, trackId=${track.id}, trackTitle='${track.title}', path='${track.filePath}'")
 
         if (isOnlineTrack(track)) {
-            // Online track preview restore
-            isPlayingOnline = true
-            currentOnlineTrack = track
+            val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+            val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
+            val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+                ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+            losslessRepo.updateServerBaseUrl(customServer)
 
-            com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = startPositionMs
-
-            val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
-            val startSec = (startPositionMs / 1000f).coerceAtLeast(0f)
-            Log.d("MUESO_RESTORE", "restoreQueue online track '${track.title}' (videoId: $videoId) at ${startSec}s")
-            ytPlayerManager.cueVideo(videoId, startSec)
-
+            // Stage initial playback state immediately so UI has track title, artist and duration
             _playbackState.value = PlaybackState(
                 isPlaying = false,
                 currentTrackId = track.id,
@@ -925,11 +1373,51 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 durationMs = track.duration.coerceAtLeast(0L)
             )
 
-            syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = startPositionMs)
+            isRestoringOnlineLossless = true
+            pendingAutoPlayOnResolve = false
+            scope.launch(Dispatchers.IO) {
+                if (isLosslessEnabled) {
+                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                    val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
+                    if (losslessResult != null && currentTrackId == track.id) {
+                        withContext(Dispatchers.Main) {
+                            if (currentTrackId == track.id) {
+                                val autoPlay = pendingAutoPlayOnResolve
+                                isRestoringOnlineLossless = false
+                                pendingAutoPlayOnResolve = false
+                                Log.i("MUESO_RESTORE", "restoreQueue: Restoring '${track.title}' via Lossless FLAC stream at ${startPositionMs}ms (autoPlay=$autoPlay)")
+                                playLosslessTrackInExoPlayer(track, losslessResult, startPositionMs, autoPlay = autoPlay)
+                            }
+                        }
+                        return@launch
+                    }
+                }
+
+                val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
+                withContext(Dispatchers.Main) {
+                    if (currentTrackId == track.id) {
+                        val autoPlay = pendingAutoPlayOnResolve
+                        isRestoringOnlineLossless = false
+                        pendingAutoPlayOnResolve = false
+                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                            Log.i("MUESO_RESTORE", "restoreQueue: Restoring '${track.title}' via direct YouTube audio stream at ${startPositionMs}ms (autoPlay=$autoPlay)")
+                            playDirectOnlineStreamInExoPlayer(track, streamUrl, startPositionMs, autoPlay = autoPlay)
+                        } else {
+                            restoreViaOnlineYouTubePlayer(track, startPositionMs)
+                            if (autoPlay) {
+                                ytPlayerManager.play()
+                            }
+                        }
+                    }
+                }
+            }
             return
         }
 
         isPlayingOnline = false
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
         currentOnlineTrack = null
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
@@ -1014,6 +1502,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun togglePlayPause() {
+        if (isRestoringOnlineLossless) {
+            pendingAutoPlayOnResolve = !pendingAutoPlayOnResolve
+            _playbackState.value = _playbackState.value.copy(isPlaying = pendingAutoPlayOnResolve)
+            return
+        }
         if (isWaitingForNetwork) {
             if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
                 retryPendingNetworkTrack()
@@ -1076,6 +1569,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (!isPlayingOnline) {
             mediaController?.repeatMode = mode
         }
+        notifyQueueOrCommandsChanged()
     }
 
     override fun getRepeatMode(): Int {
@@ -1102,9 +1596,27 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         startServiceIfForeground()
         fallbackJob?.cancel()
         networkRetryJob?.cancel()
+        onlineResolutionJob?.cancel()
         isWaitingForNetwork = false
         currentQueueIndex = index
+        notifyQueueOrCommandsChanged()
+
+        // Immediately pause current audio output to prevent audio bleed when skipping to a new track
+        mediaController?.pause()
+        ytPlayerManager.pause()
+
         val track = tracksQueue.getOrNull(index)
+        if (track != null) {
+            currentTrackId = track.id
+            lastValidPositionMs = 0L
+            _playbackState.value = _playbackState.value.copy(
+                isPlaying = false,
+                currentTrackId = track.id,
+                currentPositionMs = 0L,
+                durationMs = track.duration.coerceAtLeast(0L)
+            )
+        }
+
         if (track != null && isOnlineTrack(track)) {
             val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
             if (isNetDown) {
@@ -1115,31 +1627,48 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 return
             }
 
-            isPlayingOnline = true
-            currentOnlineTrack = track
-            currentTrackId = track.id
+            val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+            val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
+            val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
+                ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
+            losslessRepo.updateServerBaseUrl(customServer)
 
-            com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
-            com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+            onlineResolutionJob = scope.launch(Dispatchers.IO) {
+                if (isLosslessEnabled) {
+                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                    val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
+                    if (losslessResult != null && currentTrackId == track.id) {
+                        withContext(Dispatchers.Main) {
+                            if (currentTrackId == track.id) {
+                                Log.i("MUESO_LOSSLESS", "seekToIndex: Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
+                                playLosslessTrackInExoPlayer(track, losslessResult)
+                            }
+                        }
+                        return@launch
+                    }
+                }
 
-            val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
-            Log.d("MUESO_SYNC", "seekToIndex online track '${track.title}' (videoId: $videoId)")
-            mediaController?.repeatMode = Player.REPEAT_MODE_ONE
-            ytPlayerManager.reloadAndPlay(videoId, 0f)
-
-            _playbackState.value = PlaybackState(
-                isPlaying = true,
-                currentTrackId = track.id,
-                currentPositionMs = 0L,
-                durationMs = track.duration.coerceAtLeast(0L)
-            )
-
-            syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = 0L)
+                // Lossless not matched or disabled -> resolve YouTube direct audio stream
+                val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
+                withContext(Dispatchers.Main) {
+                    if (currentTrackId == track.id) {
+                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                            Log.i("MUESO_STREAM", "seekToIndex: Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
+                            playDirectOnlineStreamInExoPlayer(track, streamUrl)
+                        } else {
+                            Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                            playViaOnlineYouTubePlayer(track)
+                        }
+                    }
+                }
+            }
             return
         }
 
         isPlayingOnline = false
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = false
         currentOnlineTrack = null
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = false
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = 0L
@@ -1147,6 +1676,24 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         ytPlayerManager.pause()
         mediaController?.volume = 1f
         mediaController?.repeatMode = currentRepeatMode
+
+        if (track != null) {
+            val ext = track.filePath.substringAfterLast(".", "").uppercase()
+            val isFlac = ext == "FLAC"
+            val isWav = ext == "WAV"
+            val isBitPerfect = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE).getBoolean("bit_perfect_mode", false)
+            _activeAudioFormat.value = com.akshay.musicplayer.domain.models.ActiveAudioFormat(
+                codec = if (ext.isNotBlank()) ext else "MP3",
+                bitDepth = if (isFlac || isWav) 24 else 16,
+                sampleRateHz = 44100,
+                bitrateKbps = if (isFlac) 1411 else 320,
+                isLossless = isFlac || isWav,
+                isHiRes = isFlac,
+                sourceName = "Local Storage",
+                audioOutputDevice = getActiveOutputDeviceName(),
+                isBitPerfect = isBitPerfect
+            )
+        }
 
         mediaController?.let { controller ->
             val hasMatchingItem = index in 0 until controller.mediaItemCount &&
@@ -1197,6 +1744,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun appendTracksToQueue(tracks: List<TrackEntity>) {
         if (tracks.isEmpty()) return
         tracksQueue = tracksQueue + tracks
+        notifyQueueOrCommandsChanged()
 
         if (isPlayingOnline) return
 
@@ -1244,6 +1792,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         } else {
             tracksQueue = tracksQueue + tracks
         }
+        notifyQueueOrCommandsChanged()
 
         if (isPlayingOnline) return
 
@@ -1286,6 +1835,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun clearUpcomingQueue(fromIndex: Int) {
         if (fromIndex + 1 in tracksQueue.indices) {
             tracksQueue = tracksQueue.subList(0, fromIndex + 1)
+            notifyQueueOrCommandsChanged()
         }
 
         if (isPlayingOnline) return
@@ -1311,36 +1861,51 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun release() {
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onPreviousRequested = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onPlayRequested = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onPauseRequested = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.hasNextItem = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.hasPreviousItem = null
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
+        if (!com.akshay.musicplayer.media.service.MediaSessionBridge.isServiceRunning) {
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onPreviousRequested = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onPlayRequested = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onPauseRequested = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.hasNextItem = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.hasPreviousItem = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onSeekRequested = null
+            com.akshay.musicplayer.media.service.MediaSessionBridge.onQueueOrCommandsChanged = null
 
-        ytPlayerManager.release()
-        positionUpdateJob?.cancel()
-        if (isNoisyReceiverRegistered) {
-            try {
-                context.unregisterReceiver(noisyReceiver)
-                isNoisyReceiverRegistered = false
-            } catch (e: Exception) {
-                Log.w("ExoPlayerController", "Failed to unregister noisy receiver during release", e)
+            ytPlayerManager.release()
+            positionUpdateJob?.cancel()
+            if (isNoisyReceiverRegistered) {
+                try {
+                    context.unregisterReceiver(noisyReceiver)
+                    isNoisyReceiverRegistered = false
+                } catch (e: Exception) {
+                    Log.w("ExoPlayerController", "Failed to unregister noisy receiver during release", e)
+                }
             }
-        }
-        try {
-            mediaController?.removeListener(listener)
-            mediaControllerFuture?.let { MediaController.releaseFuture(it) }
-        } catch (e: Exception) {
-            Log.w("MUESO_MEDIA", "Safely caught MediaController unbind exception during release", e)
-        } finally {
-            mediaController = null
-            mediaControllerFuture = null
+            try {
+                mediaController?.removeListener(listener)
+                mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+            } catch (e: Exception) {
+                Log.w("MUESO_MEDIA", "Safely caught MediaController unbind exception during release", e)
+            } finally {
+                mediaController = null
+                mediaControllerFuture = null
+                instance = null
+            }
         }
     }
 
     override fun playbackState(): StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
     override fun mediaEvents(): Flow<PlayerEvent> = _mediaEvents
+
+    companion object {
+        @Volatile
+        private var instance: ExoPlayerController? = null
+
+        fun getInstance(context: Context): ExoPlayerController {
+            return instance ?: synchronized(this) {
+                instance ?: ExoPlayerController(context.applicationContext).also { instance = it }
+            }
+        }
+    }
 }

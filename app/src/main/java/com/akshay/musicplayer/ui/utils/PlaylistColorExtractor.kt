@@ -120,7 +120,7 @@ object PlaylistColorExtractor {
                 try {
                     val contentUri = Uri.parse("content://media/external/audio/albumart/${track.albumId}")
                     val bm = context.contentResolver.loadThumbnail(contentUri, Size(64, 64), null)
-                    if (bm != null) return bm
+                    return bm
                 } catch (_: Exception) {}
             }
         }

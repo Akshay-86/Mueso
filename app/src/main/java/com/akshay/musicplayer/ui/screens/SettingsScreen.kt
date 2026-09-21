@@ -1,7 +1,7 @@
 @file:Suppress("DEPRECATION")
 package com.akshay.musicplayer.ui.screens
 
-import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -9,18 +9,19 @@ import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import android.os.Build
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,7 +29,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -38,26 +38,30 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository
+import com.akshay.musicplayer.ui.theme.LocalAccentColor
+import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
+import com.akshay.musicplayer.ui.theme.ThemePresets
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import java.text.SimpleDateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
 
 private val AccentOrange: Color
     @Composable
-    get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    get() = LocalAccentColor.current
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,7 +75,6 @@ fun SettingsScreen(
     val usePureBlack by viewModel.usePureBlack.collectAsState()
     val accentColorId by viewModel.accentColorId.collectAsState()
     val fontScaleOption by viewModel.fontScaleOption.collectAsState()
-    val cornerRadiusOption by viewModel.cornerRadiusOption.collectAsState()
     val lyricsFontSizeOption by viewModel.lyricsFontSizeOption.collectAsState()
 
     val googleAccount by viewModel.googleAccount.collectAsState()
@@ -100,17 +103,27 @@ fun SettingsScreen(
     val skipIntroOutro by viewModel.skipIntroOutro.collectAsState()
     val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
 
+    // Audiophile & Appearance States
+    val losslessStreamingEnabled by viewModel.losslessStreamingEnabled.collectAsState()
+    val isStudioMasterClarityEnabled by viewModel.isStudioMasterClarityEnabled.collectAsState()
+    val isBitPerfectEnabled by viewModel.isBitPerfectEnabled.collectAsState()
+    val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
+    val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
+    val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
+    var showEqualizerSheet by remember { mutableStateOf(false) }
 
-    val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
-    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val accentColor = LocalAccentColor.current
+    val isPureBlack = LocalIsPureBlack.current
 
-    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF0F0F0F) else Color(0xFFF2F2F7)
-    val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF0C0C0E) else Color(0xFFF2F2F7)
+    val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF18181A) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
-    val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.05f) else if (isDarkMode) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.06f)
+    val cardCorner = 16.dp
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -132,7 +145,7 @@ fun SettingsScreen(
                     }
                 }
             }
-        } catch (e: com.google.android.gms.common.api.ApiException) {
+        } catch (_: com.google.android.gms.common.api.ApiException) {
             android.widget.Toast.makeText(context, "Sign-in cancelled", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
@@ -142,8 +155,6 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         viewModel.initGoogleDriveAccount(context)
     }
-
-
 
     val listState = rememberLazyListState()
 
@@ -162,7 +173,7 @@ fun SettingsScreen(
         }
     }
 
-    // Handle Spotify Import & About sub-screen navigation
+    // Handle sub-screen back navigation
     androidx.activity.compose.BackHandler(enabled = showSpotifyImport) {
         showSpotifyImport = false
     }
@@ -174,7 +185,14 @@ fun SettingsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("App Settings", color = textPrimary, fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            "Settings",
+                            color = textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
@@ -190,243 +208,511 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp)
             ) {
 
-            // ─── 1. Google Drive Cloud Backup & Restore Section ───
-            item {
-                Text(
-                    text = "Cloud Sync & Backup (Google Drive)",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                // ═══════════════════════════════════════════════════════════
+                // 1. APPEARANCE & THEME
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Appearance & Interface", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
+                        ThemeModeSelectorItem(
+                            currentMode = themeMode,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onModeSelect = { viewModel.setThemeMode(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Pure Black (AMOLED)",
+                            subtitle = "Pitch black background for battery saving on OLED screens",
+                            icon = Icons.Default.Contrast,
+                            checked = usePureBlack,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setUsePureBlack(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        AccentColorPickerItem(
+                            currentAccentId = accentColorId,
+                            isDarkMode = isDarkMode,
+                            onAccentSelect = { viewModel.setAccentColorId(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsSelectorItem(
+                            title = "Player Layout Style",
+                            subtitle = "Switch between Reels swiper and Classic album player",
+                            icon = Icons.Default.ViewCarousel,
+                            currentValue = if (playerLayoutStyle == "classic") "Classic Player" else "Reels Swiper",
+                            options = listOf("Reels Swiper", "Classic Player"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = {
+                                val target = if (it.startsWith("Classic")) "classic" else "reels"
+                                if (target != playerLayoutStyle) {
+                                    viewModel.setPlayerLayoutStyle(target)
+                                }
+                            }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsSelectorItem(
+                            title = "Interface Text Scaling",
+                            subtitle = "Adjust application text size",
+                            icon = Icons.Default.FormatSize,
+                            currentValue = when (fontScaleOption) {
+                                "small" -> "Small (0.9x)"
+                                "large" -> "Large (1.1x)"
+                                "extra_large" -> "Extra Large (1.2x)"
+                                else -> "Normal (1.0x)"
+                            },
+                            options = listOf("Small (0.9x)", "Normal (1.0x)", "Large (1.1x)", "Extra Large (1.2x)"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = {
+                                val key = when {
+                                    it.startsWith("Small") -> "small"
+                                    it.startsWith("Large") -> "large"
+                                    it.startsWith("Extra") -> "extra_large"
+                                    else -> "normal"
+                                }
+                                viewModel.setFontScaleOption(key)
+                            }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsSelectorItem(
+                            title = "Lyrics Font Size",
+                            subtitle = "Size of synchronized karaoke lyrics",
+                            icon = Icons.Default.TextFields,
+                            currentValue = when (lyricsFontSizeOption) {
+                                "compact" -> "Compact"
+                                "large" -> "Large"
+                                "extra_large" -> "Extra Large"
+                                else -> "Normal"
+                            },
+                            options = listOf("Compact", "Normal", "Large", "Extra Large"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = {
+                                val key = when {
+                                    it.startsWith("Compact") -> "compact"
+                                    it.startsWith("Large") -> "large"
+                                    it.startsWith("Extra") -> "extra_large"
+                                    else -> "normal"
+                                }
+                                viewModel.setLyricsFontSizeOption(key)
+                            }
+                        )
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // 2. AUDIO & PLAYBACK ENGINE
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Audio & Playback", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsSelectorItem(
+                            title = "Streaming Audio Quality",
+                            subtitle = "Online playback bit rate",
+                            icon = Icons.Default.GraphicEq,
+                            currentValue = audioQuality,
+                            options = listOf("High (320 kbps)", "Medium (160 kbps)", "Low (96 kbps)"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = { viewModel.setAudioQuality(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Synchronized Karaoke Lyrics",
+                            subtitle = "Display real-time synchronized lyrics in player",
+                            icon = Icons.Default.Lyrics,
+                            checked = enableLyrics,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setEnableLyrics(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Show Over Lockscreen",
+                            subtitle = "Keep full player view available when phone is locked",
+                            icon = Icons.Default.Lock,
+                            checked = showOnLockscreen,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setShowOnLockscreen(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "High Refresh Rate (120Hz)",
+                            subtitle = "Peak display refresh rate for ultra-smooth UI animations",
+                            icon = Icons.Default.Bolt,
+                            checked = highRefreshRate,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setHighRefreshRate(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsSelectorItem(
+                            title = "Play Button Position",
+                            subtitle = "Placement of playback control button",
+                            icon = Icons.Default.PlayCircle,
+                            currentValue = playButtonPosition,
+                            options = listOf("Left", "Right", "Center"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = { viewModel.setPlayButtonPosition(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsBatteryItem(isDarkMode = isDarkMode)
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // EXPERIMENTAL
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Experimental", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsClickableItem(
+                            title = "Equalizer & Audio DSP",
+                            subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
+                            icon = Icons.Default.Tune,
+                            isDarkMode = isDarkMode,
+                            onClick = { showEqualizerSheet = true }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Hi-Res Audio (Lossless FLAC)",
+                            subtitle = if (losslessStreamingEnabled) "Matches tracks against high-resolution lossless catalog • Auto-fallback to YouTube if track unavailable" else "Stream studio quality audio with auto-fallback to YouTube",
+                            icon = Icons.Default.HighQuality,
+                            checked = losslessStreamingEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Bit-Perfect Mode",
+                            subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
+                            icon = Icons.Default.Headphones,
+                            checked = isBitPerfectEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Studio Master Clarity",
+                            subtitle = "Acoustic high-shelf excitation (+2.5dB air curve) for vocals",
+                            icon = Icons.Default.Speed,
+                            checked = isStudioMasterClarityEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Audio Crossfade",
+                            subtitle = if (crossfadeEnabled) "${crossfadeSeconds}s smooth transition between tracks" else "Gapless track playback",
+                            icon = Icons.Default.Shuffle,
+                            checked = crossfadeEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
+                        )
+                        AnimatedVisibility(visible = crossfadeEnabled) {
+                            Column(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(AccentOrange.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
                             ) {
-                                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
-                            }
-                            Column {
-                                Text(
-                                    text = googleAccount?.displayName ?: googleAccountEmail ?: googleAccount?.email ?: "Not Connected",
-                                    color = textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) "Google Drive AppData Backup" else "Sign in to backup playlists to Google Drive",
-                                    color = textSub,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
-                            TextButton(onClick = { viewModel.signOutGoogle(context) }) {
-                                Text("Sign Out", color = AccentOrange, fontSize = 12.sp, maxLines = 1, softWrap = false)
-                            }
-                        } else {
-                            Button(
-                                onClick = {
-                                    val repo = GoogleDriveBackupRepository(context)
-                                    googleSignInLauncher.launch(repo.getSignInIntent(context))
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                                shape = RoundedCornerShape(20.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Sign In",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Transition Duration", color = textSub, fontSize = 12.sp)
+                                    Text("${crossfadeSeconds}s", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Slider(
+                                    value = crossfadeSeconds.toFloat(),
+                                    onValueChange = { viewModel.setCrossfadeSeconds(it.toInt()) },
+                                    valueRange = 1f..12f,
+                                    steps = 10,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = accentColor,
+                                        activeTrackColor = accentColor,
+                                        inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
+                                    )
                                 )
                             }
                         }
                     }
+                }
 
-                    if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
+                // ═══════════════════════════════════════════════════════════
+                // 3. SMART SKIP (SPONSORBLOCK)
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Smart Skip (SponsorBlock)", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsToggleItem(
+                            title = "Enable SponsorBlock",
+                            subtitle = "Skip sponsored segments, self-promos, and non-music filler",
+                            icon = Icons.Default.Shield,
+                            checked = enableSponsorBlock,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setEnableSponsorBlock(it) }
+                        )
+
+                        AnimatedVisibility(visible = enableSponsorBlock) {
+                            Column(modifier = Modifier.padding(start = 16.dp)) {
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(title = "Skip Sponsor Segments", subtitle = "Paid brand sponsorships", icon = Icons.Default.Shield, checked = skipSponsor, isDarkMode = isDarkMode, accentColor = accentColor, onCheckedChange = { viewModel.setSkipSponsor(it) })
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(title = "Skip Self-Promotion", subtitle = "Channel promos & merch", icon = Icons.Default.Campaign, checked = skipSelfPromo, isDarkMode = isDarkMode, accentColor = accentColor, onCheckedChange = { viewModel.setSkipSelfPromo(it) })
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(title = "Skip Interaction Prompts", subtitle = "Subscribe & like reminders", icon = Icons.Default.ThumbUp, checked = skipInteraction, isDarkMode = isDarkMode, accentColor = accentColor, onCheckedChange = { viewModel.setSkipInteraction(it) })
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(title = "Skip Intros & Outros", subtitle = "Non-music intro/outro video clips", icon = Icons.Default.MusicNote, checked = skipIntroOutro, isDarkMode = isDarkMode, accentColor = accentColor, onCheckedChange = { viewModel.setSkipIntroOutro(it) })
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(title = "Skip Non-Music Filler", subtitle = "Interludes & off-topic dialogue", icon = Icons.Default.ChatBubble, checked = skipNonMusicOffTopic, isDarkMode = isDarkMode, accentColor = accentColor, onCheckedChange = { viewModel.setSkipNonMusicOffTopic(it) })
+                            }
+                        }
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // 4. DOWNLOADS & OFFLINE STORAGE
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Downloads & Storage", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsSelectorItem(
+                            title = "Download Audio Quality",
+                            subtitle = "Audio bit rate for offline tracks",
+                            icon = Icons.Default.MusicNote,
+                            currentValue = downloadQuality,
+                            options = listOf("Lossless (FLAC)", "Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onSelect = { viewModel.setDownloadQuality(it) }
+                        )
                         HorizontalDivider(color = dividerColor)
+                        SettingsFolderSelectorItem(
+                            title = "Download Location",
+                            subtitle = "Folder where downloaded tracks are saved",
+                            icon = Icons.Default.Folder,
+                            currentFolder = downloadFolder,
+                            isDarkMode = isDarkMode,
+                            onFolderSelect = { viewModel.setDownloadFolder(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Embed Lyrics in Downloads",
+                            subtitle = "Store synced lyrics in ID3 tags & save .lrc files",
+                            icon = Icons.Default.Lyrics,
+                            checked = embedLyricsInDownload,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setEmbedLyricsInDownload(it) }
+                        )
+                    }
+                }
 
-                        // Status Info & Backup Size
+                // ═══════════════════════════════════════════════════════════
+                // 5. CLOUD BACKUP & PLAYLISTS
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Cloud Backup & Playlists", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        // Google Drive Account Row
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                Text(
-                                    text = if (hasUnbackedUpChanges) "Changes pending backup" else "Playlists backed up",
-                                    color = if (hasUnbackedUpChanges) AccentOrange else Color(0xFF4CAF50),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(accentColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text(
+                                        text = googleAccount?.displayName ?: googleAccountEmail ?: googleAccount?.email ?: "Google Drive",
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) "Cloud backup connected" else "Sign in to backup playlists",
+                                        color = textSub,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
+                                TextButton(onClick = { viewModel.signOutGoogle(context) }) {
+                                    Text("Sign Out", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        val repo = GoogleDriveBackupRepository(context)
+                                        googleSignInLauncher.launch(repo.getSignInIntent(context))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Sign In", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        // Google Drive Connected Options
+                        if (!googleAccountEmail.isNullOrBlank() || googleAccount != null) {
+                            HorizontalDivider(color = dividerColor)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
                                 val lastTimeStr = if (lastBackupTimestamp > 0) {
-                                    SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(Date(lastBackupTimestamp))
+                                    SimpleDateFormat("MMM dd • hh:mm a", Locale.getDefault()).format(Date(lastBackupTimestamp))
                                 } else "Never"
                                 val sizeStr = if (lastBackupSizeBytes > 0) {
                                     val kb = lastBackupSizeBytes / 1024.0
                                     if (kb < 1024) String.format(Locale.getDefault(), "%.1f KB", kb) else String.format(Locale.getDefault(), "%.2f MB", kb / 1024.0)
                                 } else "0 KB"
-                                Text(
-                                    text = "Last sync: $lastTimeStr • Backup Size: ~$sizeStr",
-                                    color = textSub,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
 
-                        // SponsorBlock-Style Granular Backup Scope Customization Controls
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            val sharedPrefs = context.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                            var showBackupCustomization by remember { mutableStateOf(sharedPrefs.getBoolean("auto_cloud_backup", true)) }
-                            var backupPlaylists by remember { mutableStateOf(sharedPrefs.getBoolean("backup_playlists", true)) }
-                            var backupLyrics by remember { mutableStateOf(sharedPrefs.getBoolean("backup_lyrics", true)) }
-                            var backupSettings by remember { mutableStateOf(sharedPrefs.getBoolean("backup_settings", true)) }
-
-                            SettingsToggleItem(
-                                title = "Auto-Sync & Cloud Backup Scope",
-                                subtitle = "Enable or disable automatic background cloud sync",
-                                icon = Icons.Default.CloudSync,
-                                checked = showBackupCustomization,
-                                isDarkMode = isDarkMode,
-                                onCheckedChange = {
-                                    showBackupCustomization = it
-                                    sharedPrefs.edit().putBoolean("auto_cloud_backup", it).apply()
-                                }
-                            )
-
-                            androidx.compose.animation.AnimatedVisibility(visible = showBackupCustomization) {
-                                Column(modifier = Modifier.padding(start = 20.dp)) {
-                                    HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(
-                                        title = "Custom Playlists",
-                                        subtitle = "User created online & local playlists",
-                                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                                        checked = backupPlaylists,
-                                        isDarkMode = isDarkMode,
-                                        onCheckedChange = {
-                                            backupPlaylists = it
-                                            sharedPrefs.edit().putBoolean("backup_playlists", it).apply()
-                                        }
-                                    )
-                                    HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(
-                                        title = "Custom Lyrics & Offsets",
-                                        subtitle = "Saved lyrics & timestamp offsets",
-                                        icon = Icons.Default.Lyrics,
-                                        checked = backupLyrics,
-                                        isDarkMode = isDarkMode,
-                                        onCheckedChange = {
-                                            backupLyrics = it
-                                            sharedPrefs.edit().putBoolean("backup_lyrics", it).apply()
-                                        }
-                                    )
-                                    HorizontalDivider(color = dividerColor)
-                                    SettingsToggleItem(
-                                        title = "App Preferences",
-                                        subtitle = "Player settings & audio quality",
-                                        icon = Icons.Default.Tune,
-                                        checked = backupSettings,
-                                        isDarkMode = isDarkMode,
-                                        onCheckedChange = {
-                                            backupSettings = it
-                                            sharedPrefs.edit().putBoolean("backup_settings", it).apply()
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Action Buttons: Backup & Restore
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    viewModel.performDriveBackup(context) { success, msg ->
-                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(if (hasUnbackedUpChanges) accentColor else Color(0xFF4CAF50))
+                                        )
+                                        Text(
+                                            text = if (hasUnbackedUpChanges) "Pending Changes" else "Synced",
+                                            color = if (hasUnbackedUpChanges) accentColor else Color(0xFF4CAF50),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
-                                },
-                                enabled = !isBackupInProgress && !isRestoreInProgress,
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                if (isBackupInProgress) {
-                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Last sync: $lastTimeStr • $sizeStr", color = textSub, fontSize = 11.sp)
                                 }
-                                Text("Backup Now", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
 
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.performDriveRestore(context) { success, msg ->
-                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            viewModel.performDriveBackup(context) { _, msg ->
+                                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        enabled = !isBackupInProgress && !isRestoreInProgress,
+                                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        if (isBackupInProgress) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                        }
+                                        Text("Backup Now", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
-                                },
-                                enabled = !isBackupInProgress && !isRestoreInProgress,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                if (isRestoreInProgress) {
-                                    CircularProgressIndicator(color = AccentOrange, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.performDriveRestore(context) { _, msg ->
+                                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        enabled = !isBackupInProgress && !isRestoreInProgress,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        if (isRestoreInProgress) {
+                                            CircularProgressIndicator(color = accentColor, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                        }
+                                        Text("Restore", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
-                                Text("Restore", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
-                    }
 
-                    HorizontalDivider(color = dividerColor)
+                        HorizontalDivider(color = dividerColor)
 
-                    // Local Playlist Backup (JSON) & Thumbnail Refresh
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "Local Playlists",
-                            color = textPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Export playlists locally to JSON or import from file.",
-                            color = textSub,
-                            fontSize = 11.sp
-                        )
-
+                        // Local Playlists (JSON)
                         val jsonPickerLauncher = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.GetContent()
                         ) { uri ->
@@ -442,7 +728,7 @@ fun SettingsScreen(
                                                 android.widget.Toast.makeText(context, "Invalid JSON playlist format", android.widget.Toast.LENGTH_SHORT).show()
                                             }
                                         }
-                                    } catch (e: Exception) {
+                                    } catch (_: Exception) {
                                         android.widget.Toast.makeText(context, "Failed to read file", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
@@ -450,605 +736,420 @@ fun SettingsScreen(
                         }
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        val path = viewModel.exportPlaylistsToJson(context)
-                                        if (path != null) {
-                                            android.widget.Toast.makeText(context, "Exported JSON to Downloads!", android.widget.Toast.LENGTH_LONG).show()
-                                        } else {
-                                            android.widget.Toast.makeText(context, "Export failed", android.widget.Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Export JSON", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            }
-
-                            OutlinedButton(
-                                onClick = { jsonPickerLauncher.launch("*/*") },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Import File", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ─── 2. Customization & Appearance ───
-            item {
-                Text(
-                    text = "Customization & Appearance",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 4.dp)
-                ) {
-                    ThemeModeSelectorItem(
-                        currentMode = themeMode,
-                        isDarkMode = isDarkMode,
-                        accentColor = AccentOrange,
-                        onModeSelect = { viewModel.setThemeMode(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Pure Black (AMOLED)",
-                        subtitle = "Pitch black background to save battery on OLED displays",
-                        icon = Icons.Default.Contrast,
-                        checked = usePureBlack,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setUsePureBlack(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    AccentColorPickerItem(
-                        currentAccentId = accentColorId,
-                        isDarkMode = isDarkMode,
-                        onAccentSelect = { viewModel.setAccentColorId(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FontScaleSelectorItem(
-                        currentScale = fontScaleOption,
-                        isDarkMode = isDarkMode,
-                        accentColor = AccentOrange,
-                        onScaleSelect = { viewModel.setFontScaleOption(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    CornerRadiusSelectorItem(
-                        currentOption = cornerRadiusOption,
-                        isDarkMode = isDarkMode,
-                        accentColor = AccentOrange,
-                        onOptionSelect = { viewModel.setCornerRadiusOption(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    LyricsFontSizeSelectorItem(
-                        currentOption = lyricsFontSizeOption,
-                        isDarkMode = isDarkMode,
-                        accentColor = AccentOrange,
-                        onOptionSelect = { viewModel.setLyricsFontSizeOption(it) }
-                    )
-                }
-            }
-
-            // ─── 3. Display & Lockscreen Behavior ───
-            item {
-                Text(
-                    text = "Display & Lockscreen Behavior",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 4.dp)
-                ) {
-                    SettingsToggleItem(
-                        title = "Show Over Lockscreen",
-                        subtitle = "Display player when phone is locked",
-                        icon = Icons.Default.Lock,
-                        checked = showOnLockscreen,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setShowOnLockscreen(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "High Refresh Rate",
-                        subtitle = "Peak display rate for ultra-smooth UI",
-                        icon = Icons.Default.Bolt,
-                        checked = highRefreshRate,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setHighRefreshRate(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsSelectorItem(
-                        title = "Play Button Position",
-                        subtitle = "Position of main play control button",
-                        icon = Icons.Default.PlayCircle,
-                        currentValue = playButtonPosition,
-                        options = listOf("Left", "Right", "Center"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setPlayButtonPosition(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsBatteryItem(isDarkMode = isDarkMode)
-                }
-            }
-
-            // ─── 4. Audio & Visual Quality ───
-            item {
-                Text(
-                    text = "Audio & Visual Quality",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 4.dp)
-                ) {
-                    SettingsSelectorItem(
-                        title = "Streaming Audio Quality",
-                        subtitle = "Online playback bit rate",
-                        icon = Icons.Default.GraphicEq,
-                        currentValue = audioQuality,
-                        options = listOf("High (320 kbps)", "Medium (160 kbps)", "Low (96 kbps)"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setAudioQuality(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Show Synchronized Lyrics",
-                        subtitle = "Display live karaoke lyrics in player",
-                        icon = Icons.Default.Lyrics,
-                        checked = enableLyrics,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setEnableLyrics(it) }
-                    )
-                }
-            }
-
-            // ─── 5. Downloads & Offline Storage ───
-            item {
-                Text(
-                    text = "Downloads & Storage",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 4.dp)
-                ) {
-                    SettingsSelectorItem(
-                        title = "Download Audio Quality",
-                        subtitle = "Bit rate for offline audio tracks",
-                        icon = Icons.Default.MusicNote,
-                        currentValue = downloadQuality,
-                        options = listOf("Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
-                        isDarkMode = isDarkMode,
-                        onSelect = { viewModel.setDownloadQuality(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsFolderSelectorItem(
-                        title = "Audio Download Location",
-                        subtitle = "Folder where downloaded audio files save",
-                        icon = Icons.Default.Folder,
-                        currentFolder = downloadFolder,
-                        isDarkMode = isDarkMode,
-                        onFolderSelect = { viewModel.setDownloadFolder(it) }
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    SettingsToggleItem(
-                        title = "Embed Lyrics in Downloads",
-                        subtitle = "Embed lyrics metadata & save .lrc companion",
-                        icon = Icons.Default.Lyrics,
-                        checked = embedLyricsInDownload,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setEmbedLyricsInDownload(it) }
-                    )
-                }
-            }
-
-            // ─── 6. Smart Skip (SponsorBlock Integration) ───
-            item {
-                Text(
-                    text = "Smart Skip (SponsorBlock API)",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 4.dp)
-                ) {
-                    SettingsToggleItem(
-                        title = "Enable SponsorBlock",
-                        subtitle = "Skip sponsors, promos, and non-music filler",
-                        icon = Icons.Default.Shield,
-                        checked = enableSponsorBlock,
-                        isDarkMode = isDarkMode,
-                        onCheckedChange = { viewModel.setEnableSponsorBlock(it) }
-                    )
-                    
-                    androidx.compose.animation.AnimatedVisibility(visible = enableSponsorBlock) {
-                        Column(modifier = Modifier.padding(start = 24.dp)) {
-                            HorizontalDivider(color = dividerColor)
-                            SettingsToggleItem(title = "Skip Sponsor Segment", subtitle = "Paid brand sponsorships", icon = Icons.Default.Shield, checked = skipSponsor, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSponsor(it) })
-                            HorizontalDivider(color = dividerColor)
-                            SettingsToggleItem(title = "Skip Self-Promotion", subtitle = "Channel promos & merch", icon = Icons.Default.Campaign, checked = skipSelfPromo, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipSelfPromo(it) })
-                            HorizontalDivider(color = dividerColor)
-                            SettingsToggleItem(title = "Skip Interaction Prompts", subtitle = "Subscribe & like reminders", icon = Icons.Default.ThumbUp, checked = skipInteraction, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipInteraction(it) })
-                            HorizontalDivider(color = dividerColor)
-                            SettingsToggleItem(title = "Skip Intros & Outros", subtitle = "Non-music intro/outro clips", icon = Icons.Default.MusicNote, checked = skipIntroOutro, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipIntroOutro(it) })
-                            HorizontalDivider(color = dividerColor)
-                            SettingsToggleItem(title = "Skip Non-Music Filler", subtitle = "Interludes & off-topic talk", icon = Icons.Default.ChatBubble, checked = skipNonMusicOffTopic, isDarkMode = isDarkMode, onCheckedChange = { viewModel.setSkipNonMusicOffTopic(it) })
-                        }
-                    }
-                }
-            }
-
-            // ─── 7. Import Playlist ───
-            item {
-                Text(
-                    text = "Import Playlist",
-                    color = Color(0xFF1DB954),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .clickable { showSpotifyImport = true }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(Color(0xFF1DB954).copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(22.dp))
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Import from Spotify", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Paste a public Spotify playlist link", color = textSub, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(20.dp))
-                }
-            }
-
-            // ─── 8. App Updates (GitHub Releases) ───
-            item {
-                val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
-                val updateInfo by viewModel.updateInfo.collectAsState()
-                val updateDownloadProgress by viewModel.updateDownloadProgress.collectAsState()
-                val updateStatusMessage by viewModel.updateStatusMessage.collectAsState()
-
-                Text(
-                    text = "App Updates",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(AccentOrange.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Check for Updates", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text(
-                                text = updateStatusMessage ?: "Current version: $appVersionName",
-                                color = textSub,
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        Button(
-                            onClick = { viewModel.checkForUpdates(context, showToast = true) },
-                            enabled = !isCheckingUpdate,
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            if (isCheckingUpdate) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Check", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Update available banner & install button
-                    if (updateInfo?.isNewVersionAvailable == true) {
-                        HorizontalDivider(color = dividerColor)
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(Icons.Default.NewReleases, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size(18.dp))
-                                Text("New Version ${updateInfo!!.tagName} Available!", color = Color(0xFF34C759), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-
-                            val targetAbi = updateInfo!!.targetAbi
-                            val sizeStr = updateInfo!!.apkSizeString
-                            if (!targetAbi.isNullOrBlank() || !sizeStr.isNullOrBlank()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(14.dp))
-                                    Text(
-                                        text = listOfNotNull(
-                                            targetAbi?.let { "Architecture: $it" },
-                                            sizeStr?.let { "Size: ~$it" }
-                                        ).joinToString(" • "),
-                                        color = textPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-
-                            if (!updateInfo!!.releaseNotes.isNullOrBlank()) {
-                                Text(
-                                    updateInfo!!.releaseNotes!!,
-                                    color = textSub,
-                                    fontSize = 12.sp,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            if (updateDownloadProgress != null) {
-                                val prog = updateDownloadProgress!!
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Downloading update...", color = textSub, fontSize = 11.sp)
-                                        Text("${(prog * 100).toInt()}%", color = AccentOrange, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = { prog },
-                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                        color = AccentOrange
-                                    )
-                                }
-                            } else {
-                                Button(
-                                    onClick = { viewModel.downloadAndInstallUpdate(context) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    val abiSuffix = if (!targetAbi.isNullOrBlank()) " ($targetAbi)" else ""
-                                    Text("Download & Install ${updateInfo!!.tagName}$abiSuffix", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ─── 9. About Mueso ───
-            item {
-                Text(
-                    text = "About",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .clickable { showAboutPage = true }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(AccentOrange.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("About Mueso", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Version $appVersionName • Features, Credits & Specs", color = textSub, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(20.dp))
-                }
-            }
-
-            // ─── 10. Force Refresh & Developer Pre-Builds ───
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(visible = showPreBuildOption) {
-                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(cardBg)
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Developer Options (GitHub Pre-Builds)", color = AccentOrange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Fetch & install test release APK from GitHub tag 'Pre_Builds'", color = textSub, fontSize = 11.sp)
-                            Button(
-                                onClick = { viewModel.installPreBuildRelease(context) },
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Install Pre-Build (Tag: Pre_Builds)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = textSub, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("Local JSON Playlists", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("Export or restore playlists locally", color = textSub, fontSize = 11.sp)
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            val path = viewModel.exportPlaylistsToJson(context)
+                                            if (path != null) {
+                                                android.widget.Toast.makeText(context, "Exported JSON to Downloads!", android.widget.Toast.LENGTH_LONG).show()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Export failed", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Export", color = textPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                OutlinedButton(
+                                    onClick = { jsonPickerLauncher.launch("*/*") },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Import", color = textPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
-                    }
 
-                    Box(
+                        HorizontalDivider(color = dividerColor)
+
+                        // Spotify Import Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showSpotifyImport = true }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1DB954).copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text("Import from Spotify", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("Import public Spotify playlist via link", color = textSub, fontSize = 11.sp)
+                                }
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // 6. ABOUT & APP UPDATES
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
+                    val updateInfo by viewModel.updateInfo.collectAsState()
+                    val updateDownloadProgress by viewModel.updateDownloadProgress.collectAsState()
+                    val updateStatusMessage by viewModel.updateStatusMessage.collectAsState()
+
+                    SettingsSectionHeader("About & Updates", accentColor)
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(cardCorner))
                             .background(cardBg)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { viewModel.forceRefreshAll(context) },
-                                    onLongPress = {
-                                        showPreBuildOption = !showPreBuildOption
-                                        val status = if (showPreBuildOption) "Pre-Build Developer Mode Enabled" else "Pre-Build Developer Mode Disabled"
-                                        android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(vertical = 4.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Force Refresh Playlists & Rescan Songs", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                        // Check for Updates Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(accentColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text("Check for Updates", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = updateStatusMessage ?: "Version $appVersionName",
+                                        color = textSub,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
 
-                    Text(
-                        text = "Mueso Player $appVersionName • Open Source MIT",
-                        color = textSub,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                            Button(
+                                onClick = { viewModel.checkForUpdates(context, showToast = true) },
+                                enabled = !isCheckingUpdate,
+                                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                if (isCheckingUpdate) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Check", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        // Update Available Banner
+                        if (updateInfo?.isNewVersionAvailable == true) {
+                            HorizontalDivider(color = dividerColor)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.NewReleases, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size(16.dp))
+                                    Text("Update Available: ${updateInfo!!.tagName}", color = Color(0xFF34C759), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+
+                                if (!updateInfo!!.releaseNotes.isNullOrBlank()) {
+                                    Text(
+                                        updateInfo!!.releaseNotes!!,
+                                        color = textSub,
+                                        fontSize = 11.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (updateDownloadProgress != null) {
+                                    val prog = updateDownloadProgress!!
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Downloading...", color = textSub, fontSize = 11.sp)
+                                            Text("${(prog * 100).toInt()}%", color = accentColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = { prog },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                            color = accentColor
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.downloadAndInstallUpdate(context) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Download & Install", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = dividerColor)
+
+                        // About Mueso Row
+                        SettingsClickableItem(
+                            title = "About Mueso",
+                            subtitle = "Features, credits, architecture & specs",
+                            icon = Icons.Default.Info,
+                            isDarkMode = isDarkMode,
+                            onClick = { showAboutPage = true }
+                        )
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // 7. DEVELOPER & MAINTENANCE
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AnimatedVisibility(visible = showPreBuildOption) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(cardCorner))
+                                    .background(cardBg)
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("Developer Pre-Builds", color = accentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Install testing release from GitHub tag 'Pre_Builds'", color = textSub, fontSize = 11.sp)
+                                Button(
+                                    onClick = { viewModel.installPreBuildRelease(context) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Install Pre-Build", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(cardCorner))
+                                .background(cardBg)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { viewModel.forceRefreshAll(context) },
+                                        onLongPress = {
+                                            showPreBuildOption = !showPreBuildOption
+                                            val status = if (showPreBuildOption) "Pre-Build Developer Mode Enabled" else "Pre-Build Developer Mode Disabled"
+                                            android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Rescan Songs & Refresh Library", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        Text(
+                            text = "Mueso Player $appVersionName • Open Source MIT",
+                            color = textSub.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
+        }
 
+        AnimatedVisibility(
+            visible = showSpotifyImport,
+            enter = slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(300)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(250, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(250))
+        ) {
+            SpotifyImportScreen(
+                viewModel = viewModel,
+                onBackClick = { showSpotifyImport = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showAboutPage,
+            enter = slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(300)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(250, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(250))
+        ) {
+            AboutScreen(
+                isDarkMode = isDarkMode,
+                onBackClick = { showAboutPage = false }
+            )
+        }
+
+        if (showEqualizerSheet) {
+            com.akshay.musicplayer.ui.components.EqualizerBottomSheet(
+                effectsController = viewModel.audioEffectsController,
+                isDarkMode = isDarkMode,
+                onDismiss = { showEqualizerSheet = false }
+            )
         }
     }
-
-    if (showSpotifyImport) {
-        SpotifyImportScreen(
-            viewModel = viewModel,
-            onBackClick = { showSpotifyImport = false }
-        )
-    }
-
-    if (showAboutPage) {
-        AboutScreen(
-            isDarkMode = isDarkMode,
-            onBackClick = { showAboutPage = false }
-        )
-    }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPACT REUSABLE SETTINGS COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun SettingsSectionHeader(
+    title: String,
+    color: Color = AccentOrange
+) {
+    Text(
+        text = title.uppercase(Locale.getDefault()),
+        color = color,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+private fun SettingsClickableItem(
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF555555),
+                modifier = Modifier.size(20.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (subtitle != null) {
+                    Text(text = subtitle, color = textSub, fontSize = 11.sp, lineHeight = 15.sp)
+                }
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = textSub,
+            modifier = Modifier.size(18.dp)
+        )
+    }
 }
 
 @Composable
 private fun SettingsToggleItem(
     title: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     checked: Boolean,
     isDarkMode: Boolean,
-    badge: String? = null,
     accentColor: Color = AccentOrange,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
 
     val iconTint by animateColorAsState(
         targetValue = if (checked) accentColor else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF8E8E93)),
-        animationSpec = tween(250),
+        animationSpec = tween(200),
         label = "iconTint"
     )
 
@@ -1056,46 +1157,32 @@ private fun SettingsToggleItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    if (badge != null) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(accentColor.copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = badge,
-                                color = accentColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
-                }
-                Text(subtitle, color = textSub, fontSize = 12.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = textSub, fontSize = 11.sp, lineHeight = 15.sp)
             }
         }
+        Spacer(modifier = Modifier.width(8.dp))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor)
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = accentColor,
+                uncheckedThumbColor = Color.Gray,
+                uncheckedTrackColor = Color.DarkGray
+            ),
+            modifier = Modifier.graphicsLayer(scaleX = 0.88f, scaleY = 0.88f)
         )
     }
 }
@@ -1103,125 +1190,143 @@ private fun SettingsToggleItem(
 @Composable
 private fun SettingsSelectorItem(
     title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    subtitle: String? = null,
+    icon: ImageVector,
     currentValue: String,
     options: List<String>,
     isDarkMode: Boolean,
     accentColor: Color = AccentOrange,
     onSelect: (String) -> Unit
 ) {
+    var showDialog by remember { mutableStateOf(false) }
+    val isPureBlack = LocalIsPureBlack.current
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .clickable { showDialog = true }
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
-                Column {
-                    Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(subtitle, color = textSub, fontSize = 12.sp)
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF555555),
+                modifier = Modifier.size(20.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(subtitle, color = textSub, fontSize = 11.sp, lineHeight = 15.sp)
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
-            AnimatedContent(
-                targetState = currentValue,
-                transitionSpec = {
-                    (fadeIn(tween(200))).togetherWith(fadeOut(tween(150)))
-                },
-                label = "ValueTextAnimation"
-            ) { targetText ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
                 Text(
-                    text = targetText,
+                    text = currentValue,
                     color = accentColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = textSub,
+                modifier = Modifier.size(16.dp)
+            )
         }
+    }
 
-        // Integrated Segmented Selection Row with smooth animated color & scale micro-animations
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { option ->
-                val isSelected = option == currentValue ||
-                    (option.contains("1080p") && currentValue.contains("1080p")) ||
-                    (option.contains("320") && currentValue.contains("320")) ||
-                    (option.contains("256") && currentValue.contains("256")) ||
-                    (option.contains("160") && currentValue.contains("160")) ||
-                    (option.contains("128") && currentValue.contains("128")) ||
-                    (option.contains("96") && currentValue.contains("96")) ||
-                    (option.contains("720p") && currentValue.contains("720p")) ||
-                    (option.contains("480p") && currentValue.contains("480p"))
-
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "pillBgColor"
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = {
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
                 )
-
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "pillTextColor"
-                )
-
-                val scale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.0f else 0.97f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    ),
-                    label = "pillScale"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .graphicsLayer(scaleX = scale, scaleY = scale)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bgColor)
-                        .clickable { onSelect(option) }
-                        .padding(vertical = 7.dp, horizontal = 2.dp),
-                    contentAlignment = Alignment.Center
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = option,
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    options.forEach { option ->
+                        val isSelected = option.equals(currentValue, ignoreCase = true) ||
+                            (option.contains("Classic", ignoreCase = true) && currentValue.contains("Classic", ignoreCase = true)) ||
+                            (option.contains("Reels", ignoreCase = true) && currentValue.contains("Reels", ignoreCase = true)) ||
+                            (option.contains("FLAC", ignoreCase = true) && currentValue.contains("FLAC", ignoreCase = true)) ||
+                            (option.contains("320") && currentValue.contains("320")) ||
+                            (option.contains("256") && currentValue.contains("256")) ||
+                            (option.contains("160") && currentValue.contains("160")) ||
+                            (option.contains("128") && currentValue.contains("128")) ||
+                            (option.contains("96") && currentValue.contains("96"))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) accentColor.copy(alpha = 0.12f) else Color.Transparent)
+                                .clickable {
+                                    onSelect(option)
+                                    showDialog = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = option,
+                                color = if (isSelected) accentColor else textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = accentColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-        }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Cancel", color = textSub, fontSize = 13.sp)
+                }
+            },
+            containerColor = if (isPureBlack) Color(0xFF121212) else if (isDarkMode) Color(0xFF1E1E22) else Color.White,
+            shape = RoundedCornerShape(20.dp)
+        )
     }
 }
 
@@ -1233,8 +1338,10 @@ private fun ThemeModeSelectorItem(
     onModeSelect: (String) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
     val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
+    val containerShape = RoundedCornerShape(10.dp)
+    val pillShape = RoundedCornerShape(8.dp)
 
     val modes = listOf(
         Triple("system", "System", Icons.Default.BrightnessAuto),
@@ -1246,24 +1353,24 @@ private fun ThemeModeSelectorItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Default.Palette, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
             Column {
-                Text("Theme Mode", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text("Choose dark, light, or follow system", color = textSub, fontSize = 12.sp)
+                Text("App Theme", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Select theme color mode", color = textSub, fontSize = 11.sp)
             }
         }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(containerShape)
                 .background(containerBg)
                 .padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1272,22 +1379,22 @@ private fun ThemeModeSelectorItem(
                 val isSelected = currentMode.equals(id, ignoreCase = true)
                 val bgColor by animateColorAsState(
                     targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
+                    animationSpec = tween(200),
                     label = "themeModeBg"
                 )
                 val contentColor by animateColorAsState(
                     targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
+                    animationSpec = tween(200),
                     label = "themeModeText"
                 )
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(pillShape)
                         .background(bgColor)
                         .clickable { onModeSelect(id) }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -1317,8 +1424,8 @@ private fun AccentColorPickerItem(
     onAccentSelect: (String) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val activeAccent = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val activeAccent = LocalAccentColor.current
     val isCustomSelected = currentAccentId.startsWith("custom_")
     var showCustomDialog by remember { mutableStateOf(false) }
 
@@ -1348,17 +1455,17 @@ private fun AccentColorPickerItem(
         ) {
             Row(
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.ColorLens, contentDescription = null, tint = activeAccent, modifier = Modifier.size(20.dp))
                 Column {
                     Text("Accent Color Palette", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Custom highlight color across the entire app", color = textSub, fontSize = 12.sp)
+                    Text("Highlight color across the player", color = textSub, fontSize = 11.sp)
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
-            val activeName = if (currentAccentId == "dynamic") "Material You" else com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId).name
+            val activeName = ThemePresets.getPalette(currentAccentId).name
             Text(activeName, color = activeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         }
 
@@ -1366,60 +1473,9 @@ private fun AccentColorPickerItem(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                item {
-                    val isSelected = currentAccentId.equals("dynamic", ignoreCase = true)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onAccentSelect("dynamic") }
-                            .padding(vertical = 4.dp, horizontal = 2.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.sweepGradient(
-                                        listOf(
-                                            Color(0xFF4285F4),
-                                            Color(0xFFEA4335),
-                                            Color(0xFFFBBC05),
-                                            Color(0xFF34A853),
-                                            Color(0xFF4285F4)
-                                        )
-                                    )
-                                )
-                                .then(
-                                    if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape)
-                                    else Modifier
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Dynamic",
-                            color = if (isSelected) activeAccent else textSub,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-
             if (isCustomSelected) {
                 item {
-                    val customPalette = com.akshay.musicplayer.ui.theme.ThemePresets.getPalette(currentAccentId)
+                    val customPalette = ThemePresets.getPalette(currentAccentId)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -1429,7 +1485,7 @@ private fun AccentColorPickerItem(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(Brush.linearGradient(listOf(customPalette.primary, customPalette.secondary)))
                                 .border(2.5.dp, Color.White, CircleShape),
@@ -1439,7 +1495,7 @@ private fun AccentColorPickerItem(
                                 Icons.Default.Check,
                                 contentDescription = "Selected",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -1453,7 +1509,7 @@ private fun AccentColorPickerItem(
                 }
             }
 
-            items(com.akshay.musicplayer.ui.theme.ThemePresets.AllPalettes) { palette ->
+            items(ThemePresets.AllPalettes) { palette ->
                 val isSelected = currentAccentId.equals(palette.id, ignoreCase = true)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1464,12 +1520,11 @@ private fun AccentColorPickerItem(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Brush.linearGradient(listOf(palette.primary, palette.secondary)))
                             .then(
-                                if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape)
-                                else Modifier
+                                if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape) else Modifier
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1478,13 +1533,13 @@ private fun AccentColorPickerItem(
                                 Icons.Default.Check,
                                 contentDescription = "Selected",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = palette.name.substringBefore(" "),
+                        text = palette.name.split(" ").first(),
                         color = if (isSelected) activeAccent else textSub,
                         fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1492,6 +1547,7 @@ private fun AccentColorPickerItem(
                 }
             }
 
+            // Custom Color Option Button
             item {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1502,25 +1558,25 @@ private fun AccentColorPickerItem(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f))
-                            .border(1.5.dp, if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.15f), CircleShape),
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                            .border(1.dp, textSub.copy(alpha = 0.2f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Default.Add,
-                            contentDescription = "Add Custom Color",
+                            contentDescription = "Custom Color",
                             tint = activeAccent,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (isCustomSelected) "Edit" else "Custom",
+                        text = "Custom",
                         color = textSub,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Normal
                     )
                 }
             }
@@ -1535,7 +1591,7 @@ private fun CustomColorPickerDialog(
     onDismiss: () -> Unit,
     onColorSelected: (String) -> Unit
 ) {
-    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val isPureBlack = LocalIsPureBlack.current
     val dialogBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1E1E2E)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
@@ -1553,7 +1609,7 @@ private fun CustomColorPickerDialog(
 
     val currentColorInt = android.graphics.Color.rgb(red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
     val currentColor = Color(currentColorInt)
-    val currentHex = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+    val currentHex = String.format(Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
 
     var hexInputText by remember { mutableStateOf(currentHex) }
 
@@ -1579,12 +1635,11 @@ private fun CustomColorPickerDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Live Color Swatch Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .background(currentColor),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1597,7 +1652,6 @@ private fun CustomColorPickerDialog(
                     )
                 }
 
-                // Quick Palette Grid
                 Text("Quick Swatches", color = textSub, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1614,7 +1668,7 @@ private fun CustomColorPickerDialog(
                                     red = (c.red * 255f)
                                     green = (c.green * 255f)
                                     blue = (c.blue * 255f)
-                                    hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                                    hexInputText = String.format(Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
                                 }
                                 .then(
                                     if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape) else Modifier
@@ -1623,7 +1677,6 @@ private fun CustomColorPickerDialog(
                     }
                 }
 
-                // Sliders for RGB
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1637,7 +1690,7 @@ private fun CustomColorPickerDialog(
                         value = red,
                         onValueChange = {
                             red = it
-                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                            hexInputText = String.format(Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
                         },
                         valueRange = 0f..255f,
                         colors = SliderDefaults.colors(thumbColor = Color(0xFFFF5252), activeTrackColor = Color(0xFFFF5252))
@@ -1646,7 +1699,7 @@ private fun CustomColorPickerDialog(
                         value = green,
                         onValueChange = {
                             green = it
-                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                            hexInputText = String.format(Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
                         },
                         valueRange = 0f..255f,
                         colors = SliderDefaults.colors(thumbColor = Color(0xFF69F0AE), activeTrackColor = Color(0xFF69F0AE))
@@ -1655,14 +1708,13 @@ private fun CustomColorPickerDialog(
                         value = blue,
                         onValueChange = {
                             blue = it
-                            hexInputText = String.format(java.util.Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
+                            hexInputText = String.format(Locale.US, "%02X%02X%02X", red.toInt().coerceIn(0, 255), green.toInt().coerceIn(0, 255), blue.toInt().coerceIn(0, 255))
                         },
                         valueRange = 0f..255f,
                         colors = SliderDefaults.colors(thumbColor = Color(0xFF448AFF), activeTrackColor = Color(0xFF448AFF))
                     )
                 }
 
-                // Hex Code Input
                 OutlinedTextField(
                     value = hexInputText,
                     onValueChange = { txt ->
@@ -1716,344 +1768,19 @@ private fun CustomColorPickerDialog(
 }
 
 @Composable
-private fun FontScaleSelectorItem(
-    currentScale: String,
-    isDarkMode: Boolean,
-    accentColor: Color,
-    onScaleSelect: (String) -> Unit
-) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
-
-    val options = listOf(
-        Pair("compact", "Compact (88%)"),
-        Pair("standard", "Standard (100%)"),
-        Pair("comfortable", "Comfort (112%)"),
-        Pair("large", "Large (125%)")
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.FormatSize, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("UI & Font Scale", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Scale font size and UI proportions", color = textSub, fontSize = 12.sp)
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = options.firstOrNull { it.first == currentScale }?.second ?: "Standard (100%)",
-                color = accentColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { (id, label) ->
-                val isSelected = currentScale.equals(id, ignoreCase = true)
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "fontScaleBg"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "fontScaleText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bgColor)
-                        .clickable { onScaleSelect(id) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label.substringBefore(" "),
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-
-        // Live text preview card
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Preview:", color = textSub, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Text("🎵 Playing Starboy • The Weeknd (3:50)", color = textPrimary, fontSize = 13.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun CornerRadiusSelectorItem(
-    currentOption: String,
-    isDarkMode: Boolean,
-    accentColor: Color,
-    onOptionSelect: (String) -> Unit
-) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
-
-    val options = listOf(
-        Pair("rounded", "Rounded (16dp)"),
-        Pair("squircle", "Squircle (10dp)"),
-        Pair("sharp", "Sharp (4dp)")
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.CropSquare, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("Corner Style", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Border radius for cards, dialogs, and sheets", color = textSub, fontSize = 12.sp)
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = options.firstOrNull { it.first == currentOption }?.second?.substringBefore(" ") ?: "Rounded",
-                color = accentColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { (id, label) ->
-                val isSelected = currentOption.equals(id, ignoreCase = true)
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "cornerBg"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "cornerText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bgColor)
-                        .clickable { onOptionSelect(id) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LyricsFontSizeSelectorItem(
-    currentOption: String,
-    isDarkMode: Boolean,
-    accentColor: Color,
-    onOptionSelect: (String) -> Unit
-) {
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
-    val containerBg = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f)
-
-    val options = listOf(
-        Pair("compact", "Compact"),
-        Pair("standard", "Standard"),
-        Pair("large", "Large")
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.FormatQuote, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
-                Column {
-                    Text("Lyrics Text Size", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Size of synced lyrics in player view", color = textSub, fontSize = 12.sp)
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = options.firstOrNull { it.first == currentOption }?.second ?: "Standard",
-                color = accentColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(containerBg)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { (id, label) ->
-                val isSelected = currentOption.equals(id, ignoreCase = true)
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) accentColor else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "lyricsSizeBg"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else textSub,
-                    animationSpec = tween(250),
-                    label = "lyricsSizeText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bgColor)
-                        .clickable { onOptionSelect(id) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-
-        // Live lyrics preview card
-        val sampleSizeSp = when (currentOption) {
-            "compact" -> 18.sp
-            "large" -> 26.sp
-            else -> 22.sp
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f))
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "I'm tryna put you in the worst mood, ah",
-                    color = accentColor,
-                    fontSize = sampleSizeSp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "P1 cleaner than your church shoes, ah",
-                    color = textSub.copy(alpha = 0.6f),
-                    fontSize = (sampleSizeSp.value * 0.75f).sp,
-                    fontWeight = FontWeight.Normal
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun SettingsFolderSelectorItem(
-    title: String = "Audio Download Location",
+    title: String = "Download Location",
     subtitle: String = "Folder where downloaded audio files save",
-    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Folder,
+    icon: ImageVector = Icons.Default.Folder,
     currentFolder: String,
     isDarkMode: Boolean,
     onFolderSelect: (String) -> Unit
 ) {
     val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
+    val isPureBlack = LocalIsPureBlack.current
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -2066,17 +1793,13 @@ private fun SettingsFolderSelectorItem(
                 )
             } catch (_: Exception) {}
 
-            val docId = try {
-                DocumentsContract.getTreeDocumentId(uri)
-            } catch (_: Exception) { null }
-
             onFolderSelect(uri.toString())
             showDialog = false
         }
     }
 
     val displayFolder = when {
-        currentFolder == "Internal App Storage" -> "Internal App Storage"
+        currentFolder == "Internal App Storage" -> "Internal Storage"
         currentFolder.startsWith("content://") -> {
             try {
                 val uri = Uri.parse(currentFolder)
@@ -2089,112 +1812,105 @@ private fun SettingsFolderSelectorItem(
         else -> currentFolder
     }
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .clickable { showDialog = true }
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showDialog = true },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-                Column {
-                    Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(subtitle, color = textSub, fontSize = 12.sp)
-                }
+            Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = textSub, fontSize = 11.sp)
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            TextButton(onClick = { showDialog = true }) {
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
                 Text(
                     text = displayFolder,
                     color = AccentOrange,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textSub, modifier = Modifier.size(16.dp))
         }
+    }
 
-        if (showDialog) {
-            AlertDialog(
-                onDismissRequest = { showDialog = false },
-                title = { Text("Choose Download Location", color = textPrimary, fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // 1. Default Public Music Folder (Music/Mueso)
-                        val isPublicDefault = currentFolder == "Music/Mueso" || currentFolder == "Music"
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isPublicDefault) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
-                                .clickable {
-                                    onFolderSelect("Music/Mueso")
-                                    showDialog = false
-                                }
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = if (isPublicDefault) AccentOrange else textSub)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Public Music Folder (Music/Mueso)", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Visible in all music apps & indexed by MediaStore", color = textSub, fontSize = 12.sp)
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = if (isPureBlack) Color(0xFF121212) else if (isDarkMode) Color(0xFF1E1E22) else Color.White,
+            title = { Text("Choose Download Location", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val isPublicDefault = currentFolder == "Music/Mueso" || currentFolder == "Music"
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isPublicDefault) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                            .clickable {
+                                onFolderSelect("Music/Mueso")
+                                showDialog = false
                             }
-                            if (isPublicDefault) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-                            }
-                        }
-
-                        // 2. Android Native Folder Picker
-                        val isCustom = !isPublicDefault
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isCustom) AccentOrange.copy(alpha = 0.12f) else if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
-                                .clickable {
-                                    folderPickerLauncher.launch(null)
-                                }
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = if (isCustom) AccentOrange else textSub)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Choose Custom Folder", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text(
-                                    if (isCustom) "Selected: $displayFolder" else "Pick with Android file manager",
-                                    color = textSub,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (isCustom) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = if (isPublicDefault) AccentOrange else textSub)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Music/Mueso (Recommended)", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Public music directory. Visible to all media players & file managers.", color = textSub, fontSize = 11.sp)
                         }
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showDialog = false }) {
-                        Text("Close", color = textSub)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                            .clickable { folderPickerLauncher.launch(null) }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = AccentOrange)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Choose Custom Directory...", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Pick any folder on internal storage or SD card via system file picker.", color = textSub, fontSize = 11.sp)
+                        }
                     }
                 }
-            )
-        }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Cancel", color = textSub)
+                }
+            }
+        )
     }
 }
 
@@ -2207,7 +1923,7 @@ private fun SettingsBatteryItem(
         mutableStateOf(com.akshay.musicplayer.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context))
     }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
 
     Row(
         modifier = Modifier
@@ -2215,15 +1931,14 @@ private fun SettingsBatteryItem(
             .clickable {
                 com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
             }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Bolt,
@@ -2231,41 +1946,30 @@ private fun SettingsBatteryItem(
                 tint = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
                 modifier = Modifier.size(20.dp)
             )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text("Background Playback", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = if (isIgnoring) "Unrestricted • Playback stays active when screen is off" else "Optimized • Tap to allow unrestricted playback",
+                    color = textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "Background Playback",
-                    color = textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isIgnoring) Color(0xFF4CAF50).copy(alpha = 0.15f) else AccentOrange.copy(alpha = 0.15f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = if (isIgnoring) "UNRESTRICTED" else "OPTIMIZED",
-                        color = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isIgnoring) Color(0xFF4CAF50).copy(alpha = 0.15f) else AccentOrange.copy(alpha = 0.15f))
+                .padding(horizontal = 7.dp, vertical = 3.dp)
+        ) {
             Text(
-                text = if (isIgnoring) "Battery optimization disabled. Playback stays alive when screen is off." else "Battery restricted. Tap to allow unrestricted background playback.",
-                color = textSub,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                text = if (isIgnoring) "UNRESTRICTED" else "OPTIMIZED",
+                color = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
             )
         }
     }

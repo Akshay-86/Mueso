@@ -56,6 +56,12 @@ import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import android.content.ContentUris
+import android.net.Uri
+import androidx.compose.ui.graphics.graphicsLayer
 
 private val AccentOrange: Color
     @Composable
@@ -597,7 +603,6 @@ fun TrackListItem(
     val iconTint = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF3A3A3C)
     val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
     val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -606,7 +611,14 @@ fun TrackListItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Thumbnail icon
+        // Artwork thumbnail — real album art with MusicNote fallback
+        val artModel = remember(track.albumId, track.artworkUrl) {
+            track.artworkUrl?.takeIf { it.isNotBlank() }
+                ?: ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"),
+                    track.albumId
+                )
+        }
         Box(
             modifier = Modifier
                 .size(46.dp)
@@ -619,11 +631,21 @@ fun TrackListItem(
                 ),
             contentAlignment = Alignment.Center
         ) {
+            // Fallback icon always drawn behind — only visible if art fails
             Icon(
                 Icons.Default.MusicNote,
                 contentDescription = null,
-                tint = if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f),
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f),
                 modifier = Modifier.size(22.dp)
+            )
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(artModel)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
         }
 

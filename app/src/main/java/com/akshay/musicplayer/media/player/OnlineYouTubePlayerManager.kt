@@ -20,7 +20,8 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var playerView: YouTubePlayerView? = null
+    var playerView: YouTubePlayerView? = null
+        private set
     private var activePlayer: YouTubePlayer? = null
     private var isReady = false
     private var pendingVideoId: String? = null
@@ -28,6 +29,9 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     private var pendingCueOnly: Boolean = false
     private var isLoadingNewVideo = false
     private var isUserPaused: Boolean = false
+    private var autoResumeRetries: Int = 0
+    private var lastPlayingTimestamp: Long = 0L
+    private val MAX_AUTO_RESUME_RETRIES = 5
 
     var isBuffering: Boolean = false
         private set
@@ -110,7 +114,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     javaScriptEnabled = true
                     mediaPlaybackRequiresUserGesture = false
                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
-                    databaseEnabled = true
                 }
                 wv.webViewClient = object : android.webkit.WebViewClient() {
                     override fun shouldInterceptRequest(
@@ -158,23 +161,18 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     isReady = true
 
                     // Apply allow attributes on the embedded iframe and clean YT embed UI styles.
-                    // Also size to 200x200 and enforce 'tiny' (144p) quality to eliminate hardware VP9 frame rendering in headless mode.
                     findWebView(view)?.evaluateJavascript(
                         """
                         (function() {
                             var ifr = document.querySelector('iframe');
                             if (ifr) {
                                 ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                                ifr.style.width = '200px';
-                                ifr.style.height = '200px';
                             }
                             var style = document.createElement('style');
                             style.innerHTML = `
-                                iframe, #youTubePlayerDOM {
-                                    width: 200px !important;
-                                    height: 200px !important;
-                                    opacity: 0.01 !important;
-                                    pointer-events: none !important;
+                                html, body, iframe, #youTubePlayerDOM {
+                                    width: 100% !important;
+                                    height: 100% !important;
                                 }
                                 .ytp-chrome-top, .ytp-title, .ytp-watermark, .ytp-pause-overlay,
                                 .ytp-ce-element, .ytp-ce-covering-overlay, .ytp-cards-teaser,
@@ -187,9 +185,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 }
                             `;
                             document.head.appendChild(style);
-                            if (typeof player !== 'undefined' && player && player.setPlaybackQuality) {
-                                player.setPlaybackQuality('tiny');
-                            }
                         })();
                         """.trimIndent(), null
                     )
@@ -214,20 +209,19 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             isLoadingNewVideo = false
                             isPlaying = true
                             isBuffering = false
-                            findWebView(view)?.evaluateJavascript(
-                                "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
-                                null
-                            )
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            val playDuration = now - lastPlayingTimestamp
+                            // Only reset auto-resume retries if playback was stable (>2s)
+                            // Brief PLAYING→PAUSED flashes (<2s) during screen-off should NOT reset
+                            if (lastPlayingTimestamp == 0L || playDuration > 2000L) {
+                                autoResumeRetries = 0
+                            }
+                            lastPlayingTimestamp = now
                             onStateChanged?.invoke(true)
                         }
                         PlayerConstants.PlayerState.BUFFERING -> {
                             Log.d(TAG, "YouTubePlayer BUFFERING for $currentVideoId (pos: ${currentPositionMs}ms, loaded: $currentLoadedFraction)")
                             isBuffering = true
-                            // Immediately drop video bitrate to minimum ('tiny') so network bandwidth is 100% dedicated to buffering audio!
-                            findWebView(view)?.evaluateJavascript(
-                                "if (typeof player !== 'undefined' && player && player.setPlaybackQuality) { player.setPlaybackQuality('tiny'); }",
-                                null
-                            )
                         }
                         PlayerConstants.PlayerState.VIDEO_CUED -> {
                             if (isLoadingNewVideo || (isPlaying && !isUserPaused)) {
@@ -242,6 +236,20 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                                 return
                             }
                             Log.d(TAG, "YouTubePlayer PAUSED for $currentVideoId (isUserPaused: $isUserPaused)")
+                            if (!isUserPaused) {
+                                autoResumeRetries++
+                                if (autoResumeRetries <= MAX_AUTO_RESUME_RETRIES) {
+                                    Log.d(TAG, "Auto-resuming: PAUSED was not user-initiated (screen off?), retry $autoResumeRetries/$MAX_AUTO_RESUME_RETRIES for $currentVideoId")
+                                    mainHandler.postDelayed({
+                                        if (!isUserPaused && currentVideoId != null) {
+                                            activePlayer?.play()
+                                        }
+                                    }, 200L)
+                                    return
+                                } else {
+                                    Log.w(TAG, "Auto-resume retries exhausted ($MAX_AUTO_RESUME_RETRIES) for $currentVideoId, accepting pause")
+                                }
+                            }
                             isPlaying = false
                             isBuffering = false
                             onStateChanged?.invoke(false)
@@ -337,6 +345,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         currentVideoId = videoId
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
+        autoResumeRetries = 0
         isLoadingNewVideo = false
         isPlaying = false
 
@@ -368,6 +377,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         currentVideoId = videoId
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
+        autoResumeRetries = 0
         pendingCueOnly = false
         isLoadingNewVideo = true
         isPlaying = true
@@ -453,7 +463,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                     """
                     (function() {
                         if (typeof player !== 'undefined' && player) {
-                            if (player.setPlaybackQuality) player.setPlaybackQuality('tiny');
                             var v = document.querySelector('video');
                             if (v) {
                                 v.preload = 'auto';
