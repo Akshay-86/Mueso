@@ -11,6 +11,7 @@ import com.akshay.musicplayer.media.player.PlayerEvent
 import com.akshay.musicplayer.ui.components.SleepTimerMode
 import com.akshay.musicplayer.ui.state.PlaybackState
 import com.akshay.musicplayer.ui.state.PlayerUiState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -321,6 +322,7 @@ class PlayerViewModel(
                     _selectedArtistPage.value = page
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("PlayerViewModel", "Error loading artist $browseId", e)
             } finally {
                 _isLoadingArtistPage.value = false
@@ -384,9 +386,17 @@ class PlayerViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("PlayerViewModel", "Error resolving artist '$cleanName'", e)
                 val targetQuery = cleanName.split(Regex("[,&]|\\bfeat\\.?\\b|\\bft\\.?\\b", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: cleanName
-                val fallbackTracks = try { onlineRepository.searchOnlineTracks(targetQuery) } catch (_: Exception) { emptyList() }
+                val fallbackTracks = try {
+                    onlineRepository.searchOnlineTracks(targetQuery)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (!isActive) return@launch
                 _selectedArtistPage.value = com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage(
                     id = "",
                     name = targetQuery,

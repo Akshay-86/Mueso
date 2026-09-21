@@ -43,7 +43,7 @@ class LosslessMusicRepository(
 
     fun updateServerBaseUrl(url: String) {
         val clean = url.trim().removeSuffix("/")
-        if (clean.isNotBlank() && (clean.startsWith("http://") || clean.startsWith("https://"))) {
+        if (clean.isNotBlank() && clean.startsWith("https://")) {
             // Auto-migrate legacy ClashFLAC URL to high-fidelity Qobuz backend
             if (clean.contains("clashflac.kanjijewels.com", ignoreCase = true)) {
                 serverBaseUrl = DEFAULT_SERVER_URL
@@ -125,8 +125,8 @@ class LosslessMusicRepository(
         val candidate = findBestQobuzCandidate(queries, rawTitle, rawArtist, expectedDurationSec) ?: return null
         Log.i(TAG, "Verified Qobuz match for '$rawTitle': trackId=${candidate.id}, title='${candidate.title}', artist='${candidate.performerName}', duration=${candidate.duration}s")
 
-        // Fetch direct CDN streaming URL across descending quality tiers
-        val qualitiesToTry = listOf(QUALITY_MAX_HI_RES, QUALITY_HI_RES_96, QUALITY_CD_LOSSLESS, QUALITY_MP3_320)
+        // Fetch direct CDN streaming URL across descending quality tiers (strictly lossless)
+        val qualitiesToTry = listOf(QUALITY_MAX_HI_RES, QUALITY_HI_RES_96, QUALITY_CD_LOSSLESS)
         for (q in qualitiesToTry) {
             val stream = fetchQobuzStreamUrl(candidate, q)
             if (stream != null) return stream
@@ -138,20 +138,18 @@ class LosslessMusicRepository(
         val urlBuilder = "$serverBaseUrl/api/track/${candidate.id}/url".toHttpUrlOrNull()?.newBuilder() ?: return null
         urlBuilder.addQueryParameter("quality", quality.toString())
         urlBuilder.addQueryParameter("fallback", "true")
-        urlBuilder.addQueryParameter("title", candidate.title)
-        if (candidate.performerName.isNotBlank()) {
-            urlBuilder.addQueryParameter("artist", candidate.performerName)
-        }
         if (candidate.duration > 0) {
             urlBuilder.addQueryParameter("duration", candidate.duration.toString())
         }
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(urlBuilder.build())
             .get()
-            .header("X-API-Key", DEFAULT_API_KEY)
             .header("User-Agent", "LastWave/4.1.0 (Android; Linux)")
-            .build()
+        if (serverBaseUrl.contains("kanjijewels.com", ignoreCase = true)) {
+            requestBuilder.header("X-API-Key", DEFAULT_API_KEY)
+        }
+        val request = requestBuilder.build()
 
         return try {
             val response = httpClient.newCall(request).execute()
@@ -229,12 +227,14 @@ class LosslessMusicRepository(
 
         for (query in queries) {
             val url = "$serverBaseUrl/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&type=track&limit=15"
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(url)
                 .get()
-                .header("X-API-Key", DEFAULT_API_KEY)
                 .header("User-Agent", "LastWave/4.1.0 (Android; Linux)")
-                .build()
+            if (serverBaseUrl.contains("kanjijewels.com", ignoreCase = true)) {
+                requestBuilder.header("X-API-Key", DEFAULT_API_KEY)
+            }
+            val request = requestBuilder.build()
 
             val items = try {
                 val response = httpClient.newCall(request).execute()

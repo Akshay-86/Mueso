@@ -109,10 +109,8 @@ class DownloadManager(
             try {
                 val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
                 val dlQuality = prefs.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
-                val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
                 val isFlacRequested = dlQuality.contains("FLAC", ignoreCase = true) ||
-                        dlQuality.contains("Lossless", ignoreCase = true) ||
-                        isLosslessEnabled
+                        dlQuality.contains("Lossless", ignoreCase = true)
 
                 val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
                     ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
@@ -135,7 +133,7 @@ class DownloadManager(
                         resolvedBitDepth = losslessResult.bitDepth
                         resolvedSampleRateHz = losslessResult.sampleRateHz
                         resolvedCodec = losslessResult.codec
-                        Log.i("MUESO_DOWNLOAD", "Resolved Lossless FLAC download for '${track.title}': $downloadUrl (codec=$resolvedCodec, ${resolvedBitDepth}-bit/${resolvedSampleRateHz}Hz)")
+                        Log.i("MUESO_DOWNLOAD", "Resolved Lossless FLAC download for '${track.title}' (codec=$resolvedCodec, ${resolvedBitDepth}-bit/${resolvedSampleRateHz}Hz)")
                     }
                 }
 

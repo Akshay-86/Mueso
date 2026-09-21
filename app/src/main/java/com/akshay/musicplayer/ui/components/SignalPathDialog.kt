@@ -121,7 +121,7 @@ fun SignalPathDialog(
     val isMixerBitPerfect = isBitPerfectActive || (sampleRateDisplay == platformMixerRateHz)
     val isOutputOk = isBitPerfectActive || isCheckingPath
 
-    val isAllBitPerfect = isSourceOk && isResamplerBypassed && isDspBypassed && isTempoOk && isAppVolumeUnity && isSysVolBitPerfect && isMixerBitPerfect
+    val isAllBitPerfect = isSourceOk && isResamplerBypassed && isDspBypassed && isTempoOk && isAppVolumeUnity && isSysVolBitPerfect && isMixerBitPerfect && isOutputOk
 
     // Dynamic volume attenuation calculation
     val attenuationDb = if (maxVol > 0 && currentVol > 0 && currentVol < maxVol) {

@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.akshay.musicplayer.ui.components
 
 import androidx.compose.animation.AnimatedVisibility

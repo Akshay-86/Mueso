@@ -35,9 +35,17 @@ class YouTubeStreamResolver(
 
         // Standard YouTube API key (public, used by youtube.com itself)
         private val INNERTUBE_API_KEY = String(android.util.Base64.decode("QUl6YVN5QU9fRkoyU2xxVThRNFNURUhMR0NpbHdfWTlfMTFxY1c4", android.util.Base64.DEFAULT))
-    }
 
-    private val streamCache = ConcurrentHashMap<String, CachedStream>()
+        private val streamCache = ConcurrentHashMap<String, CachedStream>()
+
+        fun invalidateCache(videoId: String) {
+            streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
+        }
+
+        fun clearAllCache() {
+            streamCache.clear()
+        }
+    }
 
     private var authCookie: String? = null
 
@@ -48,13 +56,9 @@ class YouTubeStreamResolver(
 
     fun hasAuthCookie(): Boolean = !authCookie.isNullOrBlank()
 
-    fun invalidateCache(videoId: String) {
-        streamCache.keys.filter { it == videoId || it.startsWith("$videoId:") }.forEach { streamCache.remove(it) }
-    }
+    fun invalidateCache(videoId: String) = Companion.invalidateCache(videoId)
 
-    fun clearAllCache() {
-        streamCache.clear()
-    }
+    fun clearAllCache() = Companion.clearAllCache()
 
     data class CachedStream(
         val url: String,

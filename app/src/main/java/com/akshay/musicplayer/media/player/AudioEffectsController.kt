@@ -54,10 +54,12 @@ class AudioEffectsController private constructor(private val context: Context) {
     private val _bassBoostStrength = MutableStateFlow(prefs.getInt(KEY_BASS_STRENGTH, 0))
     val bassBoostStrength: StateFlow<Int> = _bassBoostStrength.asStateFlow()
 
-    private val _isClarityEnabled = MutableStateFlow(prefs.getBoolean(KEY_CLARITY_ENABLED, false))
+    private val muesoPrefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
+
+    private val _isClarityEnabled = MutableStateFlow(muesoPrefs.getBoolean("studio_master_clarity", prefs.getBoolean(KEY_CLARITY_ENABLED, false)))
     val isClarityEnabled: StateFlow<Boolean> = _isClarityEnabled.asStateFlow()
 
-    private val _isBitPerfectEnabled = MutableStateFlow(prefs.getBoolean(KEY_BIT_PERFECT_ENABLED, false))
+    private val _isBitPerfectEnabled = MutableStateFlow(muesoPrefs.getBoolean("bit_perfect_mode", prefs.getBoolean(KEY_BIT_PERFECT_ENABLED, false)))
     val isBitPerfectEnabled: StateFlow<Boolean> = _isBitPerfectEnabled.asStateFlow()
 
     init {
@@ -222,12 +224,14 @@ class AudioEffectsController private constructor(private val context: Context) {
     fun setClarityEnabled(enabled: Boolean) {
         _isClarityEnabled.value = enabled
         prefs.edit().putBoolean(KEY_CLARITY_ENABLED, enabled).apply()
+        muesoPrefs.edit().putBoolean("studio_master_clarity", enabled).apply()
         applyAll()
     }
 
     fun setBitPerfectEnabled(enabled: Boolean) {
         _isBitPerfectEnabled.value = enabled
         prefs.edit().putBoolean(KEY_BIT_PERFECT_ENABLED, enabled).apply()
+        muesoPrefs.edit().putBoolean("bit_perfect_mode", enabled).apply()
         applyAll()
     }
 

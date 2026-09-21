@@ -109,6 +109,17 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _playerLayoutStyle = MutableStateFlow(sharedPreferences.getString("player_layout_style", "reels") ?: "reels")
     val playerLayoutStyle: StateFlow<String> = _playerLayoutStyle.asStateFlow()
 
+    private val prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            "bit_perfect_mode" -> _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
+            "studio_master_clarity" -> _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
+        }
+    }
+
+    init {
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefChangeListener)
+    }
+
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
         sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()

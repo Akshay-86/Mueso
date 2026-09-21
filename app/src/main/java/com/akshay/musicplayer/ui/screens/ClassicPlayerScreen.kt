@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.akshay.musicplayer.ui.screens
 
 import android.content.Context

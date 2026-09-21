@@ -168,6 +168,19 @@ fun TrackMenuBottomSheet(
             }
 
             TrackMenuItem(
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                title = "Add to Playlist",
+                subtitle = "Save to user or offline playlist",
+                tint = accent,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                onClick = {
+                    onDismiss()
+                    onAddToPlaylist()
+                }
+            )
+
+            TrackMenuItem(
                 icon = Icons.Default.GraphicEq,
                 title = "Equalizer & DSP",
                 subtitle = "Bass boost, frequency bands & studio clarity",
@@ -177,6 +190,19 @@ fun TrackMenuBottomSheet(
                 onClick = {
                     onDismiss()
                     onShowEqualizer()
+                }
+            )
+
+            TrackMenuItem(
+                icon = Icons.Default.Info,
+                title = "Audio Signal Path",
+                subtitle = "Format, sample rate, bit depth & DAC routing",
+                tint = accent,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                onClick = {
+                    onDismiss()
+                    onShowSignalPath()
                 }
             )
         }

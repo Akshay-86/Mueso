@@ -362,7 +362,7 @@ class MusicPlayerService : MediaSessionService() {
                     if (controller.packageName == packageName) {
                         MediaSessionBridge.isSyncing = true
                     }
-                    return androidx.media3.session.SessionResult.RESULT_SUCCESS
+                    return playerCommand
                 }
 
                 override fun onPlayerInteractionFinished(

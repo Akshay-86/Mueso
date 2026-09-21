@@ -26,11 +26,18 @@ class ClearDrmExtractorsFactory(
 ) : ExtractorsFactory {
 
     override fun createExtractors(): Array<Extractor> {
-        return delegate.createExtractors().map { ClearDrmExtractor(it) }.toTypedArray()
+        return delegate.createExtractors()
     }
 
     override fun createExtractors(uri: Uri, responseHeaders: Map<String, List<String>>): Array<Extractor> {
-        return delegate.createExtractors(uri, responseHeaders).map { ClearDrmExtractor(it) }.toTypedArray()
+        val query = try { uri.query } catch (_: Exception) { null }
+        val isExplicitClearWrapper = query?.contains("clear_drm=true", ignoreCase = true) == true ||
+                responseHeaders["X-Clear-Drm-Wrapper"]?.firstOrNull()?.equals("true", ignoreCase = true) == true
+        return if (isExplicitClearWrapper) {
+            delegate.createExtractors(uri, responseHeaders).map { ClearDrmExtractor(it) }.toTypedArray()
+        } else {
+            delegate.createExtractors(uri, responseHeaders)
+        }
     }
 }
 
