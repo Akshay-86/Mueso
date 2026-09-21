@@ -64,7 +64,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     }
 
     // SponsorBlock Settings
-    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", false))
+    private val _enableSponsorBlock = MutableStateFlow(sharedPreferences.getBoolean("enable_sponsorblock", true))
     val enableSponsorBlock: StateFlow<Boolean> = _enableSponsorBlock.asStateFlow()
     
     private val _skipSponsor = MutableStateFlow(sharedPreferences.getBoolean("skip_sponsor", true))
@@ -83,7 +83,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     val skipNonMusicOffTopic: StateFlow<Boolean> = _skipNonMusicOffTopic.asStateFlow()
 
     // Audiophile & Lossless Settings
-    private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", true))
+    private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", false))
     val losslessStreamingEnabled: StateFlow<Boolean> = _losslessStreamingEnabled.asStateFlow()
 
     private val _losslessServerUrl = MutableStateFlow(
@@ -285,14 +285,14 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
         _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
-        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", false)
+        _enableSponsorBlock.value = sharedPreferences.getBoolean("enable_sponsorblock", true)
         _skipSponsor.value = sharedPreferences.getBoolean("skip_sponsor", true)
         _skipSelfPromo.value = sharedPreferences.getBoolean("skip_self_promo", true)
         _skipInteraction.value = sharedPreferences.getBoolean("skip_interaction", true)
         _skipIntroOutro.value = sharedPreferences.getBoolean("skip_intro_outro", true)
         _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
-        _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", true)
+        _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", false)
         _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
             ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
             ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL

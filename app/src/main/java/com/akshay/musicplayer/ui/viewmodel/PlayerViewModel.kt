@@ -2223,11 +2223,12 @@ class PlayerViewModel(
                 _playlistTrackCount.value = 0
             }
 
+            // Immediately cut off playback of previous track while switching to next track
+            mediaPlayerController.pause()
+
             val isUnresolvedOrExpired = track.filePath.startsWith("online:") &&
                     (track.filePath.removePrefix("online:").contains(" ") || track.filePath.removePrefix("online:").length != 11)
             if (isUnresolvedOrExpired) {
-                // Immediately cut off playback of previous track while resolving new track
-                mediaPlayerController.pause()
                 Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: track at index $index is search query, resolving first...")
                 _resolvingTrackTitle.value = track.title
                 _isResolvingTrack.value = true

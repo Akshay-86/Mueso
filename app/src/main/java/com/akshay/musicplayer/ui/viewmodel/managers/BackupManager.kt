@@ -44,7 +44,7 @@ class BackupManager(
             playButtonPosition = sharedPreferences.getString("play_button_position", "Left") ?: "Left",
             enableLyrics = sharedPreferences.getBoolean("enable_lyrics", true),
             embedLyricsInDownload = sharedPreferences.getBoolean("embed_lyrics_in_download", true),
-            enableSponsorBlock = sharedPreferences.getBoolean("enable_sponsorblock", false),
+            enableSponsorBlock = sharedPreferences.getBoolean("enable_sponsorblock", true),
             skipSponsor = sharedPreferences.getBoolean("skip_sponsor", true),
             skipSelfPromo = sharedPreferences.getBoolean("skip_self_promo", true),
             skipInteraction = sharedPreferences.getBoolean("skip_interaction", true),

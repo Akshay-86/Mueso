@@ -105,7 +105,6 @@ fun SettingsScreen(
 
     // Audiophile & Appearance States
     val losslessStreamingEnabled by viewModel.losslessStreamingEnabled.collectAsState()
-    val losslessServerUrl by viewModel.losslessServerUrl.collectAsState()
     val isStudioMasterClarityEnabled by viewModel.isStudioMasterClarityEnabled.collectAsState()
     val isBitPerfectEnabled by viewModel.isBitPerfectEnabled.collectAsState()
     val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
@@ -115,7 +114,6 @@ fun SettingsScreen(
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
-    var showLosslessServerDialog by remember { mutableStateOf(false) }
 
     val accentColor = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
@@ -339,91 +337,6 @@ fun SettingsScreen(
                             onSelect = { viewModel.setAudioQuality(it) }
                         )
                         HorizontalDivider(color = dividerColor)
-                        SettingsClickableItem(
-                            title = "Equalizer & Audio DSP",
-                            subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
-                            icon = Icons.Default.Tune,
-                            isDarkMode = isDarkMode,
-                            onClick = { showEqualizerSheet = true }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Hi-Res Lossless Streaming (FLAC)",
-                            subtitle = if (losslessStreamingEnabled) "Matches tracks against Qobuz lossless catalog • Auto-fallback to YouTube if track or server unavailable" else "Stream 24-bit/96kHz audio with auto-fallback to YouTube",
-                            icon = Icons.Default.HighQuality,
-                            checked = losslessStreamingEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
-                        )
-                        if (losslessStreamingEnabled) {
-                            HorizontalDivider(color = dividerColor)
-                            SettingsClickableItem(
-                                title = "Lossless Backend Server",
-                                subtitle = losslessServerUrl.ifBlank { com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL },
-                                icon = Icons.Default.Storage,
-                                isDarkMode = isDarkMode,
-                                onClick = { showLosslessServerDialog = true }
-                            )
-                        }
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Studio Master Clarity",
-                            subtitle = "Acoustic high-shelf excitation (+2.5dB air curve) for vocals",
-                            icon = Icons.Default.Speed,
-                            checked = isStudioMasterClarityEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Bit-Perfect Mode",
-                            subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
-                            icon = Icons.Default.Headphones,
-                            checked = isBitPerfectEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Audio Crossfade",
-                            subtitle = if (crossfadeEnabled) "${crossfadeSeconds}s smooth transition between tracks" else "Gapless track playback",
-                            icon = Icons.Default.Shuffle,
-                            checked = crossfadeEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
-                        )
-                        AnimatedVisibility(visible = crossfadeEnabled) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Transition Duration", color = textSub, fontSize = 12.sp)
-                                    Text("${crossfadeSeconds}s", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = crossfadeSeconds.toFloat(),
-                                    onValueChange = { viewModel.setCrossfadeSeconds(it.toInt()) },
-                                    valueRange = 1f..12f,
-                                    steps = 10,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = accentColor,
-                                        activeTrackColor = accentColor,
-                                        inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
-                                    )
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = dividerColor)
                         SettingsToggleItem(
                             title = "Synchronized Karaoke Lyrics",
                             subtitle = "Display real-time synchronized lyrics in player",
@@ -466,6 +379,95 @@ fun SettingsScreen(
                         )
                         HorizontalDivider(color = dividerColor)
                         SettingsBatteryItem(isDarkMode = isDarkMode)
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // EXPERIMENTAL
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Experimental", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsClickableItem(
+                            title = "Equalizer & Audio DSP",
+                            subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
+                            icon = Icons.Default.Tune,
+                            isDarkMode = isDarkMode,
+                            onClick = { showEqualizerSheet = true }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Hi-Res Audio (Lossless FLAC)",
+                            subtitle = if (losslessStreamingEnabled) "Matches tracks against high-resolution lossless catalog • Auto-fallback to YouTube if track unavailable" else "Stream studio quality audio with auto-fallback to YouTube",
+                            icon = Icons.Default.HighQuality,
+                            checked = losslessStreamingEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Bit-Perfect Mode",
+                            subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
+                            icon = Icons.Default.Headphones,
+                            checked = isBitPerfectEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Studio Master Clarity",
+                            subtitle = "Acoustic high-shelf excitation (+2.5dB air curve) for vocals",
+                            icon = Icons.Default.Speed,
+                            checked = isStudioMasterClarityEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsToggleItem(
+                            title = "Audio Crossfade",
+                            subtitle = if (crossfadeEnabled) "${crossfadeSeconds}s smooth transition between tracks" else "Gapless track playback",
+                            icon = Icons.Default.Shuffle,
+                            checked = crossfadeEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
+                        )
+                        AnimatedVisibility(visible = crossfadeEnabled) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Transition Duration", color = textSub, fontSize = 12.sp)
+                                    Text("${crossfadeSeconds}s", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Slider(
+                                    value = crossfadeSeconds.toFloat(),
+                                    onValueChange = { viewModel.setCrossfadeSeconds(it.toInt()) },
+                                    valueRange = 1f..12f,
+                                    steps = 10,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = accentColor,
+                                        activeTrackColor = accentColor,
+                                        inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1057,61 +1059,6 @@ fun SettingsScreen(
                 effectsController = viewModel.audioEffectsController,
                 isDarkMode = isDarkMode,
                 onDismiss = { showEqualizerSheet = false }
-            )
-        }
-
-        if (showLosslessServerDialog) {
-            var tempUrl by remember { mutableStateOf(losslessServerUrl.ifBlank { com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL }) }
-            AlertDialog(
-                onDismissRequest = { showLosslessServerDialog = false },
-                title = { Text("Lossless Server URL", color = textPrimary, fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "Enter the base URL of your Qobuz or ClashFLAC resolution backend:",
-                            color = textSub,
-                            fontSize = 13.sp
-                        )
-                        OutlinedTextField(
-                            value = tempUrl,
-                            onValueChange = { tempUrl = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = accentColor,
-                                cursorColor = accentColor
-                            )
-                        )
-                        Text(
-                            "Note: Regional tracks or songs not present in Qobuz automatically fallback to YouTube Music audio stream.",
-                            color = textSub.copy(alpha = 0.8f),
-                            fontSize = 11.sp
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.setLosslessServerUrl(tempUrl.trim())
-                        showLosslessServerDialog = false
-                    }) {
-                        Text("Save", color = accentColor, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = {
-                            tempUrl = com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
-                            viewModel.setLosslessServerUrl(tempUrl)
-                            showLosslessServerDialog = false
-                        }) {
-                            Text("Reset", color = textSub)
-                        }
-                        TextButton(onClick = { showLosslessServerDialog = false }) {
-                            Text("Cancel", color = textSub)
-                        }
-                    }
-                },
-                containerColor = cardBg
             )
         }
     }

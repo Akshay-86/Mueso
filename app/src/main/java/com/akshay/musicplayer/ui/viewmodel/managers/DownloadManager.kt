@@ -109,7 +109,7 @@ class DownloadManager(
             try {
                 val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
                 val dlQuality = prefs.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
-                val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", true)
+                val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
                 val isFlacRequested = dlQuality.contains("FLAC", ignoreCase = true) ||
                         dlQuality.contains("Lossless", ignoreCase = true) ||
                         isLosslessEnabled
