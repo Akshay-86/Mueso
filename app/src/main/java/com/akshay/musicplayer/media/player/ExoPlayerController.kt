@@ -84,6 +84,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     private var isSyncingToMediaSession = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingTrackEndedRunnable: Runnable? = null
     private val onlineRepo = OnlineMusicRepository()
 
     @Volatile private var isWaitingForNetwork: Boolean = false
@@ -152,6 +153,15 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 updatePlaybackState()
             }
             handlePositionUpdates(isPlaying)
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (isPlayingOnline) return
+
+            if (!isRestoring) {
+                updatePlaybackState()
+            }
+            handlePositionUpdates(mediaController?.isPlaying == true)
         }
 
         override fun onPositionDiscontinuity(
@@ -689,12 +699,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaController?.volume = 1f
 
         val streamUrl = losslessResult.streamUrl
-        Log.i("MUESO_LOSSLESS", "playLosslessTrackInExoPlayer: streamUrl=$streamUrl, startPos=${startPositionMs}ms, autoPlay=$autoPlay, controller.volume=${mediaController?.volume}")
+        Log.i("MUESO_LOSSLESS", "playLosslessTrackInExoPlayer: streamUrl=${streamUrl.take(60)}..., startPos=${startPositionMs}ms, autoPlay=$autoPlay, controller.volume=${mediaController?.volume}")
         val mediaItemBuilder = MediaItem.Builder()
             .setMediaId(track.id.toString())
             .setUri(Uri.parse(streamUrl))
 
-        if (streamUrl.contains(".mp4", ignoreCase = true) || streamUrl.contains("/mp4", ignoreCase = true)) {
+        if (streamUrl.startsWith("data:application/dash+xml", ignoreCase = true) || streamUrl.contains(".mpd", ignoreCase = true)) {
+            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+        } else if (streamUrl.contains(".mp4", ignoreCase = true) || streamUrl.contains("/mp4", ignoreCase = true)) {
             mediaItemBuilder.setMimeType(MimeTypes.AUDIO_MP4)
         } else if (streamUrl.contains(".flac", ignoreCase = true)) {
             mediaItemBuilder.setMimeType(MimeTypes.AUDIO_FLAC)
@@ -987,18 +999,24 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 Log.d("MUESO_SYNC", "YouTubePlayer onTrackEnded -> advancing to next track (endedTrackId=$endedTrackId)")
                 scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
 
-                if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
-                    Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
-                    mainHandler.postDelayed({
-                        seekToIndex(currentQueueIndex)
-                    }, 300L)
+                if (com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack?.invoke(currentTrackId) == true) {
+                    Log.i("MUESO_SLEEP", "Sleep timer after song triggered in YouTubePlayer onTrackEnded for trackId=$currentTrackId. Pausing.")
+                    pause()
                 } else {
-                    mainHandler.postDelayed({
-                        if (isPlayingOnline && currentTrackId == endedTrackId && !ytPlayerManager.isPlaying) {
-                            Log.i("MUESO_SYNC", "Executing autonomous queue progression from YouTubePlayer onTrackEnded...")
-                            seekToNext()
+                    pendingTrackEndedRunnable?.let { mainHandler.removeCallbacks(it) }
+                    val r = Runnable {
+                        if (isPlayingOnline) {
+                            if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
+                                Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
+                                seekToIndex(currentQueueIndex)
+                            } else if (currentTrackId == endedTrackId && !ytPlayerManager.isPlaying) {
+                                Log.i("MUESO_SYNC", "Executing autonomous queue progression from YouTubePlayer onTrackEnded...")
+                                seekToNext()
+                            }
                         }
-                    }, 600L)
+                    }
+                    pendingTrackEndedRunnable = r
+                    mainHandler.postDelayed(r, if (getRepeatMode() == Player.REPEAT_MODE_ONE) 300L else 600L)
                 }
             }
         }
@@ -1145,24 +1163,27 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         Log.i("MUESO_SYNC", "ExoPlayer reached STATE_ENDED on trackId=$endedTrackId (isDirectOnline=$isPlayingDirectOnline, isLossless=$isPlayingLosslessOnline)")
         scope.launch { _mediaEvents.emit(PlayerEvent.TrackEnded) }
 
-        if (isPlayingDirectOnline || isPlayingLosslessOnline) {
-            if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
-                Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
-                mainHandler.postDelayed({
-                    seekToIndex(currentQueueIndex)
-                }, 300L)
-                return
-            }
+        if (com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack?.invoke(currentTrackId) == true) {
+            Log.i("MUESO_SLEEP", "Sleep timer after song triggered in handleTrackEnded for trackId=$currentTrackId. Pausing.")
+            pause()
+            return
+        }
 
-            // Autonomous background progression fallback:
-            // If the UI/ViewModel did not advance to the next track within 600ms (e.g. screen is locked or Activity is backgrounded/stopped),
-            // advance the queue autonomously directly in the controller!
-            mainHandler.postDelayed({
-                if ((isPlayingDirectOnline || isPlayingLosslessOnline) && currentTrackId == endedTrackId && mediaController?.isPlaying == false) {
-                    Log.i("MUESO_SYNC", "Executing autonomous queue progression for next track in background...")
-                    seekToNext()
+        if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+            pendingTrackEndedRunnable?.let { mainHandler.removeCallbacks(it) }
+            val r = Runnable {
+                if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+                    if (getRepeatMode() == Player.REPEAT_MODE_ONE) {
+                        Log.i("MUESO_REPEAT", "REPEAT_MODE_ONE active: replaying current online track index $currentQueueIndex")
+                        seekToIndex(currentQueueIndex)
+                    } else if (currentTrackId == endedTrackId && mediaController?.isPlaying == false) {
+                        Log.i("MUESO_SYNC", "Executing autonomous queue progression for next track in background...")
+                        seekToNext()
+                    }
                 }
-            }, 600L)
+            }
+            pendingTrackEndedRunnable = r
+            mainHandler.postDelayed(r, if (getRepeatMode() == Player.REPEAT_MODE_ONE) 300L else 600L)
         }
     }
 
@@ -1176,11 +1197,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 lastValidPositionMs = curPos
             }
             val dur = controller.duration.coerceAtLeast(0L)
+            val isPlayingEffective = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
+            val isBuffering = controller.playbackState == Player.STATE_BUFFERING
             _playbackState.value = PlaybackState(
-                isPlaying = controller.isPlaying,
+                isPlaying = isPlayingEffective,
                 currentTrackId = currentTrackId,
                 currentPositionMs = curPos,
-                durationMs = dur
+                durationMs = dur,
+                isBuffering = isBuffering
             )
             if (dur > 0L && currentOnlineTrack != null && currentOnlineTrack?.id == currentTrackId && currentOnlineTrack?.duration != dur) {
                 currentOnlineTrack = currentOnlineTrack?.copy(duration = dur)
@@ -1241,9 +1265,17 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
             val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
                 ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
-            losslessRepo.updateServerBaseUrl(customServer)
+            _playbackState.value = PlaybackState(
+                isPlaying = true,
+                currentTrackId = track.id,
+                currentPositionMs = 0L,
+                durationMs = track.duration.coerceAtLeast(0L),
+                isBuffering = true
+            )
+            updateArtworkForCurrentTrack(track)
 
-            scope.launch(Dispatchers.IO) {
+            onlineResolutionJob?.cancel()
+            onlineResolutionJob = scope.launch(Dispatchers.IO) {
                 if (isLosslessEnabled) {
                     val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
                     val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
@@ -1507,6 +1539,17 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             _playbackState.value = _playbackState.value.copy(isPlaying = pendingAutoPlayOnResolve)
             return
         }
+        if (onlineResolutionJob?.isActive == true) {
+            // User toggled play/pause while stream is actively resolving in background
+            val currentWantedState = _playbackState.value.isPlaying
+            if (currentWantedState) {
+                onlineResolutionJob?.cancel()
+                mediaController?.pause()
+                ytPlayerManager.pause()
+                _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
+            }
+            return
+        }
         if (isWaitingForNetwork) {
             if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
                 retryPendingNetworkTrack()
@@ -1525,29 +1568,36 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             ytPlayerManager.togglePlayPause()
         } else {
             mediaController?.let { controller ->
-                if (controller.isPlaying) {
+                val shouldPause = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
+                if (shouldPause) {
                     controller.pause()
+                    _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
                 } else {
                     if (controller.mediaItemCount == 0 && tracksQueue.isNotEmpty()) {
                         setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
                     } else {
                         controller.play()
+                        _playbackState.value = _playbackState.value.copy(isPlaying = true)
                     }
                 }
-                updatePlaybackState()
             }
         }
     }
 
     override fun pause() {
+        pendingTrackEndedRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingTrackEndedRunnable = null
+        }
         networkRetryJob?.cancel()
+        onlineResolutionJob?.cancel()
         isWaitingForNetwork = false
         if (isPlayingOnline) {
             ytPlayerManager.pause()
             currentOnlineTrack?.let { syncMediaSessionForOnlineTrack(it, isPlaying = false) }
         } else {
             mediaController?.pause()
-            updatePlaybackState()
+            _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
         }
     }
 
@@ -1609,12 +1659,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (track != null) {
             currentTrackId = track.id
             lastValidPositionMs = 0L
-            _playbackState.value = _playbackState.value.copy(
-                isPlaying = false,
+            _playbackState.value = PlaybackState(
+                isPlaying = true,
                 currentTrackId = track.id,
                 currentPositionMs = 0L,
-                durationMs = track.duration.coerceAtLeast(0L)
+                durationMs = track.duration.coerceAtLeast(0L),
+                isBuffering = true
             )
+            updateArtworkForCurrentTrack(track)
         }
 
         if (track != null && isOnlineTrack(track)) {

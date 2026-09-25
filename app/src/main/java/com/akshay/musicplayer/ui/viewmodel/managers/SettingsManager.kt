@@ -88,7 +88,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     private val _losslessServerUrl = MutableStateFlow(
         sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
-            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true) || it.contains("qobuz.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
             ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
     )
     val losslessServerUrl: StateFlow<String> = _losslessServerUrl.asStateFlow()
@@ -305,7 +305,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
         _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", false)
         _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
-            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
+            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true) || it.contains("qobuz.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
             ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
         _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
         _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)

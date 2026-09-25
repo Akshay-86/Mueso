@@ -2369,7 +2369,7 @@ class PlayerViewModel(
                 _sleepTimerMinutesLeft.value = if (remaining > 0) remaining else null
             }
             if (isActive) {
-                mediaPlayerController.togglePlayPause()
+                mediaPlayerController.pause()
                 clearSleepTimerInternal()
             }
         }
@@ -2379,6 +2379,9 @@ class PlayerViewModel(
         clearSleepTimerInternal()
         _activeSleepMode.value = SleepTimerMode.AFTER_SONG
         _sleepAfterSongId.value = trackId
+        com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack = { finishedId ->
+            _activeSleepMode.value == SleepTimerMode.AFTER_SONG && _sleepAfterSongId.value == finishedId
+        }
     }
 
     fun setSleepEndOfPlaylist() {
@@ -2396,13 +2399,15 @@ class PlayerViewModel(
         _activeSleepMode.value = null
         _sleepTimerMinutesLeft.value = null
         _sleepAfterSongId.value = null
+        com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack = null
     }
 
     private fun checkSleepAfterSong(finishedTrackId: Long) {
         if (_activeSleepMode.value == SleepTimerMode.AFTER_SONG &&
             _sleepAfterSongId.value == finishedTrackId) {
             // The target song just finished — pause
-            mediaPlayerController.togglePlayPause()
+            android.util.Log.i("MUESO_SLEEP", "Sleep timer after song reached target finishedTrackId=$finishedTrackId. Pausing playback.")
+            mediaPlayerController.pause()
             clearSleepTimerInternal()
         }
     }

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -177,12 +178,20 @@ fun DockedMiniPlayer(
                             .clip(CircleShape)
                             .background(accent.copy(alpha = 0.15f))
                     ) {
-                        Icon(
-                            imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                            tint = accent,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        if (playbackState.isBuffering && playbackState.isPlaying) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = accent,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
+                                tint = accent,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
 
                     IconButton(

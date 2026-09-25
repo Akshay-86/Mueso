@@ -20,8 +20,10 @@ class LosslessMusicRepository(
     private var serverBaseUrl: String = DEFAULT_SERVER_URL
 ) {
     companion object {
-        const val DEFAULT_SERVER_URL = "https://qobuz.kanjijewels.com"
-        const val DEFAULT_API_KEY = "lw_sec_e83b4c91a02d7e5f39641b8a5d2c70e9f1a34b82650d9c1e"
+        const val DEFAULT_SERVER_URL = "https://tidal.kanjijewels.com"
+        private val DEFAULT_API_KEY: String by lazy {
+            String(android.util.Base64.decode("aGlmaV9iNWFjNjZiYzdlNDNjNWI0ZTMzMDM3YmNjOTQ1ZWU5OWIwMDk4NWE0ZDhiNWIxYzA=", android.util.Base64.NO_WRAP))
+        }
         private const val TAG = "MUESO_LOSSLESS"
         private const val MAX_DURATION_DIFF_SEC = 8
 
@@ -44,8 +46,9 @@ class LosslessMusicRepository(
     fun updateServerBaseUrl(url: String) {
         val clean = url.trim().removeSuffix("/")
         if (clean.isNotBlank() && clean.startsWith("https://")) {
-            // Auto-migrate legacy ClashFLAC URL to high-fidelity Qobuz backend
-            if (clean.contains("clashflac.kanjijewels.com", ignoreCase = true)) {
+            // Auto-migrate legacy ClashFLAC / Qobuz URL to high-fidelity Tidal backend
+            if (clean.contains("clashflac.kanjijewels.com", ignoreCase = true) ||
+                clean.contains("qobuz.kanjijewels.com", ignoreCase = true)) {
                 serverBaseUrl = DEFAULT_SERVER_URL
             } else {
                 serverBaseUrl = clean
@@ -75,16 +78,21 @@ class LosslessMusicRepository(
         }
 
         try {
-            // Check if server is Qobuz backend or custom ClashFLAC
-            val isQobuzBackend = serverBaseUrl.contains("qobuz", ignoreCase = true) || !serverBaseUrl.contains("clashflac", ignoreCase = true)
+            val isTidalBackend = serverBaseUrl.contains("tidal", ignoreCase = true) ||
+                    (!serverBaseUrl.contains("qobuz", ignoreCase = true) && !serverBaseUrl.contains("clashflac", ignoreCase = true))
 
             var result: LosslessStreamResult? = null
-            if (isQobuzBackend) {
+            if (isTidalBackend) {
+                result = resolveViaTidalBackend(rawTitle, rawArtist, expectedDurationSeconds)
+            }
+
+            // If Tidal didn't match or server is explicitly Qobuz, try secondary resolver
+            if (result == null && (serverBaseUrl.contains("qobuz", ignoreCase = true) || !isTidalBackend)) {
                 result = resolveViaQobuzBackend(rawTitle, rawArtist, expectedDurationSeconds)
             }
 
-            // If Qobuz didn't match or server is ClashFLAC, try secondary resolver (with strict 30s preview rejection)
-            if (result == null && !isQobuzBackend) {
+            // Fallback to ClashFLAC if configured
+            if (result == null && serverBaseUrl.contains("clashflac", ignoreCase = true)) {
                 result = resolveViaClashFlac(rawTitle, rawArtist, expectedDurationSeconds)
             }
 
@@ -99,6 +107,238 @@ class LosslessMusicRepository(
             Log.w(TAG, "Lossless stream resolution failed gracefully for '$rawTitle': ${e.message}")
             null
         }
+    }
+
+    private fun resolveViaTidalBackend(
+        rawTitle: String,
+        rawArtist: String,
+        expectedDurationSec: Int
+    ): LosslessStreamResult? {
+        val cleanT = cleanForSearch(rawTitle)
+        val cleanA = cleanForSearch(rawArtist)
+
+        val individualArtists = rawArtist.split(Regex("""(?i)\s*(?:&|,|\bx\b|feat\.?|ft\.?|featuring|with|\+)\s*"""))
+            .map { cleanForSearch(it) }
+            .filter { it.isNotBlank() }
+        val primaryArtist = individualArtists.firstOrNull() ?: cleanA
+
+        val queries = listOfNotNull(
+            "$cleanT $cleanA".trim().takeIf { it.isNotBlank() },
+            if (primaryArtist.isNotBlank() && primaryArtist != cleanA) "$cleanT $primaryArtist".trim() else null,
+            "$cleanA $cleanT".trim().takeIf { it.isNotBlank() },
+            cleanT.takeIf { it.isNotBlank() },
+            rawTitle.trim().takeIf { it.isNotBlank() }
+        ).distinct()
+
+        val candidate = findBestTidalCandidate(queries, rawTitle, rawArtist, expectedDurationSec) ?: return null
+        Log.i(TAG, "Verified Tidal match for '$rawTitle': trackId=${candidate.id}, title='${candidate.title}', artist='${candidate.artistName}', duration=${candidate.duration}s, quality=${candidate.audioQuality}")
+
+        return fetchTidalStreamUrl(candidate)
+    }
+
+    private data class TidalCandidate(
+        val id: Long,
+        val title: String,
+        val version: String,
+        val artistName: String,
+        val albumTitle: String?,
+        val duration: Int,
+        val audioQuality: String
+    )
+
+    private fun findBestTidalCandidate(
+        queries: List<String>,
+        targetTitle: String,
+        targetArtist: String,
+        expectedDurationSec: Int
+    ): TidalCandidate? {
+        val normTargetTitle = normalizeText(cleanForSearch(targetTitle))
+        val normTargetArtist = normalizeText(cleanForSearch(targetArtist))
+        val targetTokens = normTargetArtist.split(" ").filter { it !in ARTIST_NOISE_WORDS }.toSet()
+
+        for (query in queries) {
+            val url = "$serverBaseUrl/search/?s=${java.net.URLEncoder.encode(query, "UTF-8")}"
+            val requestBuilder = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", "Mueso/2.0 (Android; Linux)")
+            if (serverBaseUrl.contains("kanjijewels.com", ignoreCase = true)) {
+                requestBuilder.header("X-API-Key", DEFAULT_API_KEY)
+            }
+            val request = requestBuilder.build()
+
+            val itemsArr = try {
+                val response = httpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    response.close()
+                    continue
+                }
+                val body = response.body?.string() ?: continue
+                val root = JSONObject(body)
+                val dataObj = root.optJSONObject("data") ?: continue
+                dataObj.optJSONArray("items") ?: continue
+            } catch (e: Exception) {
+                Log.d(TAG, "Tidal search failed for '$query': ${e.message}")
+                continue
+            }
+
+            var bestCandidate: TidalCandidate? = null
+            var bestScore = -1
+
+            for (i in 0 until itemsArr.length()) {
+                val item = itemsArr.optJSONObject(i) ?: continue
+                val id = item.optLong("id", 0L)
+                if (id <= 0L) continue
+
+                val itemTitle = item.optString("title", "")
+                val itemVersion = item.optString("version", "")
+                val candDur = item.optInt("duration", 0)
+
+                // Check duration tolerance
+                if (expectedDurationSec > 0 && candDur > 0 && abs(candDur - expectedDurationSec) > MAX_DURATION_DIFF_SEC) {
+                    continue
+                }
+
+                val artistObj = item.optJSONObject("artist")
+                var artistName = artistObj?.optString("name", "") ?: ""
+                if (artistName.isBlank()) {
+                    val artistsArr = item.optJSONArray("artists")
+                    if (artistsArr != null && artistsArr.length() > 0) {
+                        artistName = artistsArr.optJSONObject(0)?.optString("name", "") ?: ""
+                    }
+                }
+
+                val albumObj = item.optJSONObject("album")
+                val albumTitle = if (albumObj?.has("title") == true && !albumObj.isNull("title")) albumObj.getString("title") else null
+                val audioQuality = item.optString("audioQuality", "LOSSLESS")
+
+                val candNormArtist = normalizeText(artistName)
+                val artistTokens = candNormArtist.split(" ").toSet()
+
+                // Verify artist match
+                val isArtistMatch = normTargetArtist.isBlank() ||
+                        candNormArtist == normTargetArtist ||
+                        candNormArtist.contains(normTargetArtist) ||
+                        normTargetArtist.contains(candNormArtist) ||
+                        (targetTokens.isNotEmpty() && targetTokens.any { it in artistTokens })
+
+                if (!isArtistMatch && targetArtist.isNotBlank()) continue
+
+                // Check title variations: title alone, or title + version
+                val candNormTitle = normalizeText(cleanForSearch(itemTitle))
+                val candFullNormTitle = normalizeText(cleanForSearch("$itemTitle $itemVersion"))
+                val rawCandNormTitle = normalizeText(itemTitle)
+
+                val distTitle = levenshtein(normTargetTitle, candNormTitle)
+                val distFull = levenshtein(normTargetTitle, candFullNormTitle)
+                val distRaw = levenshtein(normTargetTitle, rawCandNormTitle)
+                val minDistance = minOf(distTitle, distFull, distRaw)
+
+                val maxFuzz = (normTargetTitle.length / 5).coerceIn(1, 2)
+                val isTitleMatch = minDistance <= maxFuzz ||
+                        normTargetTitle == candNormTitle ||
+                        normTargetTitle == candFullNormTitle ||
+                        candNormTitle.startsWith(normTargetTitle) ||
+                        normTargetTitle.startsWith(candNormTitle)
+
+                if (!isTitleMatch) continue
+
+                var score = 1000 - minDistance * 50
+                if (normTargetArtist == candNormArtist) score += 300
+                if (expectedDurationSec > 0 && candDur > 0) {
+                    score += (MAX_DURATION_DIFF_SEC - abs(candDur - expectedDurationSec)) * 20
+                }
+                if (audioQuality.contains("HI_RES", ignoreCase = true)) score += 50
+
+                if (score > bestScore) {
+                    bestScore = score
+                    bestCandidate = TidalCandidate(
+                        id = id,
+                        title = itemTitle,
+                        version = itemVersion,
+                        artistName = artistName,
+                        albumTitle = albumTitle,
+                        duration = candDur,
+                        audioQuality = audioQuality
+                    )
+                }
+            }
+
+            if (bestCandidate != null) {
+                return bestCandidate
+            }
+        }
+        return null
+    }
+
+    private fun fetchTidalStreamUrl(candidate: TidalCandidate): LosslessStreamResult? {
+        val qualitiesToTry = listOf("HI_RES_LOSSLESS", "LOSSLESS")
+        for (quality in qualitiesToTry) {
+            val url = "$serverBaseUrl/track/?id=${candidate.id}&quality=$quality"
+            val requestBuilder = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", "Mueso/2.0 (Android; Linux)")
+            if (serverBaseUrl.contains("kanjijewels.com", ignoreCase = true)) {
+                requestBuilder.header("X-API-Key", DEFAULT_API_KEY)
+            }
+            val request = requestBuilder.build()
+
+            try {
+                val response = httpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    response.close()
+                    continue
+                }
+                val body = response.body?.string() ?: continue
+                val root = JSONObject(body)
+                val data = root.optJSONObject("data") ?: continue
+
+                val manifestBase64 = data.optString("manifest", "").trim()
+                val manifestMimeType = data.optString("manifestMimeType", "")
+                val directUrl = data.optString("url", data.optString("stream_url", "")).trim()
+
+                val streamUrl = when {
+                    manifestBase64.isNotBlank() && manifestMimeType.contains("dash", ignoreCase = true) -> {
+                        "data:application/dash+xml;base64,$manifestBase64"
+                    }
+                    directUrl.startsWith("http") -> directUrl
+                    else -> null
+                } ?: continue
+
+                val bitDepth = data.optInt("bitDepth", 16)
+                val sampleRate = data.optInt("sampleRate", 44100)
+                val audioQuality = data.optString("audioQuality", candidate.audioQuality)
+                val isHiRes = bitDepth > 16 || sampleRate > 48000 || audioQuality.contains("HI_RES", ignoreCase = true)
+
+                val codec = if (isHiRes) "HI-RES FLAC" else "FLAC"
+                val bitrateKbps = if (isHiRes) {
+                    ((bitDepth * (sampleRate / 1000.0) * 2 * 1000) / 1000).toInt()
+                } else {
+                    1411
+                }
+                val source = if (isHiRes) "Tidal Hi-Res Master" else "Tidal HiFi Lossless"
+                val duration = if (candidate.duration > 0) candidate.duration else data.optInt("duration", 0)
+
+                Log.i(TAG, "Resolved Tidal stream: trackId=${candidate.id}, codec=$codec, ${bitDepth}-bit/${sampleRate}Hz, ${bitrateKbps}kbps, quality=$audioQuality")
+
+                return LosslessStreamResult(
+                    streamUrl = streamUrl,
+                    codec = codec,
+                    bitrateKbps = bitrateKbps,
+                    sampleRateHz = sampleRate,
+                    bitDepth = bitDepth,
+                    source = source,
+                    durationSeconds = duration,
+                    matchedTitle = candidate.title,
+                    matchedArtist = candidate.artistName,
+                    album = candidate.albumTitle
+                )
+            } catch (e: Exception) {
+                Log.d(TAG, "fetchTidalStreamUrl quality $quality failed for track ${candidate.id}: ${e.message}")
+            }
+        }
+        return null
     }
 
     private fun resolveViaQobuzBackend(

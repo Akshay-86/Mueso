@@ -433,6 +433,23 @@ class OnlineMusicRepository {
             }
         }
 
+        // 2b. If it's a FLAC file, use our native FlacMetadataEditor
+        if (file.name.endsWith(".flac", ignoreCase = true)) {
+            val success = FlacMetadataEditor.embedMetadata(
+                file = file,
+                title = finalTitle,
+                artist = finalArtist,
+                album = finalAlbum,
+                albumArtist = finalArtist,
+                lyrics = lyricsText,
+                jpegBytes = finalJpegBytes
+            )
+            if (success) {
+                Log.d(TAG, "Successfully embedded FLAC metadata (lyrics=${!lyricsText.isNullOrBlank()}, artwork=${finalJpegBytes != null}) in $filePath for '$finalTitle' by '$finalArtist'")
+                return@withContext true
+            }
+        }
+
         // 3. Fallback to Jaudiotagger (for MP3 / other formats)
         try {
             val audioFile = AudioFileIO.read(file)
@@ -456,12 +473,16 @@ class OnlineMusicRepository {
             }
 
             if (finalJpegBytes != null && finalJpegBytes.isNotEmpty()) {
-                val artwork = AndroidArtwork()
-                artwork.binaryData = finalJpegBytes
-                artwork.mimeType = "image/jpeg"
-                artwork.pictureType = 3 // Cover (front)
-                try { tag.deleteArtworkField() } catch (_: Exception) {}
-                tag.setField(artwork)
+                try {
+                    val artwork = AndroidArtwork()
+                    artwork.binaryData = finalJpegBytes
+                    artwork.mimeType = "image/jpeg"
+                    artwork.pictureType = 3 // Cover (front)
+                    try { tag.deleteArtworkField() } catch (_: Exception) {}
+                    tag.setField(artwork)
+                } catch (artEx: Exception) {
+                    Log.w(TAG, "Failed to set artwork via Jaudiotagger in $filePath: ${artEx.message}")
+                }
             }
 
             audioFile.commit()

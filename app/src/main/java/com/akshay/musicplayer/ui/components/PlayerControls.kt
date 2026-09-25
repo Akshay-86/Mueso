@@ -51,7 +51,7 @@ fun PlayerControls(
         mutableFloatStateOf(playbackState.currentPositionMs.toFloat())
     }
 
-    val showLoading = isSeeking || isResolvingTrack
+    val showLoading = isSeeking || isResolvingTrack || (playbackState.isBuffering && playbackState.isPlaying)
     val accentColor = LocalAccentColor.current
 
     val playButton: @Composable () -> Unit = {

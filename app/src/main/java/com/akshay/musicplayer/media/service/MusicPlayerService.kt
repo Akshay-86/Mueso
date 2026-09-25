@@ -263,12 +263,12 @@ class MusicPlayerService : MediaSessionService() {
 
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 30_000,
-                /* maxBufferMs = */ 90_000,
-                /* bufferForPlaybackMs = */ 1_500,
-                /* bufferForPlaybackAfterRebufferMs = */ 3_000
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 500,
+                /* bufferForPlaybackAfterRebufferMs = */ 1_500
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(
                 /* backBufferDurationMs = */ 30_000,
                 /* retainBackBufferFromKeyframe = */ true
@@ -309,8 +309,11 @@ class MusicPlayerService : MediaSessionService() {
             if (isOnline) {
                 acquireWakeLock()
                 player.repeatMode = Player.REPEAT_MODE_ONE
-            } else if (!player.isPlaying) {
-                releaseWakeLock()
+            } else {
+                player.repeatMode = Player.REPEAT_MODE_OFF
+                if (!player.isPlaying) {
+                    releaseWakeLock()
+                }
             }
         }
 
@@ -522,6 +525,7 @@ object MediaSessionBridge {
     var hasNextItem: (() -> Boolean)? = null
     var hasPreviousItem: (() -> Boolean)? = null
     var onQueueOrCommandsChanged: (() -> Unit)? = null
+    var shouldStopAfterTrack: ((Long?) -> Boolean)? = null
 }
 
 class MusicForwardingPlayer(

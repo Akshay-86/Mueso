@@ -13,5 +13,6 @@ data class PlaybackState(
     val isPlaying: Boolean = false,
     val currentTrackId: Long? = null,
     val currentPositionMs: Long = 0L,
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val isBuffering: Boolean = false
 )

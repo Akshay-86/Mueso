@@ -17,15 +17,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.StringReader
 import java.util.concurrent.ConcurrentHashMap
 
 import com.akshay.musicplayer.media.notification.NotificationHelper
@@ -127,9 +130,9 @@ class DownloadManager(
                     val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
                     Log.i("MUESO_DOWNLOAD", "Attempting Lossless FLAC resolution for '${track.title}' by '${track.artist}'")
                     val losslessResult = losslessRepository.resolveLosslessStream(track.title, track.artist, durationSec)
-                    if (losslessResult != null && losslessResult.streamUrl.startsWith("http")) {
+                    if (losslessResult != null && (losslessResult.streamUrl.startsWith("http") || losslessResult.streamUrl.startsWith("data:application/dash+xml"))) {
                         downloadUrl = losslessResult.streamUrl
-                        isFlacDownload = downloadUrl.contains(".flac", ignoreCase = true) || losslessResult.codec.contains("FLAC", ignoreCase = true)
+                        isFlacDownload = true
                         resolvedBitDepth = losslessResult.bitDepth
                         resolvedSampleRateHz = losslessResult.sampleRateHz
                         resolvedCodec = losslessResult.codec
@@ -147,7 +150,7 @@ class DownloadManager(
                     }
                 }
 
-                if (downloadUrl.isNullOrBlank() || !downloadUrl.startsWith("http")) {
+                if (downloadUrl.isNullOrBlank() || (!downloadUrl.startsWith("http") && !downloadUrl.startsWith("data:application/dash+xml"))) {
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Stream URL unavailable"))
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Failed to get audio stream for download", Toast.LENGTH_SHORT).show()
@@ -174,35 +177,59 @@ class DownloadManager(
                 activeTempFiles[track.id] = createdTempFile
                 if (createdTempFile.exists()) createdTempFile.delete()
 
-                val downloadSuccess = downloadStreamWithResume(
-                    client = client,
-                    url = downloadUrl,
-                    destFile = createdTempFile,
-                    trackId = track.id,
-                    onProgress = { downloaded, total ->
-                        if (total > 0) {
-                            val prog = (downloaded.toFloat() / total.toFloat()).coerceIn(0.01f, 0.95f)
-                            _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = prog))
-                            NotificationHelper.showDownloadProgress(
-                                context = context.applicationContext,
-                                trackId = track.id,
-                                trackTitle = track.title,
-                                artist = track.artist,
-                                completedCount = totalDownloadedInBatch + 1,
-                                totalCount = activeJobs.size.coerceAtLeast(1),
-                                progress = prog
-                            )
+                val downloadSuccess = if (downloadUrl.startsWith("data:application/dash+xml")) {
+                    downloadDashFlacStream(
+                        client = client,
+                        manifestDataUri = downloadUrl,
+                        destFile = createdTempFile,
+                        trackId = track.id,
+                        onProgress = { downloaded, total ->
+                            if (total > 0) {
+                                val prog = (downloaded.toFloat() / total.toFloat()).coerceIn(0.01f, 0.95f)
+                                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = prog))
+                                NotificationHelper.showDownloadProgress(
+                                    context = context.applicationContext,
+                                    trackId = track.id,
+                                    trackTitle = track.title,
+                                    artist = track.artist,
+                                    completedCount = totalDownloadedInBatch + 1,
+                                    totalCount = activeJobs.size.coerceAtLeast(1),
+                                    progress = prog
+                                )
+                            }
                         }
-                    },
-                    onRefreshUrl = {
-                        if (isFlacDownload) {
-                            val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
-                            losslessRepository.resolveLosslessStream(track.title, track.artist, durationSec)?.streamUrl
-                        } else if (videoId != null) {
-                            onlineRepository.getStreamUrl(videoId, context, forceRefresh = true, audioQuality = dlQuality)
-                        } else null
-                    }
-                )
+                    )
+                } else {
+                    downloadStreamWithResume(
+                        client = client,
+                        url = downloadUrl,
+                        destFile = createdTempFile,
+                        trackId = track.id,
+                        onProgress = { downloaded, total ->
+                            if (total > 0) {
+                                val prog = (downloaded.toFloat() / total.toFloat()).coerceIn(0.01f, 0.95f)
+                                _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(isDownloading = true, progress = prog))
+                                NotificationHelper.showDownloadProgress(
+                                    context = context.applicationContext,
+                                    trackId = track.id,
+                                    trackTitle = track.title,
+                                    artist = track.artist,
+                                    completedCount = totalDownloadedInBatch + 1,
+                                    totalCount = activeJobs.size.coerceAtLeast(1),
+                                    progress = prog
+                                )
+                            }
+                        },
+                        onRefreshUrl = {
+                            if (isFlacDownload) {
+                                val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                                losslessRepository.resolveLosslessStream(track.title, track.artist, durationSec)?.streamUrl
+                            } else if (videoId != null) {
+                                onlineRepository.getStreamUrl(videoId, context, forceRefresh = true, audioQuality = dlQuality)
+                            } else null
+                        }
+                    )
+                }
 
                 if (!downloadSuccess || !createdTempFile.exists() || createdTempFile.length() == 0L) {
                     _downloadStates.value = _downloadStates.value + (track.id to DownloadProgress(error = "Download failed"))
@@ -407,6 +434,172 @@ class DownloadManager(
             }
         }
         activeJobs[track.id] = job
+    }
+
+    private suspend fun downloadDashFlacStream(
+        client: OkHttpClient,
+        manifestDataUri: String,
+        destFile: File,
+        trackId: Long,
+        onProgress: (segmentsDownloaded: Long, totalSegments: Long) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val manifestXml = if (manifestDataUri.startsWith("data:application/dash+xml;base64,", ignoreCase = true)) {
+                val b64 = manifestDataUri.substringAfter("base64,")
+                String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT), Charsets.UTF_8)
+            } else {
+                manifestDataUri
+            }
+
+            val parser = android.util.Xml.newPullParser()
+            parser.setInput(StringReader(manifestXml))
+
+            var initUrl: String? = null
+            var mediaTemplate: String? = null
+            var startNumber = 1
+            var totalSegments = 0
+
+            var eventType = parser.eventType
+            while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (eventType == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "SegmentTemplate" -> {
+                            initUrl = parser.getAttributeValue(null, "initialization")?.replace("&amp;", "&")
+                            mediaTemplate = parser.getAttributeValue(null, "media")?.replace("&amp;", "&")
+                            startNumber = parser.getAttributeValue(null, "startNumber")?.toIntOrNull() ?: 1
+                        }
+                        "S" -> {
+                            val r = parser.getAttributeValue(null, "r")?.toIntOrNull() ?: 0
+                            totalSegments += 1 + r
+                        }
+                    }
+                }
+                eventType = parser.next()
+            }
+
+            if (initUrl.isNullOrBlank() || mediaTemplate.isNullOrBlank() || totalSegments <= 0) {
+                Log.e("MUESO_DOWNLOAD", "Failed to parse DASH manifest: initUrl=$initUrl, mediaTemplate=$mediaTemplate, segments=$totalSegments")
+                return@withContext false
+            }
+
+            Log.i("MUESO_DOWNLOAD", "Parsed DASH FLAC stream: totalSegments=$totalSegments, startNumber=$startNumber, initUrl=${initUrl.take(60)}...")
+
+            // 1. Download initialization segment and extract STREAMINFO
+            val initReq = Request.Builder().url(initUrl).header("User-Agent", "Mozilla/5.0").build()
+            val initCall = client.newCall(initReq)
+            activeCalls["${trackId}_init"] = initCall
+            val initBytes = try {
+                initCall.execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext false
+                    resp.body?.bytes()
+                }
+            } finally {
+                activeCalls.remove("${trackId}_init")
+            } ?: return@withContext false
+
+            val dflaBox = findMp4Box(initBytes, "dfLa")
+            if (dflaBox == null) {
+                Log.e("MUESO_DOWNLOAD", "Could not find dfLa box in DASH init segment")
+                return@withContext false
+            }
+            // In dfLa box: 4 bytes size, 4 bytes 'dfLa', 1 byte version, 3 bytes flags -> metadata starts at offset + 12
+            val streaminfoBytes = initBytes.copyOfRange(dflaBox.first + 12, dflaBox.first + dflaBox.second)
+
+            FileOutputStream(destFile).use { out ->
+                // Write standard FLAC header: "fLaC" + STREAMINFO block
+                out.write("fLaC".toByteArray(Charsets.US_ASCII))
+                out.write(streaminfoBytes)
+
+                val batchSize = 3
+                var segmentsDownloaded = 0
+
+                for (batchStart in startNumber until (startNumber + totalSegments) step batchSize) {
+                    coroutineContext.ensureActive()
+                    val batchEnd = minOf(batchStart + batchSize, startNumber + totalSegments)
+
+                    coroutineScope {
+                        val deferreds = (batchStart until batchEnd).map { segNum ->
+                            async {
+                                val segUrl = mediaTemplate.replace("\$Number\$", segNum.toString())
+                                var attempt = 0
+                                var segBytes: ByteArray? = null
+                                while (attempt < 3 && segBytes == null && isActive) {
+                                    try {
+                                        val req = Request.Builder().url(segUrl).header("User-Agent", "Mozilla/5.0").build()
+                                        val call = client.newCall(req)
+                                        activeCalls["${trackId}_$segNum"] = call
+                                        call.execute().use { resp ->
+                                            if (resp.isSuccessful) {
+                                                segBytes = resp.body?.bytes()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        attempt++
+                                        if (attempt < 3) delay(500)
+                                    } finally {
+                                        activeCalls.remove("${trackId}_$segNum")
+                                    }
+                                }
+                                segBytes
+                            }
+                        }
+
+                        val batchResults = deferreds.map { it.await() }
+                        for (segBytes in batchResults) {
+                            if (segBytes == null) throw IllegalStateException("Failed to download audio segment")
+                            val mdatBox = findMp4Box(segBytes, "mdat") ?: throw IllegalStateException("Missing mdat box in segment")
+                            val (payloadOffset, payloadLen) = getMdatPayload(segBytes, mdatBox)
+                            out.write(segBytes, payloadOffset, payloadLen)
+                            segmentsDownloaded++
+                            onProgress(segmentsDownloaded.toLong(), totalSegments.toLong())
+                        }
+                    }
+                }
+                out.flush()
+            }
+            Log.i("MUESO_DOWNLOAD", "Successfully downloaded and assembled bit-perfect FLAC: ${destFile.length()} bytes")
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("MUESO_DOWNLOAD", "Error in downloadDashFlacStream: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun findMp4Box(data: ByteArray, boxType: String): Pair<Int, Int>? {
+        val typeBytes = boxType.toByteArray(Charsets.US_ASCII)
+        for (i in 0 until data.size - 8) {
+            if (data[i + 4] == typeBytes[0] &&
+                data[i + 5] == typeBytes[1] &&
+                data[i + 6] == typeBytes[2] &&
+                data[i + 7] == typeBytes[3]
+            ) {
+                val size = ((data[i].toInt() and 0xFF) shl 24) or
+                        ((data[i + 1].toInt() and 0xFF) shl 16) or
+                        ((data[i + 2].toInt() and 0xFF) shl 8) or
+                        (data[i + 3].toInt() and 0xFF)
+                return Pair(i, size)
+            }
+        }
+        return null
+    }
+
+    private fun getMdatPayload(data: ByteArray, mdatBox: Pair<Int, Int>): Pair<Int, Int> {
+        val (offset, size) = mdatBox
+        return if (size == 1) {
+            val extSize = (((data[offset + 8].toLong() and 0xFF) shl 56) or
+                    ((data[offset + 9].toLong() and 0xFF) shl 48) or
+                    ((data[offset + 10].toLong() and 0xFF) shl 40) or
+                    ((data[offset + 11].toLong() and 0xFF) shl 32) or
+                    ((data[offset + 12].toLong() and 0xFF) shl 24) or
+                    ((data[offset + 13].toLong() and 0xFF) shl 16) or
+                    ((data[offset + 14].toLong() and 0xFF) shl 8) or
+                    (data[offset + 15].toLong() and 0xFF)).toInt()
+            Pair(offset + 16, extSize - 16)
+        } else {
+            Pair(offset + 8, size - 8)
+        }
     }
 
     private suspend fun downloadStreamWithResume(
