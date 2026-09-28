@@ -170,6 +170,9 @@ class LosslessMusicRepository(
             val itemsArr = try {
                 val response = httpClient.newCall(request).execute()
                 if (!response.isSuccessful) {
+                    val code = response.code
+                    val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
+                    Log.w(TAG, "Tidal search HTTP $code for '$query': $errBody")
                     response.close()
                     continue
                 }
@@ -287,6 +290,9 @@ class LosslessMusicRepository(
             try {
                 val response = httpClient.newCall(request).execute()
                 if (!response.isSuccessful) {
+                    val code = response.code
+                    val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
+                    Log.w(TAG, "fetchTidalStreamUrl HTTP $code for track ${candidate.id}: $errBody")
                     response.close()
                     continue
                 }

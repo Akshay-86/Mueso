@@ -53,3 +53,5 @@ release/
 *.ap_
 *.dm
 
+# Dynamic Vault Assets
+app/src/main/assets/audio_dsp_cache.bin
