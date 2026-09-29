@@ -101,13 +101,21 @@ fun DockedMiniPlayer(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 // Artwork thumbnail
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
-                        .crossfade(true)
-                        .build(),
+                val miniArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
+                    when {
+                        !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
+                        track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
+                            "content://media/external/audio/media/${track.id}"
+                        track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
+                        track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
+                        else -> null
+                    }
+                }
+                SmartArtworkImage(
+                    artworkUrl = miniArtUri,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    thumbnailQuality = "Medium (480p)",
                     modifier = Modifier
                         .size(46.dp)
                         .clip(RoundedCornerShape(10.dp))

@@ -80,6 +80,7 @@ import com.akshay.musicplayer.ui.components.LyricsView
 import com.akshay.musicplayer.ui.components.QueueBottomSheet
 import com.akshay.musicplayer.ui.components.SignalPathDialog
 import com.akshay.musicplayer.ui.components.SleepTimerBottomSheet
+import com.akshay.musicplayer.ui.components.SmartArtworkImage
 import com.akshay.musicplayer.ui.components.TrackMenuBottomSheet
 import com.akshay.musicplayer.ui.state.PlaybackState
 import com.akshay.musicplayer.ui.theme.LocalAccentColor
@@ -214,13 +215,21 @@ fun ClassicPlayerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 val artCorner = 20.dp
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
+                val albumArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
+                    when {
+                        !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
+                        track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
+                            "content://media/external/audio/media/${track.id}"
+                        track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
+                        track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
+                        else -> null
+                    }
+                }
+                SmartArtworkImage(
+                    artworkUrl = albumArtUri,
+                    contentDescription = "Album Artwork",
                     contentScale = ContentScale.Crop,
+                    thumbnailQuality = "Highest (1080p Maxres)",
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .aspectRatio(1f)

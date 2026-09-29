@@ -129,7 +129,7 @@ class SearchManager(
                         val artistsDeferred = async { onlineRepository.searchArtists(query.trim()) }
                         val albumsDeferred = async { onlineRepository.searchAlbums(query.trim()) }
 
-                        val onlineResults = tracksDeferred.await()
+                        val onlineResults = tracksDeferred.await().sortedBy { if (it.isVideo) 1 else 0 }
                         val localIds = localMatches.map { it.id }.toSet()
                         val combinedTracks = localMatches + onlineResults.filter { it.id !in localIds }
                         val artists = artistsDeferred.await().take(4)
@@ -148,7 +148,7 @@ class SearchManager(
                     else -> {
                         _artistResults.value = emptyList()
                         _playlistResults.value = emptyList()
-                        val onlineResults = onlineRepository.searchOnlineTracks(query.trim(), category)
+                        val onlineResults = onlineRepository.searchOnlineTracks(query.trim(), category).sortedBy { if (it.isVideo) 1 else 0 }
                         val localIds = localMatches.map { it.id }.toSet()
                         val combinedTracks = localMatches + onlineResults.filter { it.id !in localIds }
                         _searchResults.value = combinedTracks

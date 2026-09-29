@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,13 +89,21 @@ fun TrackMenuBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(track.artworkUrl ?: android.content.ContentUris.withAppendedId(android.net.Uri.parse("content://media/external/audio/albumart"), track.albumId))
-                        .crossfade(true)
-                        .build(),
+                val menuArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
+                    when {
+                        !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
+                        track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
+                            "content://media/external/audio/media/${track.id}"
+                        track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
+                        track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
+                        else -> null
+                    }
+                }
+                SmartArtworkImage(
+                    artworkUrl = menuArtUri,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    thumbnailQuality = "Medium (480p)",
                     modifier = Modifier
                         .size(54.dp)
                         .clip(RoundedCornerShape(12.dp))

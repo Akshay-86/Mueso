@@ -526,7 +526,12 @@ class InnerTubeClient(
         if (query.isBlank()) return@withContext emptyList()
         val filtered = runCatching { search(query, filter = SONG_SEARCH_FILTER) }.getOrDefault(emptyList())
         val unfiltered = runCatching { search(query, filter = null) }.getOrDefault(emptyList())
-        val combined = (unfiltered.take(1) + filtered + unfiltered)
+
+        // Strictly prioritize official YouTube Music song releases over general YouTube video results
+        val songsOnly = (filtered + unfiltered).filter { !it.itemType.equals("Video", ignoreCase = true) }
+        val videos = (unfiltered + filtered).filter { it.itemType.equals("Video", ignoreCase = true) }
+
+        val combined = (songsOnly + videos)
             .distinctBy { it.videoId }
             .filter { it.videoId.isNotBlank() }
             .take(limit)

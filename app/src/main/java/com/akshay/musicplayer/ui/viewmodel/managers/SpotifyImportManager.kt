@@ -120,13 +120,14 @@ class SpotifyImportManager(
 
                 try {
                     val searchResults = onlineRepo.searchOnlineTracks(query)
-                    val bestMatch = searchResults.firstOrNull()
+                    val sorted = searchResults.sortedBy { if (it.isVideo) 1 else 0 }
+                    val bestMatch = sorted.find { !it.isVideo } ?: sorted.firstOrNull()
 
                     _matchResults.value = _matchResults.value.toMutableList().also { list ->
                         list[i] = list[i].copy(
                             matchedTrack = bestMatch,
                             isSearching = false,
-                            alternativeResults = searchResults.take(5)
+                            alternativeResults = sorted.take(5)
                         )
                     }
 
@@ -163,10 +164,11 @@ class SpotifyImportManager(
 
             try {
                 val searchResults = onlineRepo.searchOnlineTracks(query)
+                val sorted = searchResults.sortedBy { if (it.isVideo) 1 else 0 }
                 _matchResults.value = _matchResults.value.toMutableList().also { list ->
                     list[index] = list[index].copy(
                         isSearching = false,
-                        alternativeResults = searchResults.take(8),
+                        alternativeResults = sorted.take(8),
                         showAlternatives = true
                     )
                 }

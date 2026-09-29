@@ -220,7 +220,7 @@ class PlaylistManager(
                     trackId = track.id,
                     title = track.title,
                     artist = track.artist,
-                    artworkUrl = track.artworkUrl,
+                    artworkUrl = onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl,
                     filePath = track.filePath,
                     duration = track.duration,
                     orderIndex = nextOrder
@@ -242,7 +242,7 @@ class PlaylistManager(
                         trackId = track.id,
                         title = track.title,
                         artist = track.artist,
-                        artworkUrl = track.artworkUrl,
+                        artworkUrl = onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl,
                         filePath = track.filePath,
                         duration = track.duration,
                         orderIndex = nextOrder++
@@ -294,7 +294,7 @@ class PlaylistManager(
                     duration = it.duration,
                     albumId = 0L,
                     filePath = it.filePath,
-                    artworkUrl = it.artworkUrl
+                    artworkUrl = onlineRepository.getHighResArtworkUrl(it.artworkUrl) ?: it.artworkUrl
                 )
             }
         }

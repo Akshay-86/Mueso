@@ -1013,14 +1013,15 @@ class PlayerViewModel(
                     Log.w("MUESO_SYNC", "resolveTrack search failed for '$q': ${e.message}")
                     emptyList()
                 }
-                val first = searchResults.firstOrNull()
-                first?.let { onlineRepository.extractVideoId(it) } ?: ""
+                val best = searchResults.find { !it.isVideo } ?: searchResults.firstOrNull()
+                best?.let { onlineRepository.extractVideoId(it) } ?: ""
             }
         }
 
         if (videoId.isNotBlank()) {
             onlineRepository.recordVideoId(track.id, videoId)
-            val artwork = track.artworkUrl?.takeIf { it.isNotBlank() } ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+            val artwork = (onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl)
+                ?.takeIf { it.isNotBlank() } ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
             Log.d("MUESO_SYNC", "resolveTrack: setting clean online track path 'online:$videoId' for '${track.title}'")
             return track.copy(filePath = "online:$videoId", artworkUrl = artwork)
         }
@@ -1039,12 +1040,13 @@ class PlayerViewModel(
                 Log.w("MUESO_SYNC", "reResolveTrackStream search failed for '$query': ${e.message}")
                 emptyList()
             }
-            val first = searchResults.firstOrNull()
-            videoId = first?.let { onlineRepository.extractVideoId(it) } ?: ""
+            val best = searchResults.find { !it.isVideo } ?: searchResults.firstOrNull()
+            videoId = best?.let { onlineRepository.extractVideoId(it) } ?: ""
         }
         if (videoId.isNotBlank()) {
             onlineRepository.recordVideoId(track.id, videoId)
-            val artwork = track.artworkUrl ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+            val artwork = (onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl)
+                ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
             return track.copy(filePath = "online:$videoId", artworkUrl = artwork)
         }
         return track

@@ -727,8 +727,9 @@ private fun TrackMatchItem(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("▶", color = Color(0xFFFF0000), fontSize = 10.sp)
-                            Text("YouTube Match", color = textSub, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            val isVid = matchResult.matchedTrack!!.isVideo
+                            Text(if (isVid) "▶" else "♫", color = if (isVid) Color(0xFFFF0000) else Color(0xFFFF0033), fontSize = 10.sp)
+                            Text(if (isVid) "YouTube Video" else "YouTube Music", color = textSub, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                         }
                         Text(
                             matchResult.matchedTrack!!.title,
@@ -883,7 +884,7 @@ private fun TrackMatchItem(
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(alt.title, color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(alt.artist, color = textSub, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${alt.artist} • ${if (alt.isVideo) "Video" else "YT Music"}", color = textSub, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
 
                                 if (isSelected) {

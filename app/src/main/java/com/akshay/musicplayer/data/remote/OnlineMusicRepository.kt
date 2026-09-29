@@ -726,13 +726,16 @@ class OnlineMusicRepository {
     // ==========================================
     fun getHighResArtworkUrl(rawUrl: String?): String? {
         if (rawUrl.isNullOrBlank()) return null
-        return if (rawUrl.contains("=w") || rawUrl.contains("=s")) {
-            rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj")
-                .replace(Regex("=s\\d+.*"), "=s1200")
-        } else if (rawUrl.contains("/vi/") && rawUrl.contains("/hqdefault.jpg")) {
-            rawUrl.replace("/hqdefault.jpg", "/maxresdefault.jpg")
-        } else {
-            rawUrl
+        return when {
+            rawUrl.contains("=w") || rawUrl.contains("=s") -> {
+                rawUrl.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj")
+                    .replace(Regex("=s\\d+.*"), "=s1200")
+            }
+            rawUrl.contains("/vi/") -> {
+                val videoId = rawUrl.substringAfter("/vi/").substringBefore("/")
+                if (videoId.isNotBlank()) "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg" else rawUrl
+            }
+            else -> rawUrl
         }
     }
 
