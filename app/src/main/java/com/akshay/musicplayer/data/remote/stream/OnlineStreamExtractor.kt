@@ -271,7 +271,7 @@ object OnlineStreamExtractor {
                     waitCount++
                 }
 
-                withTimeoutOrNull(25000L) {
+                withTimeoutOrNull(6000L) {
                     suspendCancellableCoroutine { continuation ->
                         pendingRequests[videoId] = continuation
                         continuation.invokeOnCancellation {

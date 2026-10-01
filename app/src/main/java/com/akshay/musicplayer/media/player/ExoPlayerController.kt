@@ -255,11 +255,19 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     return
                 }
 
-                Log.w("MUESO_SYNC", "ExoPlayer retries exhausted on '${curTrack.title}'. Falling back to YouTube web player!")
-                isPlayingLosslessOnline = false
-                isPlayingDirectOnline = false
-                scope.launch(Dispatchers.Main) {
-                    fallbackToOnlinePlayer(curTrack, videoId)
+                Log.w("MUESO_SYNC", "ExoPlayer retries exhausted on '${curTrack.title}'. Checking next track in queue...")
+                val nextIdx = currentQueueIndex + 1
+                if (nextIdx in tracksQueue.indices) {
+                    Log.i("MUESO_SYNC", "Auto-advancing to next track at index $nextIdx after error on '${curTrack.title}'")
+                    scope.launch(Dispatchers.Main) {
+                        seekToIndex(nextIdx)
+                    }
+                } else {
+                    isPlayingLosslessOnline = false
+                    isPlayingDirectOnline = false
+                    scope.launch(Dispatchers.Main) {
+                        fallbackToOnlinePlayer(curTrack, videoId)
+                    }
                 }
                 return
             }
@@ -1170,6 +1178,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
 
         if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+            com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = true
             pendingTrackEndedRunnable?.let { mainHandler.removeCallbacks(it) }
             val r = Runnable {
                 if (isPlayingDirectOnline || isPlayingLosslessOnline) {
@@ -1183,7 +1192,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 }
             }
             pendingTrackEndedRunnable = r
-            mainHandler.postDelayed(r, if (getRepeatMode() == Player.REPEAT_MODE_ONE) 300L else 600L)
+            mainHandler.postDelayed(r, if (getRepeatMode() == Player.REPEAT_MODE_ONE) 300L else 500L)
         }
     }
 
@@ -1261,6 +1270,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 return
             }
 
+            com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = true
+
             val prefs = context.getSharedPreferences("mueso_prefs", Context.MODE_PRIVATE)
             val isLosslessEnabled = prefs.getBoolean("lossless_streaming_enabled", false)
             val customServer = prefs.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
@@ -1276,32 +1287,44 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
             onlineResolutionJob?.cancel()
             onlineResolutionJob = scope.launch(Dispatchers.IO) {
-                if (isLosslessEnabled) {
-                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
-                    val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
-                    if (losslessResult != null && currentTrackId == track.id) {
-                        withContext(Dispatchers.Main) {
-                            if (currentTrackId == track.id) {
-                                Log.i("MUESO_LOSSLESS", "Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
-                                playLosslessTrackInExoPlayer(track, losslessResult)
+                try {
+                    if (isLosslessEnabled) {
+                        val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                        val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
+                        if (losslessResult != null && currentTrackId == track.id) {
+                            withContext(Dispatchers.Main) {
+                                if (currentTrackId == track.id) {
+                                    Log.i("MUESO_LOSSLESS", "Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
+                                    playLosslessTrackInExoPlayer(track, losslessResult)
+                                }
+                            }
+                            return@launch
+                        }
+                    }
+
+                    // Lossless not matched or disabled -> resolve YouTube direct audio stream
+                    val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                    val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
+                    withContext(Dispatchers.Main) {
+                        if (currentTrackId == track.id) {
+                            if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                                Log.i("MUESO_STREAM", "Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
+                                playDirectOnlineStreamInExoPlayer(track, streamUrl)
+                            } else {
+                                val nextIdx = safeIndex + 1
+                                if (nextIdx in tracks.indices) {
+                                    Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in playlist ($nextIdx)...")
+                                    seekToIndex(nextIdx)
+                                } else {
+                                    Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                                    playViaOnlineYouTubePlayer(track)
+                                }
                             }
                         }
-                        return@launch
                     }
-                }
-
-                // Lossless not matched or disabled -> resolve YouTube direct audio stream
-                val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
-                val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
-                withContext(Dispatchers.Main) {
-                    if (currentTrackId == track.id) {
-                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
-                            Log.i("MUESO_STREAM", "Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
-                            playDirectOnlineStreamInExoPlayer(track, streamUrl)
-                        } else {
-                            Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
-                            playViaOnlineYouTubePlayer(track)
-                        }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
                     }
                 }
             }
@@ -1585,6 +1608,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun pause() {
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
         pendingTrackEndedRunnable?.let {
             mainHandler.removeCallbacks(it)
             pendingTrackEndedRunnable = null
@@ -1655,6 +1679,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaController?.pause()
         ytPlayerManager.pause()
 
+        // Keep CPU & Wi-Fi awake during track resolution and handover
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = true
+
         val track = tracksQueue.getOrNull(index)
         if (track != null) {
             currentTrackId = track.id
@@ -1675,6 +1702,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 Log.w("MUESO_NET", "seekToIndex: online track '${track.title}' requested while offline. Staging for network restoration.")
                 currentOnlineTrack = track
                 currentTrackId = track.id
+                com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
                 handleOnlineTrackNetworkError(track, 0L)
                 return
             }
@@ -1686,37 +1714,51 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             losslessRepo.updateServerBaseUrl(customServer)
 
             onlineResolutionJob = scope.launch(Dispatchers.IO) {
-                if (isLosslessEnabled) {
-                    val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
-                    val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
-                    if (losslessResult != null && currentTrackId == track.id) {
-                        withContext(Dispatchers.Main) {
-                            if (currentTrackId == track.id) {
-                                Log.i("MUESO_LOSSLESS", "seekToIndex: Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
-                                playLosslessTrackInExoPlayer(track, losslessResult)
+                try {
+                    if (isLosslessEnabled) {
+                        val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                        val losslessResult = losslessRepo.resolveLosslessStream(track.title, track.artist, durationSec)
+                        if (losslessResult != null && currentTrackId == track.id) {
+                            withContext(Dispatchers.Main) {
+                                if (currentTrackId == track.id) {
+                                    Log.i("MUESO_LOSSLESS", "seekToIndex: Playing '${track.title}' via Lossless FLAC directly in ExoPlayer (${losslessResult.bitrateKbps} kbps)")
+                                    playLosslessTrackInExoPlayer(track, losslessResult)
+                                }
+                            }
+                            return@launch
+                        }
+                    }
+
+                    // Lossless not matched or disabled -> resolve YouTube direct audio stream
+                    val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                    val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
+                    withContext(Dispatchers.Main) {
+                        if (currentTrackId == track.id) {
+                            if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                                Log.i("MUESO_STREAM", "seekToIndex: Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
+                                playDirectOnlineStreamInExoPlayer(track, streamUrl)
+                            } else {
+                                val nextIdx = currentQueueIndex + 1
+                                if (nextIdx in tracksQueue.indices) {
+                                    Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in queue ($nextIdx)...")
+                                    seekToIndex(nextIdx)
+                                } else {
+                                    Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}' at queue end. Falling back to YouTube web player.")
+                                    playViaOnlineYouTubePlayer(track)
+                                }
                             }
                         }
-                        return@launch
                     }
-                }
-
-                // Lossless not matched or disabled -> resolve YouTube direct audio stream
-                val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
-                val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context) else ""
-                withContext(Dispatchers.Main) {
-                    if (currentTrackId == track.id) {
-                        if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
-                            Log.i("MUESO_STREAM", "seekToIndex: Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
-                            playDirectOnlineStreamInExoPlayer(track, streamUrl)
-                        } else {
-                            Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
-                            playViaOnlineYouTubePlayer(track)
-                        }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
                     }
                 }
             }
             return
         }
+
+        com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
 
         isPlayingOnline = false
         isPlayingLosslessOnline = false

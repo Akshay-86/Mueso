@@ -48,9 +48,15 @@
 # ─── UpdateManager data class ───
 -keep class com.akshay.musicplayer.ui.viewmodel.managers.UpdateInfo { *; }
 
-# ExoPlayer / Media3 Rules
+# ExoPlayer / Media3 & MediaSession Compat Rules
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
+-keep class androidx.media.** { *; }
+-dontwarn androidx.media.**
+-keep class android.support.v4.media.** { *; }
+-dontwarn android.support.v4.media.**
+-keep class androidx.media3.session.** { *; }
+-keep class androidx.media3.ui.** { *; }
 
 # Preserve Line Numbers for Debugging Stack Traces
 -keepattributes SourceFile,LineNumberTable

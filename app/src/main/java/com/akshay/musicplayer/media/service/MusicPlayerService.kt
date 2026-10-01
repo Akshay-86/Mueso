@@ -29,10 +29,10 @@ class MusicPlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private var isForegroundServiceStarted = false
     private var isServiceDestroying = false
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
 
     private fun acquireWakeLock() {
         if (wakeLock == null) {
@@ -58,6 +58,50 @@ class MusicPlayerService : MediaSessionService() {
         } catch (e: Exception) {
             Log.w("MusicPlayerService", "Failed to release wakeLock", e)
         }
+    }
+
+    private fun acquireWifiLock() {
+        if (wifiLock == null) {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            wifiLock = wm?.createWifiLock(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                } else {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL
+                },
+                "Mueso:PlaybackWifiLock"
+            )?.apply {
+                setReferenceCounted(false)
+            }
+        }
+        try {
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+            }
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to acquire wifiLock", e)
+        }
+    }
+
+    private fun releaseWifiLock() {
+        try {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Failed to release wifiLock", e)
+        }
+    }
+
+    private fun acquireLocks() {
+        acquireWakeLock()
+        acquireWifiLock()
+    }
+
+    private fun releaseLocks() {
+        releaseWakeLock()
+        releaseWifiLock()
     }
 
     private var isNoisyReceiverRegistered = false
@@ -160,6 +204,15 @@ class MusicPlayerService : MediaSessionService() {
                         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         val notif = notification.notification
                         notif.visibility = android.app.Notification.VISIBILITY_PUBLIC
+                        try {
+                            val publicNotif = notif.clone().apply {
+                                publicVersion = null
+                                visibility = android.app.Notification.VISIBILITY_PUBLIC
+                            }
+                            notif.publicVersion = publicNotif
+                        } catch (e: Exception) {
+                            Log.w("MusicPlayerService", "Could not clone notification for publicVersion: ${e.message}")
+                        }
                         notificationManager.notify(notification.notificationId, notif)
                     } catch (e: Exception) {
                         Log.w("MusicPlayerService", "Failed to update notification with bitmap: ${e.message}")
@@ -174,6 +227,15 @@ class MusicPlayerService : MediaSessionService() {
                 )
                 val notif = mediaNotification.notification
                 notif.visibility = android.app.Notification.VISIBILITY_PUBLIC
+                try {
+                    val publicNotif = notif.clone().apply {
+                        publicVersion = null
+                        visibility = android.app.Notification.VISIBILITY_PUBLIC
+                    }
+                    notif.publicVersion = publicNotif
+                } catch (e: Exception) {
+                    Log.w("MusicPlayerService", "Could not clone notification for publicVersion: ${e.message}")
+                }
                 return mediaNotification
             }
 
@@ -298,22 +360,30 @@ class MusicPlayerService : MediaSessionService() {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
-                    acquireWakeLock()
-                } else if (!MediaSessionBridge.isOnlinePlaying) {
-                    releaseWakeLock()
+                    acquireLocks()
+                } else if (!MediaSessionBridge.isOnlinePlaying && !MediaSessionBridge.isTransitioningOrBuffering) {
+                    releaseLocks()
                 }
             }
         })
 
         MediaSessionBridge.onOnlinePlayingChanged = { isOnline ->
             if (isOnline) {
-                acquireWakeLock()
+                acquireLocks()
                 player.repeatMode = Player.REPEAT_MODE_ONE
             } else {
                 player.repeatMode = Player.REPEAT_MODE_OFF
-                if (!player.isPlaying) {
-                    releaseWakeLock()
+                if (!player.isPlaying && !MediaSessionBridge.isTransitioningOrBuffering) {
+                    releaseLocks()
                 }
+            }
+        }
+
+        MediaSessionBridge.onTransitionStateChanged = { isTransitioning ->
+            if (isTransitioning) {
+                acquireLocks()
+            } else if (!player.isPlaying && !MediaSessionBridge.isOnlinePlaying) {
+                releaseLocks()
             }
         }
 
@@ -488,9 +558,10 @@ class MusicPlayerService : MediaSessionService() {
         isServiceDestroying = true
         unregisterNoisyReceiver()
         MediaSessionBridge.isServiceRunning = false
-        releaseWakeLock()
+        releaseLocks()
         MediaSessionBridge.onOnlinePlayingChanged = null
         MediaSessionBridge.onQueueOrCommandsChanged = null
+        MediaSessionBridge.onTransitionStateChanged = null
         com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this).release()
         mediaSession?.let {
             it.player.release()
@@ -513,10 +584,16 @@ object MediaSessionBridge {
             field = value
             onOnlinePlayingChanged?.invoke(value)
         }
+    @Volatile var isTransitioningOrBuffering: Boolean = false
+        set(value) {
+            field = value
+            onTransitionStateChanged?.invoke(value)
+        }
     @Volatile var isSyncing: Boolean = false
     @Volatile var onlineDurationMs: Long = 0L
     @Volatile var onlinePositionMs: Long = 0L
     var onOnlinePlayingChanged: ((Boolean) -> Unit)? = null
+    var onTransitionStateChanged: ((Boolean) -> Unit)? = null
     var onSeekRequested: ((Long) -> Unit)? = null
     var onNextRequested: (() -> Unit)? = null
     var onPreviousRequested: (() -> Unit)? = null
