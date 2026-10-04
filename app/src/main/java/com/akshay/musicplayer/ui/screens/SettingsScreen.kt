@@ -23,6 +23,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -823,6 +825,8 @@ fun SettingsScreen(
                     val updateInfo by viewModel.updateInfo.collectAsState()
                     val updateDownloadProgress by viewModel.updateDownloadProgress.collectAsState()
                     val updateStatusMessage by viewModel.updateStatusMessage.collectAsState()
+                    val isUpdateDownloaded by viewModel.isUpdateDownloaded.collectAsState()
+                    var isNotesExpanded by remember { mutableStateOf(false) }
 
                     SettingsSectionHeader("About & Updates", accentColor)
                     Column(
@@ -865,14 +869,28 @@ fun SettingsScreen(
                             }
 
                             Button(
-                                onClick = { viewModel.checkForUpdates(context, showToast = true) },
-                                enabled = !isCheckingUpdate,
-                                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                onClick = { viewModel.handleUpdateAction(context) },
+                                enabled = !isCheckingUpdate && updateDownloadProgress == null,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isUpdateDownloaded) Color(0xFF34C759) else if (updateInfo?.isNewVersionAvailable == true) Color(0xFF34C759) else accentColor
+                                ),
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                             ) {
                                 if (isCheckingUpdate) {
                                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Checking...", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                } else if (updateDownloadProgress != null) {
+                                    Text("${(updateDownloadProgress!! * 100).toInt()}%", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                } else if (isUpdateDownloaded) {
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Install", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                } else if (updateInfo?.isNewVersionAvailable == true) {
+                                    Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Download", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 } else {
                                     Text("Check", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -886,24 +904,64 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(Icons.Default.NewReleases, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.NewReleases, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size(18.dp))
                                     Text("Update Available: ${updateInfo!!.tagName}", color = Color(0xFF34C759), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 }
 
                                 if (!updateInfo!!.releaseNotes.isNullOrBlank()) {
-                                    Text(
-                                        updateInfo!!.releaseNotes!!,
-                                        color = textSub,
-                                        fontSize = 11.sp,
-                                        maxLines = 3,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    val notesScrollState = rememberScrollState()
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                                            .padding(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "What's New in ${updateInfo!!.tagName}:",
+                                            color = textPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Box(
+                                            modifier = if (isNotesExpanded) {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(max = 240.dp)
+                                                    .verticalScroll(notesScrollState)
+                                            } else {
+                                                Modifier.fillMaxWidth()
+                                            }
+                                        ) {
+                                            Text(
+                                                text = updateInfo!!.releaseNotes!!.trim(),
+                                                color = textSub,
+                                                fontSize = 11.sp,
+                                                lineHeight = 16.sp,
+                                                maxLines = if (isNotesExpanded) Int.MAX_VALUE else 4,
+                                                overflow = if (isNotesExpanded) TextOverflow.Clip else TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (updateInfo!!.releaseNotes!!.lines().size > 4 || updateInfo!!.releaseNotes!!.length > 180) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = if (isNotesExpanded) "Show Less" else "Show Full Description",
+                                                color = accentColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier
+                                                    .clickable { isNotesExpanded = !isNotesExpanded }
+                                                    .padding(vertical = 2.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 if (updateDownloadProgress != null) {
@@ -913,7 +971,7 @@ fun SettingsScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text("Downloading...", color = textSub, fontSize = 11.sp)
+                                            Text("Downloading update...", color = textSub, fontSize = 11.sp)
                                             Text("${(prog * 100).toInt()}%", color = accentColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                         LinearProgressIndicator(
@@ -922,9 +980,21 @@ fun SettingsScreen(
                                             color = accentColor
                                         )
                                     }
+                                } else if (isUpdateDownloaded) {
+                                    Button(
+                                        onClick = { viewModel.installDownloadedUpdate(context) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Install Update", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 } else {
                                     Button(
-                                        onClick = { viewModel.downloadAndInstallUpdate(context) },
+                                        onClick = { viewModel.downloadUpdate(context) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.fillMaxWidth(),
@@ -932,7 +1002,8 @@ fun SettingsScreen(
                                     ) {
                                         Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Download & Install", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        val sizeStr = updateInfo!!.apkSizeString?.let { " ($it)" } ?: ""
+                                        Text("Download Update$sizeStr", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -955,6 +1026,13 @@ fun SettingsScreen(
                 // 7. DEVELOPER & MAINTENANCE
                 // ═══════════════════════════════════════════════════════════
                 item {
+                    val isCheckingPreBuild by viewModel.isCheckingPreBuild.collectAsState()
+                    val preBuildUpdateInfo by viewModel.preBuildUpdateInfo.collectAsState()
+                    val preBuildDownloadProgress by viewModel.preBuildDownloadProgress.collectAsState()
+                    val preBuildStatusMessage by viewModel.preBuildStatusMessage.collectAsState()
+                    val isPreBuildDownloaded by viewModel.isPreBuildDownloaded.collectAsState()
+                    var isPreBuildNotesExpanded by remember { mutableStateOf(false) }
+
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -967,19 +1045,110 @@ fun SettingsScreen(
                                     .clip(RoundedCornerShape(cardCorner))
                                     .background(cardBg)
                                     .padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text("Developer Pre-Builds", color = accentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("Install testing release from GitHub tag 'Pre_Builds'", color = textSub, fontSize = 11.sp)
-                                Button(
-                                    onClick = { viewModel.installPreBuildRelease(context) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Install Pre-Build", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = preBuildStatusMessage ?: "Install testing release from GitHub tag 'Pre_Builds'",
+                                    color = textSub,
+                                    fontSize = 11.sp
+                                )
+
+                                if (!preBuildUpdateInfo?.releaseNotes.isNullOrBlank()) {
+                                    val preBuildScrollState = rememberScrollState()
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                                            .padding(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "Pre-Build Details:",
+                                            color = textPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Box(
+                                            modifier = if (isPreBuildNotesExpanded) {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(max = 240.dp)
+                                                    .verticalScroll(preBuildScrollState)
+                                            } else {
+                                                Modifier.fillMaxWidth()
+                                            }
+                                        ) {
+                                            Text(
+                                                text = preBuildUpdateInfo!!.releaseNotes!!.trim(),
+                                                color = textSub,
+                                                fontSize = 11.sp,
+                                                lineHeight = 16.sp,
+                                                maxLines = if (isPreBuildNotesExpanded) Int.MAX_VALUE else 4,
+                                                overflow = if (isPreBuildNotesExpanded) TextOverflow.Clip else TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (preBuildUpdateInfo!!.releaseNotes!!.lines().size > 4 || preBuildUpdateInfo!!.releaseNotes!!.length > 180) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = if (isPreBuildNotesExpanded) "Show Less" else "Show Full Description",
+                                                color = accentColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier
+                                                    .clickable { isPreBuildNotesExpanded = !isPreBuildNotesExpanded }
+                                                    .padding(vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (preBuildDownloadProgress != null) {
+                                    val prog = preBuildDownloadProgress!!
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Downloading Pre-Build...", color = textSub, fontSize = 11.sp)
+                                            Text("${(prog * 100).toInt()}%", color = accentColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = { prog },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                            color = accentColor
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.handlePreBuildAction(context) },
+                                        enabled = !isCheckingPreBuild,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isPreBuildDownloaded) Color(0xFF34C759) else accentColor
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isCheckingPreBuild) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Checking Pre-Build...", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        } else if (isPreBuildDownloaded) {
+                                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Install Pre-Build", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        } else if (preBuildUpdateInfo?.isNewVersionAvailable == true) {
+                                            Icon(Icons.Default.DownloadForOffline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            val sizeStr = preBuildUpdateInfo?.apkSizeString?.let { " ($it)" } ?: ""
+                                            Text("Download Pre-Build$sizeStr", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Icon(Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Check for Pre-Build", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                             }
                         }

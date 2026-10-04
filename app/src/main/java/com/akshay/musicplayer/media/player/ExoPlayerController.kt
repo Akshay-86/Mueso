@@ -60,6 +60,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var positionUpdateJob: Job? = null
     private var onlineResolutionJob: Job? = null
     @Volatile private var lastValidPositionMs: Long = 0L
+    @Volatile private var lastPositionTrackId: Long? = null
     private var pendingRestore: (() -> Unit)? = null
     private var artworkLoadJob: Job? = null
     @Volatile private var isRestoring = false
@@ -191,6 +192,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 }
             }
             if (oldId != newId) {
+                lastPositionTrackId = newId
+                lastValidPositionMs = 0L
+                pendingNetworkRetryPosMs = 0L
                 val currentTrack = tracksQueue.firstOrNull { it.id == currentTrackId }
                 if (currentTrack != null) {
                     updateArtworkForCurrentTrack(currentTrack)
@@ -212,8 +216,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val isOnlineStream = curTrack != null && (curTrack.filePath.startsWith("http") || curTrack.filePath.startsWith("online:") || isPlayingLosslessOnline || isPlayingDirectOnline) && videoId.isNotBlank()
             val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
 
-            // Capture the playback position BEFORE updatePlaybackState() resets it to 0
-            val savedPos = maxOf(mediaController?.currentPosition ?: 0L, lastValidPositionMs, _playbackState.value.currentPositionMs)
+            // Capture the playback position BEFORE updatePlaybackState() resets it to 0, ONLY if it belongs to the current track
+            val isSameTrack = curTrack != null && (curTrack.id == lastPositionTrackId || curTrack.id == currentTrackId || curTrack.id == _playbackState.value.currentTrackId)
+            val currentControllerPos = mediaController?.currentPosition ?: 0L
+            val safeDuration = curTrack?.duration?.coerceAtLeast(0L) ?: 0L
+            val candidatePos = if (isSameTrack) {
+                maxOf(currentControllerPos, lastValidPositionMs, _playbackState.value.currentPositionMs, pendingNetworkRetryPosMs)
+            } else {
+                0L
+            }
+            val savedPos = if (safeDuration > 5_000L && candidatePos >= safeDuration - 3_000L) {
+                0L
+            } else {
+                candidatePos
+            }
 
             updatePlaybackState()
             handlePositionUpdates(false)
@@ -226,7 +242,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 return
             }
 
-            if (isOnlineStream && curTrack != null) {
+            if (isOnlineStream) {
                 onlineRepo.invalidateStreamCache(videoId)
 
                 val shouldRetry = lastErrorTrackId != curTrack.id || trackErrorRetryCount < 2
@@ -531,13 +547,26 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         isWaitingForNetwork = true
         pendingNetworkRetryTrack = track
         pendingNetworkRetryIndex = currentQueueIndex
-        val actualPosMs = maxOf(
-            positionMs,
-            lastValidPositionMs,
-            pendingNetworkRetryPosMs,
-            ytPlayerManager.currentPositionMs,
-            _playbackState.value.currentPositionMs
-        )
+
+        val isSameTrack = (lastPositionTrackId == track.id || currentTrackId == track.id || _playbackState.value.currentTrackId == track.id || pendingNetworkRetryTrack?.id == track.id)
+        val safeTrackDuration = track.duration.coerceAtLeast(0L)
+        val rawPosMs = if (isSameTrack) {
+            maxOf(
+                positionMs,
+                lastValidPositionMs,
+                pendingNetworkRetryPosMs,
+                if (_playbackState.value.currentTrackId == track.id) _playbackState.value.currentPositionMs else 0L
+            )
+        } else {
+            positionMs
+        }
+        val actualPosMs = if (safeTrackDuration > 5_000L && rawPosMs >= safeTrackDuration - 3_000L) {
+            0L
+        } else {
+            rawPosMs
+        }
+
+        lastPositionTrackId = track.id
         pendingNetworkRetryPosMs = actualPosMs
         lastValidPositionMs = actualPosMs
         Log.w("MUESO_NET", "Online playback stalled due to network issue for '${track.title}' at ${actualPosMs}ms. Waiting for network...")
@@ -549,14 +578,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             currentPositionMs = actualPosMs
         )
 
-        // Periodic background retry: checks every 6s if network returned
+        startPeriodicNetworkRetry()
+    }
+
+    private fun startPeriodicNetworkRetry() {
+        networkRetryJob?.cancel()
         networkRetryJob = scope.launch(Dispatchers.Main) {
             var attempt = 0
             while (isWaitingForNetwork && isActive) {
                 delay(6000)
                 attempt++
                 if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
-                    Log.i("MUESO_NET", "Periodic retry detected network online! Retrying '${track.title}' (attempt $attempt)")
+                    Log.i("MUESO_NET", "Periodic retry detected network online! Retrying (attempt $attempt)")
                     retryPendingNetworkTrack()
                     break
                 } else {
@@ -569,12 +602,22 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun retryPendingNetworkTrack() {
         val track = pendingNetworkRetryTrack ?: currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex) ?: return
         val targetIndex = if (pendingNetworkRetryIndex in tracksQueue.indices) pendingNetworkRetryIndex else currentQueueIndex
-        val posMs = maxOf(
-            pendingNetworkRetryPosMs,
-            lastValidPositionMs,
-            ytPlayerManager.currentPositionMs,
-            _playbackState.value.currentPositionMs
-        )
+        val isSameTrack = (lastPositionTrackId == track.id || currentTrackId == track.id || _playbackState.value.currentTrackId == track.id || pendingNetworkRetryTrack?.id == track.id)
+        val safeDuration = track.duration.coerceAtLeast(0L)
+        val rawPosMs = if (isSameTrack) {
+            maxOf(
+                pendingNetworkRetryPosMs,
+                lastValidPositionMs,
+                if (_playbackState.value.currentTrackId == track.id) _playbackState.value.currentPositionMs else 0L
+            )
+        } else {
+            0L
+        }
+        val posMs = if (safeDuration > 5_000L && rawPosMs >= safeDuration - 3_000L) {
+            0L
+        } else {
+            rawPosMs
+        }
         Log.i("MUESO_NET", "=== Resuming pending track after network recovery: '${track.title}' at ${posMs}ms (savedPos=$pendingNetworkRetryPosMs, lastValid=$lastValidPositionMs) ===")
 
         isWaitingForNetwork = false
@@ -834,6 +877,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     currentPositionMs = startPositionMs,
                     durationMs = effectiveDuration
                 )
+                lastPositionTrackId = track.id
                 lastValidPositionMs = startPositionMs
 
                 updateArtworkForCurrentTrack(track)
@@ -882,6 +926,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             currentPositionMs = startPositionMs,
             durationMs = track.duration.coerceAtLeast(0L)
         )
+        lastPositionTrackId = track.id
+        lastValidPositionMs = startPositionMs
 
         syncMediaSessionForOnlineTrack(track, isPlaying = false, positionMs = startPositionMs)
 
@@ -919,6 +965,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             currentPositionMs = 0L,
             durationMs = track.duration.coerceAtLeast(0L)
         )
+        lastPositionTrackId = track.id
+        lastValidPositionMs = 0L
 
         syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = 0L)
 
@@ -1257,6 +1305,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         notifyQueueOrCommandsChanged()
         val track = tracks[safeIndex]
         currentTrackId = track.id
+        lastPositionTrackId = track.id
+        lastValidPositionMs = 0L
+        pendingNetworkRetryPosMs = 0L
         Log.d("MUESO_SYNC", "ExoPlayer setPlaylistAndPlay: starting at index=$safeIndex, trackId=$currentTrackId, path=${track.filePath.take(30)}")
 
         val isOnline = isOnlineTrack(track)
@@ -1570,20 +1621,36 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 mediaController?.pause()
                 ytPlayerManager.pause()
                 _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
+            } else {
+                seekToIndex(currentQueueIndex)
             }
             return
         }
         if (isWaitingForNetwork) {
-            if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
-                retryPendingNetworkTrack()
+            val isCurrentlyPlayingOrWaiting = _playbackState.value.isPlaying
+            if (isCurrentlyPlayingOrWaiting) {
+                // User explicitly clicked pause while waiting/retrying on poor network
+                networkRetryJob?.cancel()
+                isWaitingForNetwork = false
+                mediaController?.pause()
+                ytPlayerManager.pause()
+                _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
             } else {
-                try {
-                    android.widget.Toast.makeText(
-                        context,
-                        "Waiting for network connection...",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
-                } catch (_: Exception) {}
+                // User wants to resume playback
+                if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                    retryPendingNetworkTrack()
+                } else {
+                    try {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Waiting for network connection...",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    } catch (_: Exception) {}
+                    if (networkRetryJob?.isActive != true) {
+                        startPeriodicNetworkRetry()
+                    }
+                }
             }
             return
         }
@@ -1685,7 +1752,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         val track = tracksQueue.getOrNull(index)
         if (track != null) {
             currentTrackId = track.id
+            lastPositionTrackId = track.id
             lastValidPositionMs = 0L
+            pendingNetworkRetryPosMs = 0L
             _playbackState.value = PlaybackState(
                 isPlaying = true,
                 currentTrackId = track.id,

@@ -205,8 +205,24 @@ class PlayerViewModel(
     val updateInfo = updateManager.updateInfo
     val updateDownloadProgress = updateManager.downloadProgress
     val updateStatusMessage = updateManager.statusMessage
+    val isUpdateDownloaded = updateManager.isUpdateDownloaded
+
+    val isCheckingPreBuild = updateManager.isCheckingPreBuild
+    val preBuildUpdateInfo = updateManager.preBuildUpdateInfo
+    val preBuildDownloadProgress = updateManager.preBuildDownloadProgress
+    val preBuildStatusMessage = updateManager.preBuildStatusMessage
+    val isPreBuildDownloaded = updateManager.isPreBuildDownloaded
+
     fun checkForUpdates(context: android.content.Context, showToast: Boolean = false) = updateManager.checkForUpdates(context, showToast)
+    fun downloadUpdate(context: android.content.Context) = updateManager.downloadApk(context)
+    fun installDownloadedUpdate(context: android.content.Context) = updateManager.installDownloadedApk(context)
     fun downloadAndInstallUpdate(context: android.content.Context) = updateManager.downloadAndInstallApk(context)
+    fun handleUpdateAction(context: android.content.Context) = updateManager.handleUpdateAction(context)
+
+    fun checkPreBuildRelease(context: android.content.Context, showToast: Boolean = false) = updateManager.checkPreBuildRelease(context, showToast)
+    fun downloadPreBuildRelease(context: android.content.Context) = updateManager.downloadPreBuildRelease(context)
+    fun installPreBuildApk(context: android.content.Context) = updateManager.installPreBuildApk(context)
+    fun handlePreBuildAction(context: android.content.Context) = updateManager.handlePreBuildAction(context)
     fun installPreBuildRelease(context: android.content.Context) = updateManager.installPreBuildRelease(context)
     fun resetUpdateState() = updateManager.resetUpdateState()
     fun checkAndResumePendingInstall(context: android.content.Context) = updateManager.checkAndResumePendingInstall(context)
@@ -1630,8 +1646,8 @@ class PlayerViewModel(
                     lastSponsorActionTime = now
                     lastSkippedSegmentEndMs = seg.endMs
                     activeSponsorSegments = emptyList()
-                    Log.d("MUESO_SPONSOR", "Auto-skipping outro segment (${seg.category}) from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}' -> handling track completion")
-                    handleTrackCompletion()
+                    Log.d("MUESO_SPONSOR", "Auto-skipping outro segment (${seg.category}) from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}' -> seeking to next track")
+                    mediaPlayerController.seekToNext()
                     break
                 } else if (isIntroAtStart && currentPositionMs in 0L until (seg.endMs - 300L)) {
                     if (lastSkippedSegmentEndMs == seg.endMs) continue
@@ -1689,6 +1705,10 @@ class PlayerViewModel(
             val vid = onlineRepository.extractVideoId(nextTrack).ifBlank { nextTrack.filePath.removePrefix("online:") }
             if (vid.isNotBlank() && vid.length == 11 && lastPrefetchedNextIndex != nextIndex) {
                 lastPrefetchedNextIndex = nextIndex
+                if (com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.getCachedStreamUrl(vid) != null) {
+                    Log.d("MUESO_QUEUE", "Stream URL already cached for next track at index $nextIndex: ${nextTrack.title} ($vid)")
+                    return
+                }
                 activeNextStreamJob?.cancel()
                 activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     Log.d("MUESO_QUEUE", "Warming stream URL for next track at index $nextIndex: ${nextTrack.title} ($vid)")
@@ -1702,6 +1722,11 @@ class PlayerViewModel(
         val nextIndex = currentIndex + 1
         if (nextIndex !in currentTracks.indices) return
         if (lastPrefetchedNextIndex == nextIndex) return
+
+        // Do not prefetch if current playback is buffering or if network is disconnected, preventing bandwidth contention
+        if (_playbackState.value.isBuffering || !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+            return
+        }
 
         // Only pre-fetch next track when current track is near its end (within 30s of finish or > 85% through)
         val isNearEnd = (durationMs > 10_000L && currentPositionMs >= (durationMs - 30_000L)) ||
@@ -2014,7 +2039,9 @@ class PlayerViewModel(
             mediaPlayerController.mediaEvents().collect { event ->
                 when (event) {
                     is PlayerEvent.TrackEnded -> {
-                        handleTrackCompletion()
+                        // Autonomous queue progression, sleep timers, and repeat loops
+                        // are handled in ExoPlayerController. We do not advance the queue
+                        // here to prevent dual queue progression race conditions.
                     }
                     is PlayerEvent.PlaybackError -> {
                         val is403Error = event.message.contains("403", ignoreCase = true) ||
@@ -2407,13 +2434,26 @@ class PlayerViewModel(
         _activeSleepMode.value = SleepTimerMode.AFTER_SONG
         _sleepAfterSongId.value = trackId
         com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack = { finishedId ->
-            _activeSleepMode.value == SleepTimerMode.AFTER_SONG && _sleepAfterSongId.value == finishedId
+            val shouldStop = _activeSleepMode.value == SleepTimerMode.AFTER_SONG && _sleepAfterSongId.value == finishedId
+            if (shouldStop) {
+                clearSleepTimerInternal()
+            }
+            shouldStop
         }
     }
 
     fun setSleepEndOfPlaylist() {
         clearSleepTimerInternal()
         _activeSleepMode.value = SleepTimerMode.END_OF_PLAYLIST
+        com.akshay.musicplayer.media.service.MediaSessionBridge.shouldStopAfterTrack = { _ ->
+            val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
+            val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
+            val shouldStop = _activeSleepMode.value == SleepTimerMode.END_OF_PLAYLIST && getCurrentTrackIndex() >= playlistEndIdx
+            if (shouldStop) {
+                clearSleepTimerInternal()
+            }
+            shouldStop
+        }
     }
 
     fun clearSleepTimer() {

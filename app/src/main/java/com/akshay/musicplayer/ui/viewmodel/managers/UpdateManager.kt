@@ -62,9 +62,43 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
+    private val _isUpdateDownloaded = MutableStateFlow(false)
+    val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
+
+    // Pre-Build state flows
+    private val _preBuildUpdateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val preBuildUpdateInfo: StateFlow<UpdateInfo?> = _preBuildUpdateInfo.asStateFlow()
+
+    private val _isCheckingPreBuild = MutableStateFlow(false)
+    val isCheckingPreBuild: StateFlow<Boolean> = _isCheckingPreBuild.asStateFlow()
+
+    private val _preBuildDownloadProgress = MutableStateFlow<Float?>(null)
+    val preBuildDownloadProgress: StateFlow<Float?> = _preBuildDownloadProgress.asStateFlow()
+
+    private val _preBuildStatusMessage = MutableStateFlow<String?>(null)
+    val preBuildStatusMessage: StateFlow<String?> = _preBuildStatusMessage.asStateFlow()
+
+    private val _isPreBuildDownloaded = MutableStateFlow(false)
+    val isPreBuildDownloaded: StateFlow<Boolean> = _isPreBuildDownloaded.asStateFlow()
+
     private val httpClient = OkHttpClient.Builder()
         .followRedirects(true)
         .build()
+
+    fun getDownloadedApkFile(context: Context, info: UpdateInfo?): File? {
+        if (info == null) return null
+        val safeTag = info.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val safeAbi = info.targetAbi?.replace(Regex("[^a-zA-Z0-9._-]"), "_") ?: "pkg"
+        val apkFile = File(context.cacheDir, "mueso_update_${safeTag}_$safeAbi.apk")
+        if (apkFile.exists() && apkFile.length() > 0) {
+            if (info.apkSizeBytes > 0 && apkFile.length() == info.apkSizeBytes) {
+                return apkFile
+            } else if (apkFile.length() > 5_000_000L) {
+                return apkFile
+            }
+        }
+        return null
+    }
 
     fun checkForUpdates(context: Context, showToastIfLatest: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -137,11 +171,17 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                         apkSizeString = matchedApk.sizeString
                     )
                     _updateInfo.value = info
+                    val downloaded = getDownloadedApkFile(context, info) != null
+                    _isUpdateDownloaded.value = downloaded
                     val abiLabel = matchedApk.abi ?: "universal"
                     val sizeLabel = matchedApk.sizeString?.let { " • $it" } ?: ""
-                    _statusMessage.value = "New version available: $tagName ($abiLabel$sizeLabel)"
+                    if (downloaded) {
+                        _statusMessage.value = "Update $tagName is downloaded and ready to install"
+                    } else {
+                        _statusMessage.value = "New version available: $tagName ($abiLabel$sizeLabel)"
+                    }
                 } else {
-                    _updateInfo.value = UpdateInfo(
+                    val info = UpdateInfo(
                         tagName = tagName.ifBlank { currentVersionName },
                         releaseName = releaseName.ifBlank { currentVersionName },
                         releaseNotes = releaseNotes,
@@ -152,6 +192,9 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                         apkSizeBytes = matchedApk?.sizeBytes ?: 0L,
                         apkSizeString = matchedApk?.sizeString
                     )
+                    _updateInfo.value = info
+                    val downloaded = getDownloadedApkFile(context, info) != null
+                    _isUpdateDownloaded.value = downloaded
                     _statusMessage.value = "Mueso is up to date ($currentVersionName)"
                     if (showToastIfLatest) {
                         withContext(Dispatchers.Main) {
@@ -168,9 +211,20 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         }
     }
 
-    fun downloadAndInstallApk(context: Context) {
+    fun downloadApk(context: Context, autoInstall: Boolean = true) {
         val info = _updateInfo.value ?: return
         if (info.apkUrl.isBlank()) return
+
+        val existingApk = getDownloadedApkFile(context, info)
+        if (existingApk != null) {
+            _isUpdateDownloaded.value = true
+            _downloadProgress.value = null
+            _statusMessage.value = "Update ${info.tagName} is ready to install"
+            if (autoInstall) {
+                installApk(context, existingApk)
+            }
+            return
+        }
 
         coroutineScope.launch(Dispatchers.IO) {
             _downloadProgress.value = 0.01f
@@ -216,17 +270,49 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 outputStream.close()
                 inputStream.close()
 
-                _downloadProgress.value = 1.0f
-                _statusMessage.value = "Download complete. Starting installation..."
+                _downloadProgress.value = null
+                _isUpdateDownloaded.value = true
+                _statusMessage.value = "Download complete. Ready to install."
 
                 withContext(Dispatchers.Main) {
-                    installApk(context, apkFile)
+                    if (autoInstall) {
+                        installApk(context, apkFile)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error downloading APK", e)
                 _statusMessage.value = "Failed to download update: ${e.message}"
                 _downloadProgress.value = null
             }
+        }
+    }
+
+    fun installDownloadedApk(context: Context) {
+        val file = getDownloadedApkFile(context, _updateInfo.value) ?: pendingApkFile
+        if (file != null && file.exists()) {
+            installApk(context, file)
+        } else {
+            downloadApk(context, autoInstall = true)
+        }
+    }
+
+    fun downloadAndInstallApk(context: Context) {
+        val file = getDownloadedApkFile(context, _updateInfo.value)
+        if (file != null) {
+            installApk(context, file)
+        } else {
+            downloadApk(context, autoInstall = true)
+        }
+    }
+
+    fun handleUpdateAction(context: Context) {
+        val info = _updateInfo.value
+        if (info == null || !info.isNewVersionAvailable) {
+            checkForUpdates(context, showToastIfLatest = true)
+        } else if (_isUpdateDownloaded.value || getDownloadedApkFile(context, info) != null) {
+            installDownloadedApk(context)
+        } else if (_downloadProgress.value == null) {
+            downloadApk(context, autoInstall = true)
         }
     }
 
@@ -355,24 +441,23 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         return true
     }
 
-    fun installPreBuildRelease(context: Context, forceDownload: Boolean = false) {
+    fun checkPreBuildRelease(context: Context, showToast: Boolean = false) {
         coroutineScope.launch(Dispatchers.IO) {
-            _isChecking.value = true
+            _isCheckingPreBuild.value = true
 
             // 1. Check network connectivity
             if (!isNetworkAvailable(context)) {
-                _statusMessage.value = "No internet connection"
-                _isChecking.value = false
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "No internet connection. Please check your network.", Toast.LENGTH_LONG).show()
+                _preBuildStatusMessage.value = "No internet connection"
+                _isCheckingPreBuild.value = false
+                if (showToast) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "No internet connection. Please check your network.", Toast.LENGTH_LONG).show()
+                    }
                 }
                 return@launch
             }
 
-            _statusMessage.value = "Fetching Pre_Builds release from GitHub..."
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Checking GitHub tag: Pre_Builds...", Toast.LENGTH_SHORT).show()
-            }
+            _preBuildStatusMessage.value = "Checking GitHub tag: Pre_Builds..."
 
             try {
                 val url = "https://api.github.com/repos/Akshay-86/Mueso/releases/tags/Pre_Builds"
@@ -387,11 +472,13 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val body = response.body?.string()
 
                 if (!response.isSuccessful || body.isNullOrBlank()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Pre_Builds tag not found on GitHub yet", Toast.LENGTH_LONG).show()
+                    if (showToast) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Pre_Builds tag not found on GitHub yet", Toast.LENGTH_LONG).show()
+                        }
                     }
-                    _statusMessage.value = "Pre_Builds release not found"
-                    _isChecking.value = false
+                    _preBuildStatusMessage.value = "Pre_Builds release not found"
+                    _isCheckingPreBuild.value = false
                     return@launch
                 }
 
@@ -405,18 +492,19 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                 val apkUrl = matchedApk?.url
 
                 if (apkUrl.isNullOrBlank()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "No compatible APK file found in Pre_Builds release assets", Toast.LENGTH_LONG).show()
+                    if (showToast) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "No compatible APK file found in Pre_Builds release assets", Toast.LENGTH_LONG).show()
+                        }
                     }
-                    _statusMessage.value = "No compatible APK asset in Pre_Builds release"
-                    _isChecking.value = false
+                    _preBuildStatusMessage.value = "No compatible APK asset in Pre_Builds release"
+                    _isCheckingPreBuild.value = false
                     return@launch
                 }
 
                 // Retrieve current app version & commit sha
                 val installedSha = com.akshay.musicplayer.BuildConfig.GIT_COMMIT_SHA
-
-                val isNew = if (forceDownload) true else isPreBuildNewer(
+                val isNew = isPreBuildNewer(
                     releaseSha = releaseSha,
                     installedSha = installedSha
                 )
@@ -425,51 +513,173 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
 
                 Log.d(TAG, "Pre_Build check: releaseSha=$releaseSha, installedSha=$installedSha, isNew=$isNew, matched=${matchedApk.name} (${matchedApk.abi})")
 
-                if (isNew) {
-                    _updateInfo.value = UpdateInfo(
-                        tagName = displayTag,
-                        releaseName = releaseName,
-                        releaseNotes = releaseBody.takeIf { it.isNotBlank() },
-                        apkUrl = apkUrl,
-                        isNewVersionAvailable = true,
-                        apkName = matchedApk.name,
-                        targetAbi = matchedApk.abi,
-                        apkSizeBytes = matchedApk.sizeBytes,
-                        apkSizeString = matchedApk.sizeString
-                    )
-                    _statusMessage.value = "Downloading $displayTag (${matchedApk.abi ?: "universal"})..."
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "New Pre-Build found ($displayTag). Downloading ${matchedApk.abi ?: "APK"}...", Toast.LENGTH_SHORT).show()
-                    }
-                    downloadAndInstallApk(context)
+                val info = UpdateInfo(
+                    tagName = displayTag,
+                    releaseName = releaseName,
+                    releaseNotes = releaseBody.takeIf { it.isNotBlank() },
+                    apkUrl = apkUrl,
+                    isNewVersionAvailable = isNew,
+                    apkName = matchedApk.name,
+                    targetAbi = matchedApk.abi,
+                    apkSizeBytes = matchedApk.sizeBytes,
+                    apkSizeString = matchedApk.sizeString
+                )
+                _preBuildUpdateInfo.value = info
+
+                val downloaded = getDownloadedApkFile(context, info) != null
+                _isPreBuildDownloaded.value = downloaded
+
+                val abiLabel = matchedApk.abi ?: "universal"
+                val sizeLabel = matchedApk.sizeString?.let { " • $it" } ?: ""
+
+                if (downloaded) {
+                    _preBuildStatusMessage.value = "Pre-Build ($displayTag) is downloaded and ready to install"
+                } else if (isNew) {
+                    _preBuildStatusMessage.value = "New Pre-Build available: $displayTag ($abiLabel$sizeLabel)"
                 } else {
-                    _updateInfo.value = UpdateInfo(
-                        tagName = displayTag,
-                        releaseName = releaseName,
-                        releaseNotes = releaseBody.takeIf { it.isNotBlank() },
-                        apkUrl = apkUrl,
-                        isNewVersionAvailable = false,
-                        apkName = matchedApk.name,
-                        targetAbi = matchedApk.abi,
-                        apkSizeBytes = matchedApk.sizeBytes,
-                        apkSizeString = matchedApk.sizeString
-                    )
-                    val statusTxt = "You are already on the latest Pre-Build ($installedSha)"
-                    _statusMessage.value = statusTxt
+                    _preBuildStatusMessage.value = "You are already on the latest Pre-Build ($installedSha)"
+                }
+
+                if (showToast) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, statusTxt, Toast.LENGTH_LONG).show()
+                        val toastMsg = if (downloaded) {
+                            "Pre-Build ready to install ($displayTag)"
+                        } else if (isNew) {
+                            "New Pre-Build found ($displayTag)!"
+                        } else {
+                            "You are already on the latest Pre-Build ($installedSha)"
+                        }
+                        Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching Pre_Builds release", e)
                 val isNetworkIssue = e is java.net.UnknownHostException || e is java.io.IOException || !isNetworkAvailable(context)
                 val errorMsg = if (isNetworkIssue) "No internet connection or network error" else "Failed to fetch Pre_Builds: ${e.message}"
-                _statusMessage.value = errorMsg
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
+                _preBuildStatusMessage.value = errorMsg
+                if (showToast) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
+                    }
                 }
             } finally {
-                _isChecking.value = false
+                _isCheckingPreBuild.value = false
+            }
+        }
+    }
+
+    fun downloadPreBuildRelease(context: Context, autoInstall: Boolean = true) {
+        val info = _preBuildUpdateInfo.value ?: return
+        if (info.apkUrl.isBlank()) return
+
+        val existingApk = getDownloadedApkFile(context, info)
+        if (existingApk != null) {
+            _isPreBuildDownloaded.value = true
+            _preBuildDownloadProgress.value = null
+            _preBuildStatusMessage.value = "Pre-Build (${info.tagName}) is ready to install"
+            if (autoInstall) {
+                installApk(context, existingApk)
+            }
+            return
+        }
+
+        coroutineScope.launch(Dispatchers.IO) {
+            _preBuildDownloadProgress.value = 0.01f
+            val abiText = info.targetAbi?.let { " ($it)" } ?: ""
+            _preBuildStatusMessage.value = "Downloading Pre-Build ${info.tagName}$abiText..."
+
+            try {
+                val request = Request.Builder()
+                    .url(info.apkUrl)
+                    .header("User-Agent", "MuesoMusicPlayerApp")
+                    .get()
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val body = response.body
+                if (!response.isSuccessful || body == null) {
+                    _preBuildStatusMessage.value = "Download failed (HTTP ${response.code})"
+                    _preBuildDownloadProgress.value = null
+                    return@launch
+                }
+
+                val contentLength = body.contentLength()
+                val safeTag = info.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val safeAbi = info.targetAbi?.replace(Regex("[^a-zA-Z0-9._-]"), "_") ?: "pkg"
+                val apkFile = File(context.cacheDir, "mueso_update_${safeTag}_$safeAbi.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                val inputStream = body.byteStream()
+                val outputStream = FileOutputStream(apkFile)
+                val buffer = ByteArray(32 * 1024)
+                var bytesRead: Int
+                var totalBytesRead = 0L
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                    totalBytesRead += bytesRead
+                    if (contentLength > 0) {
+                        val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.99f)
+                        _preBuildDownloadProgress.value = prog
+                    }
+                }
+                outputStream.flush()
+                outputStream.close()
+                inputStream.close()
+
+                _preBuildDownloadProgress.value = null
+                _isPreBuildDownloaded.value = true
+                _preBuildStatusMessage.value = "Pre-Build downloaded. Ready to install."
+
+                withContext(Dispatchers.Main) {
+                    if (autoInstall) {
+                        installApk(context, apkFile)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error downloading Pre-Build APK", e)
+                _preBuildStatusMessage.value = "Failed to download Pre-Build: ${e.message}"
+                _preBuildDownloadProgress.value = null
+            }
+        }
+    }
+
+    fun installPreBuildApk(context: Context) {
+        val file = getDownloadedApkFile(context, _preBuildUpdateInfo.value) ?: pendingApkFile
+        if (file != null && file.exists()) {
+            installApk(context, file)
+        } else {
+            downloadPreBuildRelease(context, autoInstall = true)
+        }
+    }
+
+    fun handlePreBuildAction(context: Context) {
+        val info = _preBuildUpdateInfo.value
+        if (info == null) {
+            checkPreBuildRelease(context, showToast = true)
+        } else if (_isPreBuildDownloaded.value || getDownloadedApkFile(context, info) != null) {
+            installPreBuildApk(context)
+        } else if (_preBuildDownloadProgress.value == null) {
+            downloadPreBuildRelease(context, autoInstall = true)
+        }
+    }
+
+    fun installPreBuildRelease(context: Context, forceDownload: Boolean = false) {
+        val info = _preBuildUpdateInfo.value
+        if (info != null && !forceDownload && (_isPreBuildDownloaded.value || getDownloadedApkFile(context, info) != null)) {
+            installPreBuildApk(context)
+        } else {
+            coroutineScope.launch(Dispatchers.IO) {
+                checkPreBuildRelease(context, showToast = false)
+                val updatedInfo = _preBuildUpdateInfo.value
+                if (updatedInfo != null && (updatedInfo.isNewVersionAvailable || forceDownload)) {
+                    val downloaded = getDownloadedApkFile(context, updatedInfo)
+                    if (downloaded != null && !forceDownload) {
+                        withContext(Dispatchers.Main) { installApk(context, downloaded) }
+                    } else {
+                        downloadPreBuildRelease(context, autoInstall = true)
+                    }
+                }
             }
         }
     }
