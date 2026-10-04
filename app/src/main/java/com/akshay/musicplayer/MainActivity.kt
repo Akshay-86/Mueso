@@ -5,48 +5,26 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.*
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import com.akshay.musicplayer.data.repository.TrackRepositoryImpl
 import com.akshay.musicplayer.data.sources.LocalMediaStoreDataSource
 import com.akshay.musicplayer.domain.usecase.GetLocalTracksUseCase
 import com.akshay.musicplayer.media.player.ExoPlayerController
 import com.akshay.musicplayer.ui.screens.MainScreen
-import com.akshay.musicplayer.ui.screens.PlayerScreen
 import com.akshay.musicplayer.ui.screens.SplashScreen
+import com.akshay.musicplayer.ui.screens.WelcomeScreen
 import com.akshay.musicplayer.ui.theme.MusicPlayerTheme
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
+import com.akshay.musicplayer.util.PermissionHelper
 import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
@@ -149,17 +127,11 @@ class MainActivity : ComponentActivity() {
             }
 
             val context = androidx.compose.ui.platform.LocalContext.current
-            var showBatteryDialog by remember { mutableStateOf(false) }
-
-            val playbackState by playerViewModel.playbackState.collectAsState()
-
-            LaunchedEffect(Unit) {
-                val muesoPrefs = getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                val alreadyPrompted = muesoPrefs.getBoolean("has_prompted_battery_optimization", false)
-                if (!alreadyPrompted && !com.akshay.musicplayer.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
-                    kotlinx.coroutines.delay(1200)
-                    showBatteryDialog = true
-                }
+            val muesoPrefs = remember(context) { getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE) }
+            var hasCompletedOnboarding by remember {
+                mutableStateOf(
+                    muesoPrefs.getBoolean("has_completed_welcome_onboarding", false)
+                )
             }
 
             MusicPlayerTheme(
@@ -170,98 +142,56 @@ class MainActivity : ComponentActivity() {
                 cornerRadiusOption = cornerRadiusOption,
                 lyricsFontSizeOption = lyricsFontSizeOption
             ) {
-                if (showBatteryDialog) {
-                    val accentColor = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
-                    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
-                    val dialogBg = if (isPureBlack) Color(0xFF0D0D0D) else MaterialTheme.colorScheme.surface
-                    val textPrimary = MaterialTheme.colorScheme.onSurface
-                    val textSub = MaterialTheme.colorScheme.onSurfaceVariant
-
-                    AlertDialog(
-                        onDismissRequest = {
-                            showBatteryDialog = false
-                            getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                                .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                        },
-                        shape = RoundedCornerShape(24.dp),
-                        containerColor = dialogBg,
-                        icon = {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(accentColor.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    tint = accentColor,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                        },
-                        title = {
-                            Text(
-                                text = "Background Playback",
-                                color = textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        },
-                        text = {
-                            Text(
-                                text = "To ensure music keeps playing continuously when your screen is locked or while using other apps, please allow Mueso to run without battery restrictions.",
-                                color = textSub,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    showBatteryDialog = false
-                                    getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                                        .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                                    com.akshay.musicplayer.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Allow Unrestricted", color = Color.White, fontWeight = FontWeight.Bold)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = {
-                                    showBatteryDialog = false
-                                    getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)
-                                        .edit().putBoolean("has_prompted_battery_optimization", true).apply()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Maybe Later", color = textSub)
-                            }
-                        }
-                    )
-                }
-
-
                 var showSplash by remember { mutableStateOf(true) }
 
                 if (showSplash) {
                     SplashScreen(
                         onAnimationFinished = {
                             showSplash = false
+                            if (hasCompletedOnboarding && PermissionHelper.isAudioPermissionGranted(context)) {
+                                playerViewModel.restoreLastPlaybackStateOrOffline(context)
+                            }
                         }
                     )
                 } else {
-                    PermissionAwarePlayerScreen()
+                    AnimatedContent(
+                        targetState = hasCompletedOnboarding,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                             slideInHorizontally(
+                                 initialOffsetX = { fullWidth -> fullWidth / 4 },
+                                 animationSpec = tween(350, easing = FastOutSlowInEasing)
+                             ))
+                             .togetherWith(
+                                 fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                 slideOutHorizontally(
+                                     targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                                     animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                 )
+                             )
+                        },
+                        label = "WelcomeToMainTransition"
+                    ) { onboarded ->
+                        if (!onboarded) {
+                            WelcomeScreen(
+                                viewModel = playerViewModel,
+                                isDarkMode = isEffectiveDark,
+                                onContinue = {
+                                    muesoPrefs.edit()
+                                        .putBoolean("has_completed_welcome_onboarding", true)
+                                        .putBoolean("has_prompted_battery_optimization", true)
+                                        .putBoolean("has_seen_google_onboarding", true)
+                                        .apply()
+                                    hasCompletedOnboarding = true
+                                    if (PermissionHelper.isAudioPermissionGranted(context)) {
+                                        playerViewModel.restoreLastPlaybackStateOrOffline(context)
+                                    }
+                                }
+                            )
+                        } else {
+                            MainScreen(viewModel = playerViewModel)
+                        }
+                    }
                 }
             }
         }
@@ -346,93 +276,6 @@ class MainActivity : ComponentActivity() {
             val params = window.attributes
             params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
             window.attributes = params
-        }
-    }
-
-    @Composable
-    private fun PermissionAwarePlayerScreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            MultiplePermissionsGate(
-                permissions = listOf(
-                    android.Manifest.permission.READ_MEDIA_AUDIO,
-                    android.Manifest.permission.POST_NOTIFICATIONS
-                )
-            )
-        } else {
-            MultiplePermissionsGate(
-                permissions = listOf(
-                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                )
-            )
-        }
-    }
-
-    @OptIn(ExperimentalPermissionsApi::class)
-    @Composable
-    private fun MultiplePermissionsGate(permissions: List<String>) {
-        val multiplePermissionsState = com.google.accompanist.permissions.rememberMultiplePermissionsState(permissions)
-
-        val context = androidx.compose.ui.platform.LocalContext.current
-        LaunchedEffect(multiplePermissionsState.allPermissionsGranted) {
-            if (!multiplePermissionsState.allPermissionsGranted) {
-                multiplePermissionsState.launchMultiplePermissionRequest()
-            } else {
-                playerViewModel.restoreLastPlaybackStateOrOffline(context)
-            }
-        }
-
-        if (multiplePermissionsState.allPermissionsGranted) {
-            MainScreen(viewModel = playerViewModel)
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text("Audio and Notification permissions required", color = Color.White)
-                    Button(onClick = { multiplePermissionsState.launchMultiplePermissionRequest() }) {
-                        Text("Grant permissions")
-                    }
-                }
-            }
-        }
-    }
-
-    @OptIn(ExperimentalPermissionsApi::class)
-    @Composable
-    private fun PermissionGate(permission: String) {
-        val permissionState = rememberPermissionState(permission)
-
-        val context = androidx.compose.ui.platform.LocalContext.current
-        LaunchedEffect(permissionState.status.isGranted) {
-            if (!permissionState.status.isGranted) {
-                permissionState.launchPermissionRequest()
-            } else {
-                playerViewModel.restoreLastPlaybackStateOrOffline(context)
-            }
-        }
-
-        if (permissionState.status.isGranted) {
-            MainScreen(viewModel = playerViewModel)
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text("Audio permission required")
-                    Button(onClick = { permissionState.launchPermissionRequest() }) {
-                        Text("Grant permission")
-                    }
-                }
-            }
         }
     }
 

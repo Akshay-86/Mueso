@@ -56,6 +56,11 @@ import com.akshay.musicplayer.ui.theme.LocalAccentColor
 import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.ui.theme.ThemePresets
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import com.akshay.musicplayer.util.BatteryOptimizationHelper
+import com.akshay.musicplayer.util.PermissionHelper
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -126,6 +131,40 @@ fun SettingsScreen(
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
     val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.05f) else if (isDarkMode) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.06f)
     val cardCorner = 16.dp
+
+    var isAudioGranted by remember { mutableStateOf(PermissionHelper.isAudioPermissionGranted(context)) }
+    var isNotificationGranted by remember { mutableStateOf(PermissionHelper.isNotificationPermissionGranted(context)) }
+    var isBatteryIgnored by remember { mutableStateOf(PermissionHelper.isBatteryOptimizationIgnored(context)) }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isAudioGranted = granted
+        if (granted) {
+            viewModel.forceRefreshAll(context)
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isNotificationGranted = granted
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAudioGranted = PermissionHelper.isAudioPermissionGranted(context)
+                isNotificationGranted = PermissionHelper.isNotificationPermissionGranted(context)
+                isBatteryIgnored = PermissionHelper.isBatteryOptimizationIgnored(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -379,16 +418,14 @@ fun SettingsScreen(
                             accentColor = accentColor,
                             onSelect = { viewModel.setPlayButtonPosition(it) }
                         )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsBatteryItem(isDarkMode = isDarkMode)
                     }
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // EXPERIMENTAL
+                // 2. APP PERMISSIONS & SYSTEM ACCESS
                 // ═══════════════════════════════════════════════════════════
                 item {
-                    SettingsSectionHeader("Experimental", accentColor)
+                    SettingsSectionHeader("App Permissions & Access", accentColor)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -396,80 +433,64 @@ fun SettingsScreen(
                             .background(cardBg)
                             .padding(vertical = 4.dp)
                     ) {
-                        SettingsClickableItem(
-                            title = "Equalizer & Audio DSP",
-                            subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
-                            icon = Icons.Default.Tune,
-                            isDarkMode = isDarkMode,
-                            onClick = { showEqualizerSheet = true }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Hi-Res Audio (Lossless FLAC)",
-                            subtitle = if (losslessStreamingEnabled) "Matches tracks against high-resolution lossless catalog • Auto-fallback to YouTube if track unavailable" else "Stream studio quality audio with auto-fallback to YouTube",
-                            icon = Icons.Default.HighQuality,
-                            checked = losslessStreamingEnabled,
+                        // 1. Music & Audio Storage
+                        SettingsPermissionItem(
+                            title = "Music & Audio Files",
+                            subtitle = if (isAudioGranted) "Granted • Access to local songs & downloads" else "Declined / Not Granted • Tap to allow storage access",
+                            icon = Icons.Default.MusicNote,
+                            isGranted = isAudioGranted,
+                            grantedLabel = "GRANTED",
+                            actionLabel = "GRANT",
                             isDarkMode = isDarkMode,
                             accentColor = accentColor,
-                            onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Bit-Perfect Mode",
-                            subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
-                            icon = Icons.Default.Headphones,
-                            checked = isBitPerfectEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Studio Master Clarity",
-                            subtitle = "Acoustic high-shelf excitation (+2.5dB air curve) for vocals",
-                            icon = Icons.Default.Speed,
-                            checked = isStudioMasterClarityEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
-                        )
-                        HorizontalDivider(color = dividerColor)
-                        SettingsToggleItem(
-                            title = "Audio Crossfade",
-                            subtitle = if (crossfadeEnabled) "${crossfadeSeconds}s smooth transition between tracks" else "Gapless track playback",
-                            icon = Icons.Default.Shuffle,
-                            checked = crossfadeEnabled,
-                            isDarkMode = isDarkMode,
-                            accentColor = accentColor,
-                            onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
-                        )
-                        AnimatedVisibility(visible = crossfadeEnabled) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Transition Duration", color = textSub, fontSize = 12.sp)
-                                    Text("${crossfadeSeconds}s", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            onClick = {
+                                if (isAudioGranted) {
+                                    PermissionHelper.openAppSettings(context)
+                                } else {
+                                    audioPermissionLauncher.launch(PermissionHelper.getAudioPermission())
                                 }
-                                Slider(
-                                    value = crossfadeSeconds.toFloat(),
-                                    onValueChange = { viewModel.setCrossfadeSeconds(it.toInt()) },
-                                    valueRange = 1f..12f,
-                                    steps = 10,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = accentColor,
-                                        activeTrackColor = accentColor,
-                                        inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
-                                    )
-                                )
                             }
-                        }
+                        )
+                        HorizontalDivider(color = dividerColor)
+
+                        // 2. Lockscreen & Notifications
+                        SettingsPermissionItem(
+                            title = "Lockscreen & Notifications",
+                            subtitle = if (isNotificationGranted) "Granted • Lockscreen controls & alerts enabled" else "Declined / Not Granted • Tap to enable playback controls",
+                            icon = Icons.Default.Notifications,
+                            isGranted = isNotificationGranted,
+                            grantedLabel = "GRANTED",
+                            actionLabel = "GRANT",
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onClick = {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    if (isNotificationGranted) {
+                                        PermissionHelper.openNotificationSettings(context)
+                                    } else {
+                                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                } else {
+                                    PermissionHelper.openNotificationSettings(context)
+                                }
+                            }
+                        )
+                        HorizontalDivider(color = dividerColor)
+
+                        // 3. Background Playback
+                        SettingsPermissionItem(
+                            title = "Background Playback",
+                            subtitle = if (isBatteryIgnored) "Unrestricted • Music stays playing when screen is locked" else "Optimized • Tap to allow unrestricted playback",
+                            icon = Icons.Default.Bolt,
+                            isGranted = isBatteryIgnored,
+                            grantedLabel = "UNRESTRICTED",
+                            actionLabel = "ALLOW",
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onClick = {
+                                BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                            }
+                        )
                     }
                 }
 
@@ -1019,6 +1040,151 @@ fun SettingsScreen(
                             isDarkMode = isDarkMode,
                             onClick = { showAboutPage = true }
                         )
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // EXPERIMENTAL FEATURES (COLLAPSIBLE AT BOTTOM)
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    var isExperimentalExpanded by remember { mutableStateOf(false) }
+
+                    SettingsSectionHeader("Experimental Features", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isExperimentalExpanded = !isExperimentalExpanded }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(accentColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Tune,
+                                        contentDescription = null,
+                                        tint = accentColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text(
+                                        "Experimental Audio & DSP",
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (isExperimentalExpanded) "Tap to collapse" else "Equalizer, Bit-Perfect, Studio Clarity & Crossfade",
+                                        color = textSub,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = if (isExperimentalExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isExperimentalExpanded) "Collapse" else "Expand",
+                                tint = textSub,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(visible = isExperimentalExpanded) {
+                            Column {
+                                HorizontalDivider(color = dividerColor)
+                                SettingsClickableItem(
+                                    title = "Equalizer & Audio DSP",
+                                    subtitle = "Hardware multi-band EQ, bass boost & acoustic presets",
+                                    icon = Icons.Default.Tune,
+                                    isDarkMode = isDarkMode,
+                                    onClick = { showEqualizerSheet = true }
+                                )
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(
+                                    title = "Hi-Res Audio (Lossless FLAC)",
+                                    subtitle = if (losslessStreamingEnabled) "Matches tracks against high-resolution lossless catalog • Auto-fallback to YouTube if track unavailable" else "Stream studio quality audio with auto-fallback to YouTube",
+                                    icon = Icons.Default.HighQuality,
+                                    checked = losslessStreamingEnabled,
+                                    isDarkMode = isDarkMode,
+                                    accentColor = accentColor,
+                                    onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
+                                )
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(
+                                    title = "Bit-Perfect Mode",
+                                    subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
+                                    icon = Icons.Default.Headphones,
+                                    checked = isBitPerfectEnabled,
+                                    isDarkMode = isDarkMode,
+                                    accentColor = accentColor,
+                                    onCheckedChange = { viewModel.setBitPerfectEnabled(it) }
+                                )
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(
+                                    title = "Studio Master Clarity",
+                                    subtitle = "Acoustic high-shelf excitation (+2.5dB air curve) for vocals",
+                                    icon = Icons.Default.Speed,
+                                    checked = isStudioMasterClarityEnabled,
+                                    isDarkMode = isDarkMode,
+                                    accentColor = accentColor,
+                                    onCheckedChange = { viewModel.setStudioMasterClarityEnabled(it) }
+                                )
+                                HorizontalDivider(color = dividerColor)
+                                SettingsToggleItem(
+                                    title = "Audio Crossfade",
+                                    subtitle = if (crossfadeEnabled) "${crossfadeSeconds}s smooth transition between tracks" else "Gapless track playback",
+                                    icon = Icons.Default.Shuffle,
+                                    checked = crossfadeEnabled,
+                                    isDarkMode = isDarkMode,
+                                    accentColor = accentColor,
+                                    onCheckedChange = { viewModel.setCrossfadeEnabled(it) }
+                                )
+                                AnimatedVisibility(visible = crossfadeEnabled) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Transition Duration", color = textSub, fontSize = 12.sp)
+                                            Text("${crossfadeSeconds}s", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Slider(
+                                            value = crossfadeSeconds.toFloat(),
+                                            onValueChange = { viewModel.setCrossfadeSeconds(it.toInt()) },
+                                            valueRange = 1f..12f,
+                                            steps = 10,
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = accentColor,
+                                                activeTrackColor = accentColor,
+                                                inactiveTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2137,6 +2303,70 @@ private fun SettingsBatteryItem(
             Text(
                 text = if (isIgnoring) "UNRESTRICTED" else "OPTIMIZED",
                 color = if (isIgnoring) Color(0xFF4CAF50) else AccentOrange,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsPermissionItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    isGranted: Boolean,
+    grantedLabel: String,
+    actionLabel: String,
+    isDarkMode: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val successColor = Color(0xFF4CAF50)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isGranted) successColor else accentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = subtitle,
+                    color = textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isGranted) successColor.copy(alpha = 0.15f) else accentColor.copy(alpha = 0.15f))
+                .padding(horizontal = 7.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = if (isGranted) grantedLabel else actionLabel,
+                color = if (isGranted) successColor else accentColor,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
             )

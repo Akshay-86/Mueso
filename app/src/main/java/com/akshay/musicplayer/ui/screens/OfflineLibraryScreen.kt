@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +55,7 @@ import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
+import com.akshay.musicplayer.util.PermissionHelper
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -231,6 +231,15 @@ private fun AllSongsTab(
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    var isAudioGranted by remember { mutableStateOf(PermissionHelper.isAudioPermissionGranted(context)) }
+    val audioPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isAudioGranted = granted
+        if (granted) {
+            onRefresh()
+        }
+    }
     var trackToRename by remember { mutableStateOf<TrackEntity?>(null) }
     var trackToDelete by remember { mutableStateOf<TrackEntity?>(null) }
 
@@ -328,45 +337,91 @@ private fun AllSongsTab(
                             .padding(32.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(CircleShape)
-                                    .background(AccentOrange.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
+                        if (!isAudioGranted) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = AccentOrange,
-                                    modifier = Modifier.size(36.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(CircleShape)
+                                        .background(AccentOrange.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = AccentOrange,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Audio Permission Required",
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
+                                Text(
+                                    text = "Mueso needs audio access permission to discover and play your local MP3s and downloaded music.",
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Button(
+                                    onClick = {
+                                        audioPermissionLauncher.launch(PermissionHelper.getAudioPermission())
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                                    shape = RoundedCornerShape(24.dp),
+                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Grant Music Permission", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
-                            Text(
-                                text = "No Offline Songs Found",
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Downloaded songs and local MP3s will appear here. Tap below after downloading.",
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                fontSize = 13.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                            Button(
-                                onClick = onRefresh,
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                                shape = RoundedCornerShape(24.dp),
-                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Rescan & Refresh Library", color = Color.White, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(CircleShape)
+                                        .background(AccentOrange.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = AccentOrange,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "No Offline Songs Found",
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Downloaded songs and local MP3s will appear here. Tap below after downloading.",
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Button(
+                                    onClick = onRefresh,
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                                    shape = RoundedCornerShape(24.dp),
+                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Rescan & Refresh Library", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
