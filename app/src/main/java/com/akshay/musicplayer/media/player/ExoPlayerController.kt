@@ -259,14 +259,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                         val freshUrl = onlineRepo.resolveStreamUrl(videoId, context, forceRefresh = true)
                         withContext(Dispatchers.Main) {
                             if (currentTrackId == curTrack.id && freshUrl.isNotBlank() && freshUrl.startsWith("http")) {
-                                Log.i("MUESO_STREAM", "Retrying direct online stream with fresh URL for '${curTrack.title}'...")
-                                playDirectOnlineStreamInExoPlayer(curTrack, freshUrl, mediaController?.currentPosition ?: 0L)
+                                Log.i("MUESO_STREAM", "Retrying direct online stream with fresh URL for '${curTrack.title}' at position ${savedPos}ms...")
+                                playDirectOnlineStreamInExoPlayer(curTrack, freshUrl, savedPos)
                                 return@withContext
                             }
-                            Log.w("MUESO_SYNC", "Direct stream retry failed for '${curTrack.title}', falling back to YouTube web player")
+                            Log.w("MUESO_SYNC", "Direct stream retry failed for '${curTrack.title}', falling back to YouTube web player at ${savedPos}ms")
                             isPlayingLosslessOnline = false
                             isPlayingDirectOnline = false
-                            fallbackToOnlinePlayer(curTrack, videoId)
+                            fallbackToOnlinePlayer(curTrack, videoId, (savedPos / 1000f).coerceAtLeast(0f))
                         }
                     }
                     return
@@ -283,7 +283,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                     isPlayingLosslessOnline = false
                     isPlayingDirectOnline = false
                     scope.launch(Dispatchers.Main) {
-                        fallbackToOnlinePlayer(curTrack, videoId)
+                        fallbackToOnlinePlayer(curTrack, videoId, (savedPos / 1000f).coerceAtLeast(0f))
                     }
                 }
                 return
@@ -721,17 +721,16 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     private fun getActiveOutputDeviceName(): String {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "Phone Speaker"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            for (device in devices) {
-                when (device.type) {
-                    AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> return "USB DAC / Audio"
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> {
-                        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) device.productName?.toString() else null
-                        return if (!name.isNullOrBlank()) "Bluetooth ($name)" else "Bluetooth Audio"
-                    }
-                    AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> return "Wired Headphones"
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        for (device in devices) {
+            when (device.type) {
+                AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> return "USB DAC / Audio"
+                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> {
+                    val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) device.productName?.toString() else null
+                    return if (!name.isNullOrBlank()) "Bluetooth ($name)" else "Bluetooth Audio"
                 }
+                AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> return "Wired Headphones"
+                else -> {}
             }
         }
         return "Phone Speaker"
@@ -991,7 +990,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         )
     }
 
-    private fun fallbackToOnlinePlayer(track: TrackEntity, videoId: String) {
+    private fun fallbackToOnlinePlayer(track: TrackEntity, videoId: String, startSeconds: Float = 0f) {
         isPlayingOnline = true
         isPlayingLosslessOnline = false
         isPlayingDirectOnline = false
@@ -1001,21 +1000,22 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         // Pause ExoPlayer to release audio focus/track
         mediaController?.pause()
 
+        val startPosMs = (startSeconds * 1000f).toLong()
         com.akshay.musicplayer.media.service.MediaSessionBridge.isOnlinePlaying = true
         com.akshay.musicplayer.media.service.MediaSessionBridge.onlineDurationMs = track.duration.coerceAtLeast(0L)
-        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = 0L
+        com.akshay.musicplayer.media.service.MediaSessionBridge.onlinePositionMs = startPosMs
 
-        Log.d("MUESO_SYNC", "fallbackToOnlinePlayer: playing online track '${track.title}' via OnlineYouTubePlayerManager (videoId: $videoId)")
-        ytPlayerManager.playVideo(videoId, 0f)
+        Log.d("MUESO_SYNC", "fallbackToOnlinePlayer: playing online track '${track.title}' via OnlineYouTubePlayerManager at ${startSeconds}s (videoId: $videoId)")
+        ytPlayerManager.playVideo(videoId, startSeconds)
 
         _playbackState.value = PlaybackState(
             isPlaying = true,
             currentTrackId = track.id,
-            currentPositionMs = 0L,
+            currentPositionMs = startPosMs,
             durationMs = track.duration.coerceAtLeast(0L)
         )
 
-        syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = 0L)
+        syncMediaSessionForOnlineTrack(track, isPlaying = true, positionMs = startPosMs)
     }
 
     init {
@@ -2086,6 +2086,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun mediaEvents(): Flow<PlayerEvent> = _mediaEvents
 
     companion object {
+        @android.annotation.SuppressLint("StaticFieldLeak")
         @Volatile
         private var instance: ExoPlayerController? = null
 

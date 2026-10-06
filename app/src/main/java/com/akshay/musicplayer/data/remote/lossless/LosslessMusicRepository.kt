@@ -168,18 +168,20 @@ class LosslessMusicRepository(
             val request = requestBuilder.build()
 
             val itemsArr = try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
-                    Log.w(TAG, "Tidal search HTTP $code for '$query': $errBody")
-                    response.close()
-                    continue
-                }
-                val body = response.body?.string() ?: continue
-                val root = JSONObject(body)
-                val dataObj = root.optJSONObject("data") ?: continue
-                dataObj.optJSONArray("items") ?: continue
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val code = response.code
+                        val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
+                        Log.w(TAG, "Tidal search HTTP $code for '$query': $errBody")
+                        null
+                    } else {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val root = JSONObject(body)
+                            root.optJSONObject("data")?.optJSONArray("items")
+                        } else null
+                    }
+                } ?: continue
             } catch (e: Exception) {
                 Log.d(TAG, "Tidal search failed for '$query': ${e.message}")
                 continue
@@ -288,17 +290,20 @@ class LosslessMusicRepository(
             val request = requestBuilder.build()
 
             try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
-                    Log.w(TAG, "fetchTidalStreamUrl HTTP $code for track ${candidate.id}: $errBody")
-                    response.close()
-                    continue
-                }
-                val body = response.body?.string() ?: continue
-                val root = JSONObject(body)
-                val data = root.optJSONObject("data") ?: continue
+                val data = httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val code = response.code
+                        val errBody = try { response.body?.string()?.take(200) } catch (_: Exception) { null }
+                        Log.w(TAG, "fetchTidalStreamUrl HTTP $code for track ${candidate.id}: $errBody")
+                        null
+                    } else {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val root = JSONObject(body)
+                            root.optJSONObject("data")
+                        } else null
+                    }
+                } ?: continue
 
                 val manifestBase64 = data.optString("manifest", "").trim()
                 val manifestMimeType = data.optString("manifestMimeType", "")
@@ -398,13 +403,15 @@ class LosslessMusicRepository(
         val request = requestBuilder.build()
 
         return try {
-            val response = httpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                response.close()
-                return null
-            }
-            val body = response.body?.string() ?: return null
-            val obj = JSONObject(body)
+            val obj = httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    null
+                } else {
+                    val body = response.body?.string()
+                    if (body != null) JSONObject(body) else null
+                }
+            } ?: return null
+
             if (!obj.optBoolean("success", false)) {
                 return null
             }
@@ -483,17 +490,19 @@ class LosslessMusicRepository(
             val request = requestBuilder.build()
 
             val items = try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    response.close()
-                    continue
-                }
-                val body = response.body?.string() ?: continue
-                val root = JSONObject(body)
-                val results = root.optJSONObject("results") ?: continue
-                val tracks = results.optJSONObject("tracks") ?: continue
-                val itemsArr = tracks.optJSONArray("items") ?: continue
-                itemsArr
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        null
+                    } else {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val root = JSONObject(body)
+                            val results = root.optJSONObject("results")
+                            val tracks = results?.optJSONObject("tracks")
+                            tracks?.optJSONArray("items")
+                        } else null
+                    }
+                } ?: continue
             } catch (e: Exception) {
                 Log.d(TAG, "Qobuz search failed for '$query': ${e.message}")
                 continue
@@ -600,12 +609,9 @@ class LosslessMusicRepository(
             .build()
 
         return try {
-            val response = httpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                response.close()
-                return null
-            }
-            val body = response.body?.string() ?: return null
+            val body = httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null else response.body?.string()
+            } ?: return null
             val obj = JSONObject(body)
 
             val streamUrl = obj.optString("stream_url", "").trim()

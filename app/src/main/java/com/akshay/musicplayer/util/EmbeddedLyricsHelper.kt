@@ -83,15 +83,19 @@ object EmbeddedLyricsHelper {
      * Attempts MediaMetadataRetriever key 1000 (often used for lyrics on Android).
      */
     private fun extractViaMediaMetadataRetriever(file: File): String? {
-        try {
-            val retriever = MediaMetadataRetriever()
+        val retriever = MediaMetadataRetriever()
+        return try {
             retriever.setDataSource(file.absolutePath)
             // 1000 is METADATA_KEY_LYRICS on some Android OEM distributions
             val lyrics = try { retriever.extractMetadata(1000) } catch (_: Exception) { null }
-            retriever.release()
-            if (!lyrics.isNullOrBlank()) return lyrics.trim()
-        } catch (_: Exception) {}
-        return null
+            if (!lyrics.isNullOrBlank()) lyrics.trim() else null
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
     }
 
     /**

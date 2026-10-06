@@ -204,9 +204,11 @@ fun MainScreen(viewModel: PlayerViewModel) {
     Scaffold(
         containerColor = if (isDarkMode) BgDark else Color.White,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
-    ) { _ ->
+    ) { innerPadding ->
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
             val isClassic = playerLayoutStyle == "classic"
             val isOnlineActive = if (isClassic) classicNavTab == ClassicNavTab.EXPLORE else pagerState.currentPage == 2

@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 
+@android.annotation.SuppressLint("StaticFieldLeak")
 object OnlineStreamExtractor {
     private const val TAG = "MUESO_STREAM_EXTRACTOR"
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -30,6 +31,7 @@ object OnlineStreamExtractor {
     private val resolveMutex = Mutex()
     private val pendingRequests = ConcurrentHashMap<String, Continuation<String?>>()
 
+    @android.annotation.SuppressLint("StaticFieldLeak")
     private var persistentWebView: WebView? = null
     @Volatile
     private var isBundleLoaded = false
@@ -125,6 +127,7 @@ object OnlineStreamExtractor {
             val wv = WebView(context.applicationContext)
             persistentWebView = wv
 
+            @android.annotation.SuppressLint("SetJavaScriptEnabled")
             wv.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true

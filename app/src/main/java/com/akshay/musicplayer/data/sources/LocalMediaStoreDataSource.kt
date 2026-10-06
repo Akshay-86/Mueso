@@ -36,16 +36,26 @@ class LocalMediaStoreDataSource(
                 null,
                 sortOrder
             )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val dateModifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+                val dateAddedCol = try { cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED) } catch (_: Exception) { -1 }
+
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
-                    val title = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)) ?: "Unknown"
-                    val artist = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)) ?: "Unknown"
-                    val album = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)) ?: "Unknown"
-                    val duration = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION))
-                    val albumId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID))
-                    val data = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)) ?: ""
-                    val dateModified = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED))
-                    val dateAdded = try { cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)) } catch (_: Exception) { 0L }
+                    val id = cursor.getLong(idCol)
+                    val title = cursor.getString(titleCol) ?: "Unknown"
+                    val artist = cursor.getString(artistCol) ?: "Unknown"
+                    val album = cursor.getString(albumCol) ?: "Unknown"
+                    val duration = cursor.getLong(durationCol)
+                    val albumId = cursor.getLong(albumIdCol)
+                    val data = cursor.getString(dataCol) ?: ""
+                    val dateModified = cursor.getLong(dateModifiedCol)
+                    val dateAdded = if (dateAddedCol != -1) try { cursor.getLong(dateAddedCol) } catch (_: Exception) { 0L } else 0L
                     var effectiveDate = maxOf(dateModified, dateAdded)
                     if (effectiveDate == 0L && data.isNotEmpty()) {
                         try {

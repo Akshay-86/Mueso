@@ -135,11 +135,16 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     .get()
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                val body = response.body?.string()
+                val body = httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "GitHub API HTTP error ${response.code}")
+                        null
+                    } else {
+                        response.body?.string()
+                    }
+                }
 
-                if (!response.isSuccessful || body.isNullOrBlank()) {
-                    Log.e(TAG, "GitHub API HTTP error ${response.code}")
+                if (body.isNullOrBlank()) {
                     _statusMessage.value = "Could not check for updates"
                     _isChecking.value = false
                     return@launch
@@ -238,37 +243,38 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     .get()
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                val body = response.body
-                if (!response.isSuccessful || body == null) {
-                    _statusMessage.value = "Download failed (HTTP ${response.code})"
-                    _downloadProgress.value = null
-                    return@launch
-                }
-
-                val contentLength = body.contentLength()
                 val safeTag = info.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                 val safeAbi = info.targetAbi?.replace(Regex("[^a-zA-Z0-9._-]"), "_") ?: "pkg"
                 val apkFile = File(context.cacheDir, "mueso_update_${safeTag}_$safeAbi.apk")
                 if (apkFile.exists()) apkFile.delete()
 
-                val inputStream = body.byteStream()
-                val outputStream = FileOutputStream(apkFile)
-                val buffer = ByteArray(32 * 1024)
-                var bytesRead: Int
-                var totalBytesRead = 0L
+                httpClient.newCall(request).execute().use { response ->
+                    val body = response.body
+                    if (!response.isSuccessful || body == null) {
+                        _statusMessage.value = "Download failed (HTTP ${response.code})"
+                        _downloadProgress.value = null
+                        return@launch
+                    }
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
-                    totalBytesRead += bytesRead
-                    if (contentLength > 0) {
-                        val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.99f)
-                        _downloadProgress.value = prog
+                    val contentLength = body.contentLength()
+                    body.byteStream().use { inputStream ->
+                        FileOutputStream(apkFile).use { outputStream ->
+                            val buffer = ByteArray(32 * 1024)
+                            var bytesRead: Int
+                            var totalBytesRead = 0L
+
+                            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                outputStream.write(buffer, 0, bytesRead)
+                                totalBytesRead += bytesRead
+                                if (contentLength > 0) {
+                                    val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.99f)
+                                    _downloadProgress.value = prog
+                                }
+                            }
+                            outputStream.flush()
+                        }
                     }
                 }
-                outputStream.flush()
-                outputStream.close()
-                inputStream.close()
 
                 _downloadProgress.value = null
                 _isUpdateDownloaded.value = true
@@ -399,14 +405,9 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         return try {
             val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                 ?: return true
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val network = connectivityManager.activeNetwork ?: return false
-                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-                capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            } else {
-                val networkInfo = connectivityManager.activeNetworkInfo
-                networkInfo != null && networkInfo.isConnected
-            }
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (e: Exception) {
             true
         }
@@ -468,10 +469,15 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     .get()
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                val body = response.body?.string()
+                val body = httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        null
+                    } else {
+                        response.body?.string()
+                    }
+                }
 
-                if (!response.isSuccessful || body.isNullOrBlank()) {
+                if (body.isNullOrBlank()) {
                     if (showToast) {
                         withContext(Dispatchers.Main) {
                             Toast.makeText(context, "Pre_Builds tag not found on GitHub yet", Toast.LENGTH_LONG).show()
@@ -595,37 +601,38 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
                     .get()
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                val body = response.body
-                if (!response.isSuccessful || body == null) {
-                    _preBuildStatusMessage.value = "Download failed (HTTP ${response.code})"
-                    _preBuildDownloadProgress.value = null
-                    return@launch
-                }
-
-                val contentLength = body.contentLength()
                 val safeTag = info.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                 val safeAbi = info.targetAbi?.replace(Regex("[^a-zA-Z0-9._-]"), "_") ?: "pkg"
                 val apkFile = File(context.cacheDir, "mueso_update_${safeTag}_$safeAbi.apk")
                 if (apkFile.exists()) apkFile.delete()
 
-                val inputStream = body.byteStream()
-                val outputStream = FileOutputStream(apkFile)
-                val buffer = ByteArray(32 * 1024)
-                var bytesRead: Int
-                var totalBytesRead = 0L
+                httpClient.newCall(request).execute().use { response ->
+                    val body = response.body
+                    if (!response.isSuccessful || body == null) {
+                        _preBuildStatusMessage.value = "Download failed (HTTP ${response.code})"
+                        _preBuildDownloadProgress.value = null
+                        return@launch
+                    }
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
-                    totalBytesRead += bytesRead
-                    if (contentLength > 0) {
-                        val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.99f)
-                        _preBuildDownloadProgress.value = prog
+                    val contentLength = body.contentLength()
+                    body.byteStream().use { inputStream ->
+                        FileOutputStream(apkFile).use { outputStream ->
+                            val buffer = ByteArray(32 * 1024)
+                            var bytesRead: Int
+                            var totalBytesRead = 0L
+
+                            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                outputStream.write(buffer, 0, bytesRead)
+                                totalBytesRead += bytesRead
+                                if (contentLength > 0) {
+                                    val prog = (totalBytesRead.toFloat() / contentLength.toFloat()).coerceIn(0.01f, 0.99f)
+                                    _preBuildDownloadProgress.value = prog
+                                }
+                            }
+                            outputStream.flush()
+                        }
                     }
                 }
-                outputStream.flush()
-                outputStream.close()
-                inputStream.close()
 
                 _preBuildDownloadProgress.value = null
                 _isPreBuildDownloaded.value = true
@@ -702,11 +709,7 @@ class UpdateManager(private val coroutineScope: CoroutineScope) {
         if (apkList.isEmpty()) return null
 
         // Detect supported ABIs in order of preference (e.g. ["arm64-v8a", "armeabi-v7a", "x86_64"])
-        val supportedAbis = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Build.SUPPORTED_ABIS.map { it.lowercase() }
-        } else {
-            listOf(Build.CPU_ABI.lowercase())
-        }
+        val supportedAbis = Build.SUPPORTED_ABIS.map { it.lowercase() }
 
         Log.d(TAG, "Device supported ABIs in order of preference: $supportedAbis. Available release APKs: ${apkList.map { it.name }}")
 

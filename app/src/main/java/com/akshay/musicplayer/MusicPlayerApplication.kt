@@ -3,11 +3,12 @@ package com.akshay.musicplayer
 import android.app.Application
 import android.content.Context
 
+@android.annotation.SuppressLint("StaticFieldLeak")
 object AppContainer {
     private lateinit var context: Context
 
     fun initialize(context: Context) {
-        this.context = context
+        this.context = context.applicationContext
     }
 
     fun getContext(): Context = context

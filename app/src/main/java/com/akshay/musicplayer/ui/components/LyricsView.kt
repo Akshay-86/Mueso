@@ -620,7 +620,7 @@ private fun CandidateResultCard(
 ) {
     val durationMin = item.durationSeconds / 60
     val durationSec = item.durationSeconds % 60
-    val formattedDuration = String.format("%d:%02d", durationMin, durationSec)
+    val formattedDuration = String.format(java.util.Locale.US, "%d:%02d", durationMin, durationSec)
 
     Column(
         modifier = Modifier

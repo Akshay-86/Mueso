@@ -82,9 +82,8 @@ class SpotifyImportRepository {
                 .get()
                 .build()
 
-            val homeResponse = httpClient.newCall(homeRequest).execute()
-            homeResponse.body?.close() // We don't need the body, just cookies
-            Log.d(TAG, "[TOKEN] Step 1 done: HTTP ${homeResponse.code}, cookies: ${cookieStore.values.flatten().map { it.name }}")
+            val homeCode = httpClient.newCall(homeRequest).execute().use { resp -> resp.code }
+            Log.d(TAG, "[TOKEN] Step 1 done: HTTP $homeCode, cookies: ${cookieStore.values.flatten().map { it.name }}")
 
             // Step 2: Now request the anonymous token with established cookies
             Log.d(TAG, "[TOKEN] Step 2: Fetching anonymous access token...")
@@ -96,11 +95,16 @@ class SpotifyImportRepository {
                 .get()
                 .build()
 
-            val tokenResponse = httpClient.newCall(tokenRequest).execute()
-            val tokenBody = tokenResponse.body?.string()
+            val tokenBody = httpClient.newCall(tokenRequest).execute().use { tokenResponse ->
+                if (!tokenResponse.isSuccessful) {
+                    Log.e(TAG, "[TOKEN] Step 2 failed: HTTP ${tokenResponse.code}")
+                    return@withContext null
+                }
+                tokenResponse.body?.string()
+            }
 
-            if (!tokenResponse.isSuccessful || tokenBody.isNullOrBlank()) {
-                Log.e(TAG, "[TOKEN] Step 2 failed: HTTP ${tokenResponse.code}, body: ${tokenBody?.take(200)}")
+            if (tokenBody.isNullOrBlank()) {
+                Log.e(TAG, "[TOKEN] Empty token response body")
                 return@withContext null
             }
 
@@ -131,11 +135,15 @@ class SpotifyImportRepository {
                 .get()
                 .build()
 
-            val metaResponse = httpClient.newCall(metaRequest).execute()
-            val metaBody = metaResponse.body?.string()
+            val metaBody = httpClient.newCall(metaRequest).execute().use { metaResponse ->
+                if (!metaResponse.isSuccessful) {
+                    Log.e(TAG, "[API] Metadata fetch failed: HTTP ${metaResponse.code}")
+                    return@withContext null
+                }
+                metaResponse.body?.string()
+            }
 
-            if (!metaResponse.isSuccessful || metaBody.isNullOrBlank()) {
-                Log.e(TAG, "[API] Metadata fetch failed: HTTP ${metaResponse.code}")
+            if (metaBody.isNullOrBlank()) {
                 return@withContext null
             }
 
@@ -159,10 +167,11 @@ class SpotifyImportRepository {
                     .get()
                     .build()
 
-                val tracksResponse = httpClient.newCall(tracksRequest).execute()
-                val tracksBody = tracksResponse.body?.string()
+                val tracksBody = httpClient.newCall(tracksRequest).execute().use { tracksResponse ->
+                    if (!tracksResponse.isSuccessful) null else tracksResponse.body?.string()
+                }
 
-                if (!tracksResponse.isSuccessful || tracksBody.isNullOrBlank()) break
+                if (tracksBody.isNullOrBlank()) break
 
                 val tracksJson = JSONObject(tracksBody)
                 val items = tracksJson.optJSONArray("items") ?: break
@@ -206,11 +215,16 @@ class SpotifyImportRepository {
                 .get()
                 .build()
 
-            val embedResponse = httpClient.newCall(embedRequest).execute()
-            val html = embedResponse.body?.string()
+            val html = httpClient.newCall(embedRequest).execute().use { embedResponse ->
+                if (!embedResponse.isSuccessful) {
+                    Log.e(TAG, "[EMBED] Failed: HTTP ${embedResponse.code}")
+                    return@withContext null
+                }
+                embedResponse.body?.string()
+            }
 
-            if (!embedResponse.isSuccessful || html.isNullOrBlank()) {
-                Log.e(TAG, "[EMBED] Failed: HTTP ${embedResponse.code}")
+            if (html.isNullOrBlank()) {
+                Log.e(TAG, "[EMBED] Empty HTML response")
                 return@withContext null
             }
 

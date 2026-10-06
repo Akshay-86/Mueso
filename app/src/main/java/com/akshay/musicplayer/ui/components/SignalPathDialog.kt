@@ -67,9 +67,7 @@ fun SignalPathDialog(
         audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
     }
     val isVolumeFixed = remember(tick) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            runCatching { audioManager?.isVolumeFixed }.getOrNull() ?: false
-        } else false
+        runCatching { audioManager?.isVolumeFixed }.getOrNull() ?: false
     }
 
     // Live platform mixer native rate

@@ -25,7 +25,6 @@ import kotlinx.coroutines.launch
 class AudioEffectsController private constructor(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val scope = CoroutineScope(Dispatchers.Main)
 
     private var currentSessionId: Int = 0
     private var equalizer: Equalizer? = null
@@ -319,6 +318,7 @@ class AudioEffectsController private constructor(private val context: Context) {
         private const val KEY_CLARITY_ENABLED = "eq_clarity_enabled"
         private const val KEY_BIT_PERFECT_ENABLED = "eq_bit_perfect_enabled"
 
+        @android.annotation.SuppressLint("StaticFieldLeak")
         @Volatile
         private var instance: AudioEffectsController? = null
 

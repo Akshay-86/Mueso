@@ -685,10 +685,12 @@ class DownloadManager(
                 val body = response.body
 
                 if (response.code == 416) {
+                    try { response.close() } catch (_: Exception) {}
                     return@withContext destFile.exists() && destFile.length() > 0
                 }
 
                 if (response.code == 403) {
+                    try { response.close() } catch (_: Exception) {}
                     Log.w("MUESO_DOWNLOAD", "[SEQ_ERR] HTTP 403 for $trackId, attempting stream URL refresh")
                     val refreshed = onRefreshUrl?.invoke()
                     if (!refreshed.isNullOrBlank() && refreshed != currentUrl) {
@@ -701,6 +703,7 @@ class DownloadManager(
                 }
 
                 if (!response.isSuccessful || body == null) {
+                    try { response.close() } catch (_: Exception) {}
                     Log.w("MUESO_DOWNLOAD", "[SEQ_ERR] HTTP ${response.code} for $trackId")
                     consecutiveFailures++
                     delay(1000L * consecutiveFailures)
@@ -742,7 +745,7 @@ class DownloadManager(
                 } finally {
                     try { outputStream.close() } catch (_: Exception) {}
                     try { inputStream.close() } catch (_: Exception) {}
-                    try { body.close() } catch (_: Exception) {}
+                    try { response.close() } catch (_: Exception) {}
                 }
             } catch (e: CancellationException) {
                 throw e

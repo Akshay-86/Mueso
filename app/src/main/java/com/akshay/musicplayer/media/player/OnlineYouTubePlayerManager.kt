@@ -57,17 +57,19 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     var onError: ((String) -> Unit)? = null
     var onNetworkError: ((videoId: String, positionSec: Float) -> Unit)? = null
 
-    init {
-        initialize()
-        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener {
-            mainHandler.post {
-                if (!isUserPaused && isPlaying && currentVideoId != null) {
-                    val posSec = (currentPositionMs / 1000f).coerceAtLeast(0f)
-                    Log.i(TAG, "Network restored in OnlineYouTubePlayerManager! Resuming $currentVideoId from ${posSec}s")
-                    activePlayer?.play()
-                }
+    private val networkRestoredListener: () -> Unit = {
+        mainHandler.post {
+            if (!isUserPaused && isPlaying && currentVideoId != null) {
+                val posSec = (currentPositionMs / 1000f).coerceAtLeast(0f)
+                Log.i(TAG, "Network restored in OnlineYouTubePlayerManager! Resuming $currentVideoId from ${posSec}s")
+                activePlayer?.play()
             }
         }
+    }
+
+    init {
+        initialize()
+        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener(networkRestoredListener)
     }
 
     fun initialize() {
@@ -109,6 +111,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
 
             // Find internal WebView and set appropriate settings
             findWebView(view)?.let { wv ->
+                @android.annotation.SuppressLint("SetJavaScriptEnabled")
                 wv.settings.apply {
                     domStorageEnabled = true
                     javaScriptEnabled = true
@@ -515,6 +518,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     }
 
     fun release() {
+        com.akshay.musicplayer.data.remote.NetworkMonitor.removeOnNetworkRestoredListener(networkRestoredListener)
         mainHandler.post {
             try {
                 playerView?.release()

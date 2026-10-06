@@ -348,6 +348,14 @@ class MusicPlayerService : MediaSessionService() {
         val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(6) {
             override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                 val cause = loadErrorInfo.exception
+                if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                    val code = cause.responseCode
+                    if (code == 403 || code == 404 || code == 410 || code == 416) {
+                        Log.w("MUESO_NET", "Non-retryable HTTP $code received. Failing fast so stream URL can refresh immediately.")
+                        return androidx.media3.common.C.TIME_UNSET
+                    }
+                }
+
                 val isNetworkOrSocket = cause is java.net.SocketException ||
                         cause is java.net.SocketTimeoutException ||
                         cause is java.io.EOFException ||
@@ -593,6 +601,14 @@ class MusicPlayerService : MediaSessionService() {
         MediaSessionBridge.onOnlinePlayingChanged = null
         MediaSessionBridge.onQueueOrCommandsChanged = null
         MediaSessionBridge.onTransitionStateChanged = null
+        MediaSessionBridge.onSeekRequested = null
+        MediaSessionBridge.onNextRequested = null
+        MediaSessionBridge.onPreviousRequested = null
+        MediaSessionBridge.onPlayRequested = null
+        MediaSessionBridge.onPauseRequested = null
+        MediaSessionBridge.hasNextItem = null
+        MediaSessionBridge.hasPreviousItem = null
+        MediaSessionBridge.shouldStopAfterTrack = null
         com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this).release()
         mediaSession?.let {
             it.player.release()

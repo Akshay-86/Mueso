@@ -1181,9 +1181,13 @@ class PlayerViewModel(
                     }
                     val updatedRows = context.contentResolver.update(contentUri, values, null, null)
                     Log.d("MUESO_FILE_OP", "[3/4] MediaStore updated rows: $updatedRows")
-                } catch (rse: android.app.RecoverableSecurityException) {
-                    Log.w("MUESO_FILE_OP", "[3/4] RecoverableSecurityException caught! Requesting user permission intent...")
-                    pendingWriteIntent.value = rse.userAction.actionIntent.intentSender
+                } catch (e: SecurityException) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+                        Log.w("MUESO_FILE_OP", "[3/4] RecoverableSecurityException caught! Requesting user permission intent...")
+                        pendingWriteIntent.value = e.userAction.actionIntent.intentSender
+                    } else {
+                        Log.e("MUESO_FILE_OP", "[3/4] SecurityException during rename: ${e.message}", e)
+                    }
                 } catch (e: Exception) {
                     Log.e("MUESO_FILE_OP", "[3/4] MediaStore update error: ${e.message}", e)
                 }
@@ -1247,18 +1251,20 @@ class PlayerViewModel(
                         )
                         Log.d("MUESO_FILE_OP", "[2/4] ContentResolver delete by DATA column rows: $rowsData")
                     }
-                } catch (rse: android.app.RecoverableSecurityException) {
-                    Log.w("MUESO_FILE_OP", "[2/4] RecoverableSecurityException caught! Requesting user permission intent...")
-                    pendingDeleteIntent.value = rse.userAction.actionIntent.intentSender
                 } catch (e: SecurityException) {
-                    Log.w("MUESO_FILE_OP", "[2/4] SecurityException: ${e.message}")
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        try {
-                            val pi = android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
-                            pendingDeleteIntent.value = pi.intentSender
-                            Log.d("MUESO_FILE_OP", "[2/4] MediaStore.createDeleteRequest created IntentSender successfully!")
-                        } catch (ex: Exception) {
-                            Log.e("MUESO_FILE_OP", "[2/4] createDeleteRequest failed: ${ex.message}", ex)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+                        Log.w("MUESO_FILE_OP", "[2/4] RecoverableSecurityException caught! Requesting user permission intent...")
+                        pendingDeleteIntent.value = e.userAction.actionIntent.intentSender
+                    } else {
+                        Log.w("MUESO_FILE_OP", "[2/4] SecurityException: ${e.message}")
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            try {
+                                val pi = android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
+                                pendingDeleteIntent.value = pi.intentSender
+                                Log.d("MUESO_FILE_OP", "[2/4] MediaStore.createDeleteRequest created IntentSender successfully!")
+                            } catch (ex: Exception) {
+                                Log.e("MUESO_FILE_OP", "[2/4] createDeleteRequest failed: ${ex.message}", ex)
+                            }
                         }
                     }
                 } catch (e: Exception) {

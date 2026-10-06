@@ -269,14 +269,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateRefreshRate(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
-            val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
-            val maxMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
-            val params = window.attributes
-            params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
-            window.attributes = params
-        }
+        val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val maxMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
+        val params = window.attributes
+        params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
+        window.attributes = params
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

@@ -138,12 +138,12 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun setUsePureBlack(enabled: Boolean) {
         _usePureBlack.value = enabled
-        sharedPreferences.edit().putBoolean("use_pure_black", enabled).commit()
+        sharedPreferences.edit().putBoolean("use_pure_black", enabled).apply()
     }
 
     fun setAccentColorId(id: String) {
         _accentColorId.value = id
-        sharedPreferences.edit().putString("accent_color_id", id).commit()
+        sharedPreferences.edit().putString("accent_color_id", id).apply()
     }
 
     fun setFontScaleOption(option: String) {
@@ -276,7 +276,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun setPlayerLayoutStyle(style: String) {
         _playerLayoutStyle.value = style
-        sharedPreferences.edit().putString("player_layout_style", style).commit()
+        sharedPreferences.edit().putString("player_layout_style", style).apply()
     }
 
     fun reloadFromPreferences() {
