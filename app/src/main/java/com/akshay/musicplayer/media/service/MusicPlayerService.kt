@@ -262,8 +262,10 @@ class MusicPlayerService : MediaSessionService() {
 
         val okHttpClient = okhttp3.OkHttpClient.Builder()
             .dns(com.akshay.musicplayer.data.remote.stream.GoogleVideoDns())
-            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .connectionPool(okhttp3.ConnectionPool(6, 25, java.util.concurrent.TimeUnit.SECONDS))
             .followRedirects(true)
             .followSslRedirects(true)
             .addInterceptor { chain ->
@@ -321,7 +323,13 @@ class MusicPlayerService : MediaSessionService() {
             .build()
 
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
+        val simpleCache = com.akshay.musicplayer.media.player.MediaCacheManager.getCache(this)
+        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+            .setCache(simpleCache)
+            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, cacheDataSourceFactory)
 
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -337,8 +345,31 @@ class MusicPlayerService : MediaSessionService() {
             )
             .build()
 
+        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(6) {
+            override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                val cause = loadErrorInfo.exception
+                val isNetworkOrSocket = cause is java.net.SocketException ||
+                        cause is java.net.SocketTimeoutException ||
+                        cause is java.io.EOFException ||
+                        cause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException ||
+                        cause.cause is java.net.SocketException ||
+                        cause.cause is java.net.SocketTimeoutException ||
+                        cause.cause is java.io.EOFException
+
+                if (isNetworkOrSocket && loadErrorInfo.errorCount <= 6) {
+                    val delayMs = (300L * (1L shl (loadErrorInfo.errorCount - 1).coerceIn(0, 4))).coerceAtMost(3500L)
+                    Log.w("MUESO_NET", "Stream socket interrupted (${cause.javaClass.simpleName}: ${cause.message}). Retrying load attempt ${loadErrorInfo.errorCount}/6 in ${delayMs}ms...")
+                    return delayMs
+                }
+                return super.getRetryDelayMsFor(loadErrorInfo)
+            }
+
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 6
+        }
+
         val extractorsFactory = com.akshay.musicplayer.media.player.ClearDrmExtractorsFactory()
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)

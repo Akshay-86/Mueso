@@ -217,15 +217,16 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
 
             // Capture the playback position BEFORE updatePlaybackState() resets it to 0, ONLY if it belongs to the current track
-            val isSameTrack = curTrack != null && (curTrack.id == lastPositionTrackId || curTrack.id == currentTrackId || curTrack.id == _playbackState.value.currentTrackId)
-            val currentControllerPos = mediaController?.currentPosition ?: 0L
+            val controllerMediaItemId = mediaController?.currentMediaItem?.mediaId?.toLongOrNull()
+            val isSameTrack = curTrack != null && (controllerMediaItemId == curTrack.id || (curTrack.id == lastPositionTrackId && curTrack.id == currentTrackId))
+            val currentControllerPos = if (isSameTrack && controllerMediaItemId == curTrack?.id) (mediaController?.currentPosition ?: 0L) else 0L
             val safeDuration = curTrack?.duration?.coerceAtLeast(0L) ?: 0L
             val candidatePos = if (isSameTrack) {
                 maxOf(currentControllerPos, lastValidPositionMs, _playbackState.value.currentPositionMs, pendingNetworkRetryPosMs)
             } else {
                 0L
             }
-            val savedPos = if (safeDuration > 5_000L && candidatePos >= safeDuration - 3_000L) {
+            val savedPos = if (safeDuration > 5_000L && candidatePos >= safeDuration - 5_000L) {
                 0L
             } else {
                 candidatePos
@@ -548,7 +549,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         pendingNetworkRetryTrack = track
         pendingNetworkRetryIndex = currentQueueIndex
 
-        val isSameTrack = (lastPositionTrackId == track.id || currentTrackId == track.id || _playbackState.value.currentTrackId == track.id || pendingNetworkRetryTrack?.id == track.id)
+        val controllerMediaItemId = mediaController?.currentMediaItem?.mediaId?.toLongOrNull()
+        val isSameTrack = (lastPositionTrackId == track.id && currentTrackId == track.id && (controllerMediaItemId == null || controllerMediaItemId == track.id))
         val safeTrackDuration = track.duration.coerceAtLeast(0L)
         val rawPosMs = if (isSameTrack) {
             maxOf(
@@ -560,7 +562,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         } else {
             positionMs
         }
-        val actualPosMs = if (safeTrackDuration > 5_000L && rawPosMs >= safeTrackDuration - 3_000L) {
+        val actualPosMs = if (safeTrackDuration > 5_000L && rawPosMs >= safeTrackDuration - 5_000L) {
             0L
         } else {
             rawPosMs
@@ -602,7 +604,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun retryPendingNetworkTrack() {
         val track = pendingNetworkRetryTrack ?: currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex) ?: return
         val targetIndex = if (pendingNetworkRetryIndex in tracksQueue.indices) pendingNetworkRetryIndex else currentQueueIndex
-        val isSameTrack = (lastPositionTrackId == track.id || currentTrackId == track.id || _playbackState.value.currentTrackId == track.id || pendingNetworkRetryTrack?.id == track.id)
+        val controllerMediaItemId = mediaController?.currentMediaItem?.mediaId?.toLongOrNull()
+        val isSameTrack = (lastPositionTrackId == track.id && currentTrackId == track.id && (controllerMediaItemId == null || controllerMediaItemId == track.id))
         val safeDuration = track.duration.coerceAtLeast(0L)
         val rawPosMs = if (isSameTrack) {
             maxOf(
@@ -613,7 +616,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         } else {
             0L
         }
-        val posMs = if (safeDuration > 5_000L && rawPosMs >= safeDuration - 3_000L) {
+        val posMs = if (safeDuration > 5_000L && rawPosMs >= safeDuration - 5_000L) {
             0L
         } else {
             rawPosMs
@@ -837,9 +840,14 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaController?.volume = 1f
 
         Log.i("MUESO_STREAM", "playDirectOnlineStreamInExoPlayer: streamUrl=${streamUrl.take(60)}..., startPos=${startPositionMs}ms, autoPlay=$autoPlay, controller.volume=${mediaController?.volume}")
+        val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+        val itag = Uri.parse(streamUrl).getQueryParameter("itag") ?: "audio"
+        val customKey = if (videoId.isNotBlank()) "yt_${videoId}_${itag}" else streamUrl
+
         val mediaItemBuilder = MediaItem.Builder()
             .setMediaId(track.id.toString())
             .setUri(Uri.parse(streamUrl))
+            .setCustomCacheKey(customKey)
 
         if (streamUrl.contains(".mp4", ignoreCase = true) || streamUrl.contains("audio/mp4", ignoreCase = true) || streamUrl.contains("mime=audio%2Fmp4", ignoreCase = true)) {
             mediaItemBuilder.setMimeType(MimeTypes.AUDIO_MP4)
@@ -1249,17 +1257,20 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         val controller = mediaController
         if (controller != null) {
+            val controllerMediaItemId = controller.currentMediaItem?.mediaId?.toLongOrNull()
+            val isCurrentTrackItem = controllerMediaItemId == currentTrackId
             val curPos = controller.currentPosition
-            if (curPos > 0L) {
+            val effectivePos = if (isCurrentTrackItem) curPos else 0L
+            if (isCurrentTrackItem && curPos > 0L) {
                 lastValidPositionMs = curPos
             }
-            val dur = controller.duration.coerceAtLeast(0L)
+            val dur = if (isCurrentTrackItem) controller.duration.coerceAtLeast(0L) else _playbackState.value.durationMs
             val isPlayingEffective = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
             val isBuffering = controller.playbackState == Player.STATE_BUFFERING
             _playbackState.value = PlaybackState(
                 isPlaying = isPlayingEffective,
                 currentTrackId = currentTrackId,
-                currentPositionMs = curPos,
+                currentPositionMs = effectivePos,
                 durationMs = dur,
                 isBuffering = isBuffering
             )
@@ -1303,6 +1314,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         tracksQueue = tracks
         currentQueueIndex = safeIndex
         notifyQueueOrCommandsChanged()
+        mediaController?.pause()
+        mediaController?.clearMediaItems()
         val track = tracks[safeIndex]
         currentTrackId = track.id
         lastPositionTrackId = track.id
@@ -1362,13 +1375,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                                 Log.i("MUESO_STREAM", "Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
                                 playDirectOnlineStreamInExoPlayer(track, streamUrl)
                             } else {
-                                val nextIdx = safeIndex + 1
-                                if (nextIdx in tracks.indices) {
-                                    Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in playlist ($nextIdx)...")
-                                    seekToIndex(nextIdx)
+                                if (!com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                                    Log.w("MUESO_STREAM", "Direct stream resolution failed while network offline for '${track.title}'. Waiting for network recovery.")
+                                    handleOnlineTrackNetworkError(track, 0L)
                                 } else {
-                                    Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
-                                    playViaOnlineYouTubePlayer(track)
+                                    val nextIdx = safeIndex + 1
+                                    if (nextIdx in tracks.indices) {
+                                        Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in playlist ($nextIdx)...")
+                                        seekToIndex(nextIdx)
+                                    } else {
+                                        Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                                        playViaOnlineYouTubePlayer(track)
+                                    }
                                 }
                             }
                         }
@@ -1744,6 +1762,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         // Immediately pause current audio output to prevent audio bleed when skipping to a new track
         mediaController?.pause()
+        mediaController?.clearMediaItems()
         ytPlayerManager.pause()
 
         // Keep CPU & Wi-Fi awake during track resolution and handover
@@ -1807,13 +1826,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                                 Log.i("MUESO_STREAM", "seekToIndex: Playing '${track.title}' via direct YouTube audio stream in ExoPlayer (videoId=$videoId)")
                                 playDirectOnlineStreamInExoPlayer(track, streamUrl)
                             } else {
-                                val nextIdx = currentQueueIndex + 1
-                                if (nextIdx in tracksQueue.indices) {
-                                    Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in queue ($nextIdx)...")
-                                    seekToIndex(nextIdx)
+                                if (!com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
+                                    Log.w("MUESO_STREAM", "seekToIndex: Network disconnected while resolving '${track.title}'. Waiting for network recovery.")
+                                    handleOnlineTrackNetworkError(track, 0L)
                                 } else {
-                                    Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}' at queue end. Falling back to YouTube web player.")
-                                    playViaOnlineYouTubePlayer(track)
+                                    val nextIdx = currentQueueIndex + 1
+                                    if (nextIdx in tracksQueue.indices) {
+                                        Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in queue ($nextIdx)...")
+                                        seekToIndex(nextIdx)
+                                    } else {
+                                        Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}' at queue end. Falling back to YouTube web player.")
+                                        playViaOnlineYouTubePlayer(track)
+                                    }
                                 }
                             }
                         }
