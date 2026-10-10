@@ -1675,10 +1675,11 @@ class PlayerViewModel(
     }
 
     private val resolvingTrackIds = mutableSetOf<Long>()
-    private var isFetchingMoreQueue = false
+    @Volatile private var isFetchingMoreQueue = false
 
     private var activeCurrentStreamJob: Job? = null
     private var activeNextStreamJob: Job? = null
+    private var playTrackJob: Job? = null
     private var lastPrefetchTrackId: Long? = null
 
     private var lastPrefetchedNextIndex: Int = -1
@@ -2215,6 +2216,9 @@ class PlayerViewModel(
     }
 
     fun playTrack(track: TrackEntity) {
+        playTrackJob?.cancel()
+        activeCurrentStreamJob?.cancel()
+        activeNextStreamJob?.cancel()
         originalUnshuffledTracks = null
         _lyricsOffsetMs.value = sharedPreferences.getLong("lyrics_offset_${track.id}", 0L)
         cancelRestoration()
@@ -2235,7 +2239,7 @@ class PlayerViewModel(
         }
         currentTracks = listOf(track)
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
-        viewModelScope.launch(Dispatchers.IO) {
+        playTrackJob = viewModelScope.launch(Dispatchers.IO) {
             val resolved = if (isOnlineQueryPlaceholder) resolveTrack(track) else track
 
             withContext(Dispatchers.Main) {
@@ -2249,16 +2253,22 @@ class PlayerViewModel(
 
             val isOnline = track.filePath.startsWith("online:") || track.filePath.startsWith("http")
             if (isOnline) {
-                val recommendations = onlineRepository.getRelatedRecommendations(track)
-                val existingIds = currentTracks.map { it.id }.toSet()
-                val uniqueRecs = recommendations.filter { it.id !in existingIds }
-                if (uniqueRecs.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        currentTracks = currentTracks + uniqueRecs
-                        mediaPlayerController.appendTracksToQueue(uniqueRecs)
-                        prefetchAndKeepQueueAlive(0)
-                        warmNextTrack(1)
+                isFetchingMoreQueue = true
+                try {
+                    val recommendations = onlineRepository.getRelatedRecommendations(track)
+                    val existingIds = currentTracks.map { it.id }.toSet()
+                    val uniqueRecs = recommendations.filter { it.id !in existingIds }
+                    if (uniqueRecs.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            currentTracks = currentTracks + uniqueRecs
+                            mediaPlayerController.appendTracksToQueue(uniqueRecs)
+                            warmNextTrack(1)
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("MUESO_QUEUE", "Error fetching radio recommendations in playTrack", e)
+                } finally {
+                    isFetchingMoreQueue = false
                 }
             }
         }

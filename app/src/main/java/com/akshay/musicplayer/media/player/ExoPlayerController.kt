@@ -176,16 +176,30 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (isPlayingOnline) return
+            if (mediaItem == null) return
+
+            // A playlist modification (items added, removed, or replaced) must never trigger auto-advance or seekToIndex
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: ignoring transition caused by PLAYLIST_CHANGED")
+                return
+            }
 
             val oldId = currentTrackId
-            val newId = mediaItem?.mediaId?.toLongOrNull() ?: currentTrackId
+            val newId = mediaItem.mediaId.toLongOrNull() ?: currentTrackId
+
+            // If a track is actively resolving in background, do not allow spurious transitions to cancel it
+            if (onlineResolutionJob?.isActive == true && newId != currentTrackId) {
+                Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: ignoring transition to $newId while track $currentTrackId is actively resolving")
+                return
+            }
+
             currentTrackId = newId
             Log.d("MUESO_SYNC", "ExoPlayer onMediaItemTransition: oldId=$oldId, newId=$currentTrackId, reason=$reason")
             val newIndex = tracksQueue.indexOfFirst { it.id == newId }
             if (newIndex >= 0) {
                 currentQueueIndex = newIndex
                 val currentTrack = tracksQueue[newIndex]
-                if (currentTrack.filePath.startsWith("online:") && !isPlayingLosslessOnline && !isPlayingDirectOnline) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && currentTrack.filePath.startsWith("online:") && !isPlayingLosslessOnline && !isPlayingDirectOnline) {
                     Log.d("MUESO_SYNC", "ExoPlayer transitioned into online track '${currentTrack.title}'. Handing off to online player.")
                     seekToIndex(newIndex)
                     return
@@ -1379,14 +1393,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                                     Log.w("MUESO_STREAM", "Direct stream resolution failed while network offline for '${track.title}'. Waiting for network recovery.")
                                     handleOnlineTrackNetworkError(track, 0L)
                                 } else {
-                                    val nextIdx = safeIndex + 1
-                                    if (nextIdx in tracks.indices) {
-                                        Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in playlist ($nextIdx)...")
-                                        seekToIndex(nextIdx)
-                                    } else {
-                                        Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
-                                        playViaOnlineYouTubePlayer(track)
-                                    }
+                                    Log.w("MUESO_STREAM", "Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                                    playViaOnlineYouTubePlayer(track)
                                 }
                             }
                         }
@@ -1830,14 +1838,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                                     Log.w("MUESO_STREAM", "seekToIndex: Network disconnected while resolving '${track.title}'. Waiting for network recovery.")
                                     handleOnlineTrackNetworkError(track, 0L)
                                 } else {
-                                    val nextIdx = currentQueueIndex + 1
-                                    if (nextIdx in tracksQueue.indices) {
-                                        Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Auto-advancing to next track in queue ($nextIdx)...")
-                                        seekToIndex(nextIdx)
-                                    } else {
-                                        Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}' at queue end. Falling back to YouTube web player.")
-                                        playViaOnlineYouTubePlayer(track)
-                                    }
+                                    Log.w("MUESO_STREAM", "seekToIndex: Direct stream resolution failed for '${track.title}'. Falling back to YouTube web player.")
+                                    playViaOnlineYouTubePlayer(track)
                                 }
                             }
                         }
@@ -1928,17 +1930,26 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
     }
 
+    private fun isOnlinePlaybackOrQueue(): Boolean {
+        if (isPlayingOnline || isPlayingDirectOnline || isPlayingLosslessOnline) return true
+        if (onlineResolutionJob?.isActive == true) return true
+        val currentTrack = tracksQueue.getOrNull(currentQueueIndex) ?: currentOnlineTrack
+        if (currentTrack != null && isOnlineTrack(currentTrack)) return true
+        return false
+    }
+
     override fun appendTracksToQueue(tracks: List<TrackEntity>) {
         if (tracks.isEmpty()) return
         tracksQueue = tracksQueue + tracks
         notifyQueueOrCommandsChanged()
 
-        if (isPlayingOnline) return
+        // If currently in online playback or appending online tracks, the queue is managed purely in tracksQueue.
+        // Never push dummy silence MediaItems to ExoPlayer's controller which would disrupt or skip active stream playback.
+        if (isOnlinePlaybackOrQueue() || tracks.any { isOnlineTrack(it) }) return
 
-        val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
         val action: () -> Unit = {
             mediaController?.let { controller ->
-                Log.d("MUESO_SYNC", "ExoPlayer appendTracksToQueue: appending ${tracks.size} new tracks")
+                Log.d("MUESO_SYNC", "ExoPlayer appendTracksToQueue: appending ${tracks.size} local tracks")
                 val newMediaItems = tracks.map { track ->
                     val metadata = MediaMetadata.Builder()
                         .setTitle(track.title)
@@ -1951,7 +1962,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
                     MediaItem.Builder()
                         .setMediaId(track.id.toString())
-                        .setUri(if (isOnlineTrack(track)) silenceUri else Uri.parse(track.filePath))
+                        .setUri(Uri.parse(track.filePath))
                         .setMediaMetadata(metadata)
                         .build()
                 }
@@ -1981,13 +1992,12 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
         notifyQueueOrCommandsChanged()
 
-        if (isPlayingOnline) return
+        if (isOnlinePlaybackOrQueue() || tracks.any { isOnlineTrack(it) }) return
 
-        val silenceUri = Uri.parse("android.resource://${context.packageName}/${com.akshay.musicplayer.R.raw.silence}")
         val action: () -> Unit = {
             mediaController?.let { controller ->
                 val safeIndex = index.coerceIn(0, controller.mediaItemCount)
-                Log.d("MUESO_SYNC", "ExoPlayer insertTracksToQueue: inserting ${tracks.size} tracks at index $safeIndex")
+                Log.d("MUESO_SYNC", "ExoPlayer insertTracksToQueue: inserting ${tracks.size} local tracks at index $safeIndex")
                 val newMediaItems = tracks.map { track ->
                     val metadata = MediaMetadata.Builder()
                         .setTitle(track.title)
@@ -2000,7 +2010,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
                     MediaItem.Builder()
                         .setMediaId(track.id.toString())
-                        .setUri(if (isOnlineTrack(track)) silenceUri else Uri.parse(track.filePath))
+                        .setUri(Uri.parse(track.filePath))
                         .setMediaMetadata(metadata)
                         .build()
                 }
@@ -2025,7 +2035,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             notifyQueueOrCommandsChanged()
         }
 
-        if (isPlayingOnline) return
+        if (isOnlinePlaybackOrQueue()) return
 
         val action: () -> Unit = {
             mediaController?.let { controller ->
