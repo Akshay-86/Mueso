@@ -3,6 +3,7 @@ package com.akshay.musicplayer.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +57,7 @@ fun DockedMiniPlayer(
     isDarkMode: Boolean = true,
     onExpandClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
+    onPreviousClick: () -> Unit = {},
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -62,18 +66,27 @@ fun DockedMiniPlayer(
     val context = LocalContext.current
     val accent = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
-    val bgColor = if (isPureBlack) Color(0xFF0F0F0F) else if (isDarkMode) Color(0xFF1E1E2C) else Color(0xFFFFFFFF)
+    val bgColor = if (isPureBlack) Color(0xFF101012) else if (isDarkMode) Color(0xFF1E1E24) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF111115)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF707078)
+    val borderColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val shadowColor = if (isDarkMode) Color.Black.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.12f)
 
     val progress = if (playbackState.durationMs > 0) {
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    val miniPlayerShape = RoundedCornerShape(18.dp)
+    val miniPlayerShape = RoundedCornerShape(22.dp)
     val boxModifier = modifier
         .fillMaxWidth()
-        .padding(horizontal = 12.dp, vertical = 6.dp)
+        .padding(horizontal = 14.dp, vertical = 4.dp)
+        .shadow(
+            elevation = 10.dp,
+            shape = miniPlayerShape,
+            ambientColor = shadowColor,
+            spotColor = shadowColor
+        )
+        .border(1.dp, borderColor, miniPlayerShape)
         .clip(miniPlayerShape)
         .background(bgColor)
         .clickable(onClick = onExpandClick)
@@ -96,7 +109,7 @@ fun DockedMiniPlayer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -117,8 +130,8 @@ fun DockedMiniPlayer(
                     contentScale = ContentScale.Crop,
                     thumbnailQuality = "Medium (480p)",
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
                 )
 
@@ -176,19 +189,34 @@ fun DockedMiniPlayer(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Play/Pause & Next Buttons
+                // Playback Control Buttons (Previous, Play/Pause, Next)
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    IconButton(
+                        onClick = onPreviousClick,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = textPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     IconButton(
                         onClick = onPlayPauseClick,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(accent.copy(alpha = 0.15f))
                     ) {
                         if (playbackState.isBuffering && playbackState.isPlaying) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                                 color = accent,
                                 strokeWidth = 2.dp
                             )
@@ -197,20 +225,20 @@ fun DockedMiniPlayer(
                                 imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
                                 tint = accent,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
 
                     IconButton(
                         onClick = onNextClick,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = textPrimary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

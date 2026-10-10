@@ -96,6 +96,7 @@ fun OfflineLibraryScreen(
     var trackToAdd by remember { mutableStateOf<TrackEntity?>(null) }
     val playlists by viewModel.playlists.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
 
     Box(
         modifier = Modifier
@@ -134,7 +135,7 @@ fun OfflineLibraryScreen(
             },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 60.dp),
+                .padding(bottom = if (playerLayoutStyle == "classic") 160.dp else 60.dp),
             label = "tabContent"
         ) { tab ->
             when (tab) {
@@ -166,7 +167,7 @@ fun OfflineLibraryScreen(
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp)
+                .padding(bottom = if (playerLayoutStyle == "classic") 118.dp else 16.dp)
                 .clip(RoundedCornerShape(28.dp))
                 .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
                 .padding(4.dp),
@@ -428,7 +429,7 @@ private fun AllSongsTab(
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 100.dp)
+                        contentPadding = PaddingValues(bottom = 120.dp)
                     ) {
                         itemsIndexed(sortedTracks) { index, track ->
                             TrackListItem(
@@ -929,7 +930,7 @@ private fun PlaylistsTab(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 100.dp),
+                    contentPadding = PaddingValues(bottom = 120.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(playlists) { playlist ->

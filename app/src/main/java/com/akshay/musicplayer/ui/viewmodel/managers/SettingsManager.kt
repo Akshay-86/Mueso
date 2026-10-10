@@ -10,7 +10,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _isDarkMode = MutableStateFlow(sharedPreferences.getBoolean("is_dark_mode", true))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(sharedPreferences.getString("theme_mode", "system") ?: "system")
+    private val _themeMode = MutableStateFlow(sharedPreferences.getString("theme_mode", "dark") ?: "dark")
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
     private val _usePureBlack = MutableStateFlow(sharedPreferences.getBoolean("use_pure_black", false))
@@ -281,7 +281,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
 
     fun reloadFromPreferences() {
         _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
-        _themeMode.value = sharedPreferences.getString("theme_mode", "system") ?: "system"
+        _themeMode.value = sharedPreferences.getString("theme_mode", "dark") ?: "dark"
         _usePureBlack.value = sharedPreferences.getBoolean("use_pure_black", false)
         _accentColorId.value = sharedPreferences.getString("accent_color_id", "sunset_orange") ?: "sunset_orange"
         _fontScaleOption.value = sharedPreferences.getString("font_scale_option", "standard") ?: "standard"

@@ -51,60 +51,66 @@ fun ClassicBottomBar(
 ) {
     val accent = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
-    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF14141E) else Color(0xFFFFFFFF)
+    val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF101016) else Color(0xFFFFFFFF)
     val inactiveColor = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF8E8E93)
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(bgColor)
-            .navigationBarsPadding()
-            .padding(vertical = 4.dp, horizontal = 16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
+    Column(modifier = modifier.fillMaxWidth()) {
+        androidx.compose.material3.HorizontalDivider(
+            color = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+            thickness = 0.5.dp
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(bgColor)
+                .navigationBarsPadding()
+                .padding(vertical = 2.dp, horizontal = 16.dp)
         ) {
-            ClassicNavTab.entries.forEach { tab ->
-                val isSelected = tab == currentTab
-                val contentColor by animateColorAsState(
-                    targetValue = if (isSelected) accent else inactiveColor,
-                    animationSpec = tween(250),
-                    label = "tabColor"
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ClassicNavTab.entries.forEach { tab ->
+                    val isSelected = tab == currentTab
+                    val contentColor by animateColorAsState(
+                        targetValue = if (isSelected) accent else inactiveColor,
+                        animationSpec = tween(250),
+                        label = "tabColor"
+                    )
 
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onTabSelected(tab) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(
+                    Column(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (isSelected) accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .padding(horizontal = 14.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onTabSelected(tab) }
+                            .padding(horizontal = 10.dp, vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = tab.icon,
-                            contentDescription = tab.title,
-                            tint = contentColor,
-                            modifier = Modifier.size(22.dp)
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isSelected) accent.copy(alpha = 0.14f) else Color.Transparent)
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.title,
+                                tint = contentColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Text(
+                            text = tab.title,
+                            color = contentColor,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
-                    Text(
-                        text = tab.title,
-                        color = contentColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
                 }
             }
         }

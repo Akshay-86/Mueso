@@ -136,7 +136,7 @@ fun OnlinePlaylistsScreen(
         LazyColumn(
             state = mainListState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 80.dp)
+            contentPadding = PaddingValues(bottom = 120.dp)
         ) {
             // Top Spacing & Header
             item {

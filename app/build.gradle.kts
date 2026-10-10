@@ -28,7 +28,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 10
-        versionName = "v1.4.7"
+        versionName = "v1.4.8"
 
         val gitSha = getGitCommitSha()
         val buildTime = System.currentTimeMillis()

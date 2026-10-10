@@ -10,6 +10,8 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
@@ -17,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,10 +40,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -215,91 +220,115 @@ fun MainScreen(viewModel: PlayerViewModel) {
 
             if (isClassic) {
                 // ─── CLASSIC DUAL-MODE ARCHITECTURE ───
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        HorizontalPager(
-                            state = classicPagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            userScrollEnabled = false,
-                            beyondViewportPageCount = 2
-                        ) { page ->
-                            when (page) {
-                                0 -> {
-                                    OfflineLibraryScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToPlayer = navigateToPlayer,
-                                        onPlaylistClick = { selectedPlaylist = it }
-                                    )
-                                }
-                                1 -> {
-                                    OnlinePlaylistsScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToPlayer = navigateToPlayer,
-                                        onDetailVisibilityChanged = { isOnlineDetailActive = it }
-                                    )
-                                }
-                                2 -> {
-                                    SettingsScreen(
-                                        viewModel = viewModel,
-                                        onBackClick = {
-                                            classicNavTab = ClassicNavTab.LIBRARY
-                                            coroutineScope.launch {
-                                                classicPagerState.animateScrollToPage(
-                                                    page = ClassicNavTab.LIBRARY.ordinal,
-                                                    animationSpec = tween(280, easing = FastOutSlowInEasing)
-                                                )
-                                            }
-                                        }
-                                    )
-                                }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HorizontalPager(
+                        state = classicPagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = false,
+                        beyondViewportPageCount = 2
+                    ) { page ->
+                        when (page) {
+                            0 -> {
+                                OfflineLibraryScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToPlayer = navigateToPlayer,
+                                    onPlaylistClick = { selectedPlaylist = it }
+                                )
                             }
-                        }
-                    }
-
-                    // Docked MiniPlayer directly above Bottom Navigation Bar
-                    if (currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive) {
-                        DockedMiniPlayer(
-                            track = currentTrack,
-                            playbackState = playbackState,
-                            audioFormat = activeAudioFormat,
-                            isDarkMode = isDarkMode,
-                            onExpandClick = { isClassicPlayerExpanded = true },
-                            onPlayPauseClick = { viewModel.togglePlayPause() },
-                            onNextClick = { viewModel.playNextTrack() }
-                        )
-                    }
-
-                    // Persistent Bottom Navigation Bar
-                    ClassicBottomBar(
-                        currentTab = classicNavTab,
-                        isDarkMode = isDarkMode,
-                        onTabSelected = { tab ->
-                            classicNavTab = tab
-                            coroutineScope.launch {
-                                classicPagerState.animateScrollToPage(
-                                    page = tab.ordinal,
-                                    animationSpec = tween(280, easing = FastOutSlowInEasing)
+                            1 -> {
+                                OnlinePlaylistsScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToPlayer = navigateToPlayer,
+                                    onDetailVisibilityChanged = { isOnlineDetailActive = it }
+                                )
+                            }
+                            2 -> {
+                                SettingsScreen(
+                                    viewModel = viewModel,
+                                    onBackClick = {
+                                        classicNavTab = ClassicNavTab.LIBRARY
+                                        coroutineScope.launch {
+                                            classicPagerState.animateScrollToPage(
+                                                page = ClassicNavTab.LIBRARY.ordinal,
+                                                animationSpec = tween(280, easing = FastOutSlowInEasing)
+                                            )
+                                        }
+                                    }
                                 )
                             }
                         }
-                    )
+                    }
+
+                    // Floating MiniPlayer & Bottom Navigation Bar overlay
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Floating MiniPlayer with enter/exit transition
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive,
+                            enter = androidx.compose.animation.fadeIn(animationSpec = tween(180, delayMillis = 60)) +
+                                    androidx.compose.animation.scaleIn(initialScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f)),
+                            exit = androidx.compose.animation.fadeOut(animationSpec = tween(150)) +
+                                    androidx.compose.animation.scaleOut(targetScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f))
+                        ) {
+                            DockedMiniPlayer(
+                                track = currentTrack,
+                                playbackState = playbackState,
+                                audioFormat = activeAudioFormat,
+                                isDarkMode = isDarkMode,
+                                onExpandClick = { isClassicPlayerExpanded = true },
+                                onPlayPauseClick = { viewModel.togglePlayPause() },
+                                onPreviousClick = { viewModel.playPreviousTrack() },
+                                onNextClick = { viewModel.playNextTrack() },
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                        }
+
+                        // Persistent Bottom Navigation Bar
+                        ClassicBottomBar(
+                            currentTab = classicNavTab,
+                            isDarkMode = isDarkMode,
+                            onTabSelected = { tab ->
+                                classicNavTab = tab
+                                coroutineScope.launch {
+                                    classicPagerState.animateScrollToPage(
+                                        page = tab.ordinal,
+                                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                                    )
+                                }
+                            }
+                        )
+                    }
                 }
 
-                // Full-screen Classic Player Expansion
+                // Full-screen Classic Player Expansion (Animates directly into/from floating mini player)
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isClassicPlayerExpanded && currentTrack != null,
                     enter = androidx.compose.animation.slideInVertically(
-                        initialOffsetY = { it },
-                        animationSpec = androidx.compose.animation.core.tween(300)
-                    ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(300)),
+                        initialOffsetY = { (it * 0.80f).toInt() },
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = 0.85f,
+                            stiffness = 400f
+                        )
+                    ) + androidx.compose.animation.scaleIn(
+                        initialScale = 0.40f,
+                        transformOrigin = TransformOrigin(0.5f, 0.90f),
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = 0.85f,
+                            stiffness = 400f
+                        )
+                    ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
                     exit = androidx.compose.animation.slideOutVertically(
-                        targetOffsetY = { it },
-                        animationSpec = androidx.compose.animation.core.tween(250)
-                    ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250))
+                        targetOffsetY = { (it * 0.80f).toInt() },
+                        animationSpec = androidx.compose.animation.core.tween(260, easing = FastOutSlowInEasing)
+                    ) + androidx.compose.animation.scaleOut(
+                        targetScale = 0.40f,
+                        transformOrigin = TransformOrigin(0.5f, 0.90f),
+                        animationSpec = androidx.compose.animation.core.tween(260, easing = FastOutSlowInEasing)
+                    ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220))
                 ) {
                     if (currentTrack != null) {
                         ClassicPlayerScreen(
@@ -407,13 +436,25 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     else -> results.isNotEmpty() || artistResults.isNotEmpty() || playlistResults.isNotEmpty()
                 }
 
+                val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+                val searchContainerBg = if (!isDarkMode) {
+                    Color.White.copy(alpha = 0.98f)
+                } else if (isPureBlack) {
+                    Color(0xFF0F0F10).copy(alpha = 0.98f)
+                } else {
+                    Color(0xFF16161A).copy(alpha = 0.98f)
+                }
+                val searchBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .heightIn(max = 440.dp)
+                        .shadow(16.dp, RoundedCornerShape(20.dp), ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.5f))
+                        .border(1.dp, searchBorderColor, RoundedCornerShape(20.dp))
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (isDarkMode) Color(0xFF1E1E2E).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f))
+                        .background(searchContainerBg)
                         .padding(12.dp)
                 ) {
                     // Search Category Filter Chips
@@ -718,7 +759,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                             }
                                             androidx.compose.material3.MaterialTheme(
                                                 colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
-                                                    surface = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+                                                    surface = if (isDarkMode) (if (isPureBlack) Color(0xFF141416) else Color(0xFF1E1E24)) else Color(0xFFFFFFFF)
                                                 ),
                                                 shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
                                                     extraSmall = RoundedCornerShape(12.dp)

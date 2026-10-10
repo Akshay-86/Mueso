@@ -251,7 +251,7 @@ fun SettingsScreen(
                     .padding(innerPadding)
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp)
             ) {
 
                 // ═══════════════════════════════════════════════════════════
@@ -1679,10 +1679,11 @@ private fun ThemeModeSelectorItem(
     val pillShape = RoundedCornerShape(8.dp)
 
     val modes = listOf(
-        Triple("system", "System", Icons.Default.BrightnessAuto),
         Triple("dark", "Dark", Icons.Default.DarkMode),
         Triple("light", "Light", Icons.Default.LightMode)
     )
+
+    val effectiveMode = if (currentMode.equals("light", ignoreCase = true)) "light" else "dark"
 
     Column(
         modifier = Modifier
@@ -1711,7 +1712,7 @@ private fun ThemeModeSelectorItem(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             modes.forEach { (id, label, icon) ->
-                val isSelected = currentMode.equals(id, ignoreCase = true)
+                val isSelected = effectiveMode.equals(id, ignoreCase = true)
                 val bgColor by animateColorAsState(
                     targetValue = if (isSelected) accentColor else Color.Transparent,
                     animationSpec = tween(200),
@@ -1822,16 +1823,36 @@ private fun AccentColorPickerItem(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(Brush.linearGradient(listOf(customPalette.primary, customPalette.secondary)))
                                 .border(2.5.dp, Color.White, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(customPalette.primary)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(customPalette.secondary)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -1857,19 +1878,41 @@ private fun AccentColorPickerItem(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(palette.primary, palette.secondary)))
-                            .then(
-                                if (isSelected) Modifier.border(2.5.dp, Color.White, CircleShape) else Modifier
+                            .border(
+                                width = if (isSelected) 2.5.dp else 1.dp,
+                                color = if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)),
+                                shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isSelected) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(palette.primary)
                             )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(palette.secondary)
+                            )
+                        }
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1927,7 +1970,7 @@ private fun CustomColorPickerDialog(
     onColorSelected: (String) -> Unit
 ) {
     val isPureBlack = LocalIsPureBlack.current
-    val dialogBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1E1E2E)) else Color(0xFFFFFFFF)
+    val dialogBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF16161A)) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
 

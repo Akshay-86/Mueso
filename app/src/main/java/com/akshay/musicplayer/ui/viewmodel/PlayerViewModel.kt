@@ -1855,7 +1855,8 @@ class PlayerViewModel(
             delay(400) // Debounce rapid swiping
             if (_playbackState.value.currentTrackId != track.id) return@launch
 
-            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value)
+            val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value, durationSec)
             if (_playbackState.value.currentTrackId != track.id) return@launch
 
             withContext(Dispatchers.Main) {
@@ -1875,7 +1876,9 @@ class PlayerViewModel(
     fun searchAndApplyLyrics(trackId: Long, customTitle: String, customArtist: String = "", customLang: String = "") {
         _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.FETCHING)
         viewModelScope.launch(Dispatchers.IO) {
-            val lyricsData = onlineRepository.fetchLyrics(customTitle, customArtist, customLang)
+            val track = currentTracks.firstOrNull { it.id == trackId }
+            val durationSec = if (track != null && track.duration > 0) (track.duration / 1000).toInt() else 0
+            val lyricsData = onlineRepository.fetchLyrics(customTitle, customArtist, customLang, durationSec)
             withContext(Dispatchers.Main) {
                 if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
                     currentTracks = currentTracks.map {
@@ -1890,7 +1893,9 @@ class PlayerViewModel(
     }
 
     suspend fun searchLrclibCandidates(query: String): List<com.akshay.musicplayer.domain.models.LrclibSearchResultItem> {
-        return onlineRepository.searchLrclibCandidates(query)
+        val currentTrack = currentTracks.firstOrNull { it.id == _playbackState.value.currentTrackId }
+        val durationSec = if (currentTrack != null && currentTrack.duration > 0) (currentTrack.duration / 1000).toInt() else 0
+        return onlineRepository.searchLrclibCandidates(query, durationSec)
     }
 
     fun applyLrclibCandidate(trackId: Long, candidate: com.akshay.musicplayer.domain.models.LrclibSearchResultItem) {
