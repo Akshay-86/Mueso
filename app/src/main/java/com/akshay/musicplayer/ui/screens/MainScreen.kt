@@ -307,6 +307,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 // Full-screen Classic Player Expansion (Animates directly into/from floating mini player)
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isClassicPlayerExpanded && currentTrack != null,
+                    modifier = Modifier.fillMaxSize(),
                     enter = androidx.compose.animation.slideInVertically(
                         initialOffsetY = { (it * 0.80f).toInt() },
                         animationSpec = androidx.compose.animation.core.spring(

@@ -10,6 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,7 +96,8 @@ import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 fun ClassicPlayerScreen(
     track: TrackEntity,
     viewModel: PlayerViewModel,
-    onCollapseClick: () -> Unit
+    onCollapseClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var isLyricsVisible by remember { mutableStateOf(false) }
 
@@ -150,9 +154,24 @@ fun ClassicPlayerScreen(
     val durationMs = playbackState.durationMs.coerceAtLeast(1L)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(bgColor)
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        if (dragAmount > 15f) {
+                            change.consume()
+                            onCollapseClick()
+                        }
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { /* Intercept and consume unhandled taps so they never leak through */ }
+            )
     ) {
         Column(
             modifier = Modifier
@@ -236,6 +255,11 @@ fun ClassicPlayerScreen(
                         .shadow(20.dp, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.35f))
                         .clip(RoundedCornerShape(artCorner))
                         .background(if (isDarkMode) Color(0xFF1E1E28) else Color.LightGray)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { isLyricsVisible = !isLyricsVisible }
+                        )
                 )
             }
 

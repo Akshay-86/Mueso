@@ -138,6 +138,11 @@ fun ClassicFullScreenLyricsView(
             .background(bgColor)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            )
     ) {
         Column(
             modifier = Modifier
