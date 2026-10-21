@@ -593,10 +593,38 @@ class PlayerViewModel(
     val spotifyMatchProgress = spotifyImportManager.matchProgress
     val spotifyErrorMessage = spotifyImportManager.errorMessage
     val spotifyCreatedDestination = spotifyImportManager.createdDestination
+    val spotifySyncTargetPlaylistName = spotifyImportManager.syncTargetPlaylistName
+    val spotifyIsSyncMode: Boolean get() = spotifyImportManager.isSyncMode
+
     fun fetchSpotifyPlaylist(context: android.content.Context, url: String) = spotifyImportManager.fetchAndMatch(context, url)
+    fun syncSpotifyPlaylist(
+        context: android.content.Context,
+        playlistId: Long,
+        playlistName: String,
+        spotifyUrl: String,
+        onChecking: () -> Unit = {},
+        onNoNewTracks: () -> Unit = {},
+        onNewTracksFound: (Int) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) = spotifyImportManager.syncPlaylist(
+        context = context,
+        playlistId = playlistId,
+        playlistName = playlistName,
+        spotifyUrl = spotifyUrl,
+        onChecking = onChecking,
+        onNoNewTracks = onNoNewTracks,
+        onNewTracksFound = onNewTracksFound,
+        onError = onError
+    )
+    fun appendSpotifySyncTracks(onComplete: (Int) -> Unit = {}) = spotifyImportManager.appendSyncTracksToPlaylist(onComplete)
+    fun updateOnlinePlaylistSpotifyUrl(playlistId: Long, spotifyUrl: String?) =
+        playlistManager.updateOnlinePlaylistSpotifyUrl(playlistId, spotifyUrl)
+
     fun retrySpotifyMatch(index: Int, query: String) = spotifyImportManager.retryMatch(index, query)
     fun selectSpotifyMatch(index: Int, track: com.akshay.musicplayer.domain.models.TrackEntity) = spotifyImportManager.selectMatch(index, track)
     fun toggleSpotifyAlternatives(index: Int) = spotifyImportManager.toggleAlternatives(index)
+    fun toggleSpotifyTrackSelection(index: Int) = spotifyImportManager.toggleTrackSelection(index)
+    fun selectAllSpotifyTracks(selected: Boolean) = spotifyImportManager.selectAllTracks(selected)
     fun createSpotifyPlaylist() = spotifyImportManager.createPlaylist()
     fun createSpotifyYouTubePlaylist(onComplete: (Boolean) -> Unit = {}) = spotifyImportManager.createYouTubePlaylist(onComplete)
     fun resetSpotifyImport() {
@@ -2360,6 +2388,32 @@ class PlayerViewModel(
 
         // Synchronize with ExoPlayer
         mediaPlayerController.moveQueueItem(fromIndex, toIndex)
+    }
+
+    fun removeFromQueue(trackId: Long, fallbackIndex: Int = -1) {
+        val index = currentTracks.indexOfFirst { it.id == trackId }.takeIf { it != -1 } ?: fallbackIndex
+        if (index < 0 || index >= currentTracks.size) return
+        val currentTrackId = _playbackState.value.currentTrackId
+        val currentIdx = currentTracks.indexOfFirst { it.id == currentTrackId }
+
+        Log.d("MUESO_SYNC", "ViewModel removeFromQueue: trackId=$trackId, resolvedIndex=$index, track='${currentTracks[index].title}'")
+
+        if (index == currentIdx) {
+            playNextTrack()
+        }
+
+        val mutableList = currentTracks.toMutableList()
+        mutableList.removeAt(index)
+        currentTracks = mutableList
+
+        // Synchronize with ExoPlayer
+        mediaPlayerController.removeQueueItem(index)
+    }
+
+    fun removeFromQueue(index: Int) {
+        if (index in currentTracks.indices) {
+            removeFromQueue(currentTracks[index].id, index)
+        }
     }
 
     fun togglePlayPause() {

@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +55,8 @@ fun SpotifyImportScreen(
     val matchProgress by viewModel.spotifyMatchProgress.collectAsState()
     val errorMessage by viewModel.spotifyErrorMessage.collectAsState()
     val spotifyCreatedDestination by viewModel.spotifyCreatedDestination.collectAsState()
+    val syncTargetPlaylistName by viewModel.spotifySyncTargetPlaylistName.collectAsState()
+    val isSyncMode = viewModel.spotifyIsSyncMode
     val previewingTrackId by viewModel.previewingTrackId.collectAsState()
     val isPreviewLoading by viewModel.isPreviewLoading.collectAsState()
     val isPreviewPlaying by viewModel.isPreviewPlaying.collectAsState()
@@ -219,7 +222,13 @@ fun SpotifyImportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Import from Spotify", color = textPrimary, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (isSyncMode) "Sync with Spotify" else "Import from Spotify",
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { handleBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrimary)
@@ -231,24 +240,30 @@ fun SpotifyImportScreen(
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             if (importState == SpotifyImportState.Ready) {
-                val matched = matchResults.count { it.matchedTrack != null }
-                if (matched > 0) {
+                val selectedCount = matchResults.count { it.isSelected && it.matchedTrack != null }
+                if (selectedCount > 0) {
                     ExtendedFloatingActionButton(
-                        onClick = { showDestinationDialog = true },
-                        containerColor = AccentOrange,
+                        onClick = {
+                            if (isSyncMode) {
+                                viewModel.appendSpotifySyncTracks()
+                            } else {
+                                showDestinationDialog = true
+                            }
+                        },
+                        containerColor = if (isSyncMode) SpotifyGreen else AccentOrange,
                         contentColor = Color.White,
                         shape = RoundedCornerShape(20.dp),
                         elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp),
                         icon = {
                             Icon(
-                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                if (isSyncMode) Icons.Default.Sync else Icons.AutoMirrored.Filled.PlaylistAdd,
                                 contentDescription = null,
                                 modifier = Modifier.size(24.dp)
                             )
                         },
                         text = {
                             Text(
-                                text = "Create Playlist ($matched tracks)",
+                                text = if (isSyncMode) "Add to Playlist ($selectedCount tracks)" else "Create Playlist ($selectedCount tracks)",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -270,103 +285,138 @@ fun SpotifyImportScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
         ) {
-            // ─── URL Input Section ───
+            // ─── Header / URL Section ───
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // Header
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(SpotifyGreen.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(22.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Spotify Playlist URL", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text("Paste a public Spotify playlist link", color = textSub, fontSize = 12.sp)
-                        }
-                        if (importState == SpotifyImportState.Ready || importState == SpotifyImportState.Done) {
-                            TextButton(onClick = {
-                                viewModel.resetSpotifyImport()
-                                spotifyUrl = ""
-                            }) {
-                                Text("New Import", color = SpotifyGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // URL Input Field
-                    BasicTextField(
-                        value = spotifyUrl,
-                        onValueChange = { spotifyUrl = it },
-                        textStyle = TextStyle(color = textPrimary, fontSize = 14.sp),
-                        singleLine = true,
-                        cursorBrush = SolidColor(SpotifyGreen),
+                if (isSyncMode) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f))
-                            .padding(horizontal = 14.dp, vertical = 14.dp),
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (spotifyUrl.isEmpty()) {
-                                    Text(
-                                        "https://open.spotify.com/playlist/...",
-                                        color = textSub.copy(alpha = 0.5f),
-                                        fontSize = 14.sp
-                                    )
-                                }
-                                innerTextField()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cardBg)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(SpotifyGreen.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(22.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Syncing Spotify Playlist", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("Destination: ${syncTargetPlaylistName ?: "Playlist"}", color = SpotifyGreen, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
-                    )
-
-                    // Guide text
-                    Text(
-                        "💡 Open Spotify → Open playlist → Click on share → Copy link.",
-                        color = SpotifyGreen.copy(alpha = 0.9f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    // Import / Cancel Button
-                    val isRunning = importState == SpotifyImportState.FetchingSpotify || importState == SpotifyImportState.MatchingTracks
-                    Button(
-                        onClick = {
-                            if (isRunning) {
-                                viewModel.resetSpotifyImport()
-                            } else {
-                                viewModel.fetchSpotifyPlaylist(context, spotifyUrl)
-                            }
-                        },
-                        enabled = isRunning || spotifyUrl.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isRunning) Color(0xFFFF453A) else SpotifyGreen
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        Text(
+                            "Comparing your Spotify playlist with Mueso. Matching newly added tracks below:",
+                            color = textSub,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cardBg)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        if (isRunning) {
-                            Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cancel Import", color = Color.White, fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Import Playlist", color = Color.White, fontWeight = FontWeight.Bold)
+                        // Header
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(SpotifyGreen.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.MusicNote, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(22.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Spotify Playlist URL", color = textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("Paste a public Spotify playlist link", color = textSub, fontSize = 12.sp)
+                            }
+                            if (importState == SpotifyImportState.Ready || importState == SpotifyImportState.Done) {
+                                TextButton(onClick = {
+                                    viewModel.resetSpotifyImport()
+                                    spotifyUrl = ""
+                                }) {
+                                    Text("New Import", color = SpotifyGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        // URL Input Field
+                        BasicTextField(
+                            value = spotifyUrl,
+                            onValueChange = { spotifyUrl = it },
+                            textStyle = TextStyle(color = textPrimary, fontSize = 14.sp),
+                            singleLine = true,
+                            cursorBrush = SolidColor(SpotifyGreen),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f))
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                            decorationBox = { innerTextField ->
+                                Box {
+                                    if (spotifyUrl.isEmpty()) {
+                                        Text(
+                                            "https://open.spotify.com/playlist/...",
+                                            color = textSub.copy(alpha = 0.5f),
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        // Guide text
+                        Text(
+                            "💡 Open Spotify → Open playlist → Click on share → Copy link.",
+                            color = SpotifyGreen.copy(alpha = 0.9f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        // Import / Cancel Button
+                        val isRunning = importState == SpotifyImportState.FetchingSpotify || importState == SpotifyImportState.MatchingTracks
+                        Button(
+                            onClick = {
+                                if (isRunning) {
+                                    viewModel.resetSpotifyImport()
+                                } else {
+                                    viewModel.fetchSpotifyPlaylist(context, spotifyUrl)
+                                }
+                            },
+                            enabled = isRunning || spotifyUrl.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isRunning) Color(0xFFFF453A) else SpotifyGreen
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isRunning) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Cancel Import", color = Color.White, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Import Playlist", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -480,24 +530,51 @@ fun SpotifyImportScreen(
                             }
                         }
 
-                        // Match summary
+                        // Match summary & Checkbox selection
                         if (importState == SpotifyImportState.Ready || importState == SpotifyImportState.Done) {
                             val matched = matchResults.count { it.matchedTrack != null }
                             val total = matchResults.size
+                            val selectedCount = matchResults.count { it.isSelected && it.matchedTrack != null }
+                            val allMatchedSelected = matched > 0 && matchResults.filter { it.matchedTrack != null }.all { it.isSelected }
+
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.02f))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(18.dp))
-                                    Text("$matched of $total tracks matched", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Checkbox(
+                                        checked = allMatchedSelected,
+                                        onCheckedChange = { isChecked ->
+                                            viewModel.selectAllSpotifyTracks(isChecked)
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = SpotifyGreen,
+                                            uncheckedColor = textSub
+                                        ),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Text(
+                                        "$selectedCount of $matched selected",
+                                        color = textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                                 if (matched < total) {
-                                    Text("${total - matched} unmatched", color = Color(0xFFFF453A), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        "${total - matched} unmatched (tap to match)",
+                                        color = Color(0xFFFF453A),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -519,6 +596,7 @@ fun SpotifyImportScreen(
                         dividerColor = dividerColor,
                         isPlaying = isThisPreviewing && isPreviewPlaying,
                         isPreviewLoading = isThisPreviewing && isPreviewLoading,
+                        onToggleSelect = { viewModel.toggleSpotifyTrackSelection(index) },
                         onPlayPreview = { track ->
                             viewModel.toggleSpotifyPreview(context, track)
                         },
@@ -533,7 +611,7 @@ fun SpotifyImportScreen(
             if (importState == SpotifyImportState.Done) {
                 item {
                     val isYt = spotifyCreatedDestination == "youtube"
-                    val successTint = if (isYt) Color(0xFFFF0000) else SpotifyGreen
+                    val successTint = if (isSyncMode) SpotifyGreen else if (isYt) Color(0xFFFF0000) else SpotifyGreen
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -545,13 +623,14 @@ fun SpotifyImportScreen(
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = successTint, modifier = Modifier.size(48.dp))
                         Text(
-                            if (isYt) "Created in YouTube Music!" else "Playlist Created in Mueso!",
+                            if (isSyncMode) "Sync Complete!" else if (isYt) "Created in YouTube Music!" else "Playlist Created in Mueso!",
                             color = textPrimary,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (isYt) "\"${playlistData?.name}\" has been synced directly to your YouTube Music account."
+                            if (isSyncMode) "Successfully added newly matched tracks to \"${syncTargetPlaylistName ?: "playlist"}\"."
+                            else if (isYt) "\"${playlistData?.name}\" has been synced directly to your YouTube Music account."
                             else "\"${playlistData?.name}\" has been saved to your Mueso Online Playlists.",
                             color = textSub,
                             fontSize = 13.sp,
@@ -560,7 +639,7 @@ fun SpotifyImportScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedButton(
-                            onClick = onBackClick,
+                            onClick = { handleBack() },
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("Done", color = textPrimary, fontWeight = FontWeight.SemiBold)
@@ -582,8 +661,8 @@ fun SpotifyImportScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            CircularProgressIndicator(color = AccentOrange, modifier = Modifier.size(32.dp))
-                            Text("Creating playlist...", color = textSub, fontSize = 14.sp)
+                            CircularProgressIndicator(color = if (isSyncMode) SpotifyGreen else AccentOrange, modifier = Modifier.size(32.dp))
+                            Text(if (isSyncMode) "Adding tracks to playlist..." else "Creating playlist...", color = textSub, fontSize = 14.sp)
                         }
                     }
                 }
@@ -605,6 +684,7 @@ private fun TrackMatchItem(
     dividerColor: Color,
     isPlaying: Boolean,
     isPreviewLoading: Boolean,
+    onToggleSelect: () -> Unit,
     onPlayPreview: (TrackEntity) -> Unit,
     onRetrySearch: (String) -> Unit,
     onSelectMatch: (TrackEntity) -> Unit,
@@ -619,6 +699,7 @@ private fun TrackMatchItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(cardBg)
+            .graphicsLayer(alpha = if (matchResult.isSelected || !isMatched) 1f else 0.55f)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -628,13 +709,35 @@ private fun TrackMatchItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Checkbox for selection
+            Checkbox(
+                checked = matchResult.isSelected && isMatched,
+                onCheckedChange = {
+                    if (isMatched) {
+                        onToggleSelect()
+                    } else {
+                        showSearchField = true
+                        manualQuery = "${matchResult.spotifyTrack.title} ${matchResult.spotifyTrack.artist}"
+                        if (matchResult.alternativeResults.isEmpty()) {
+                            onRetrySearch(manualQuery)
+                        }
+                    }
+                },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = SpotifyGreen,
+                    uncheckedColor = if (isMatched) textSub else Color(0xFFFF453A).copy(alpha = 0.5f),
+                    checkmarkColor = Color.White
+                ),
+                modifier = Modifier.size(24.dp)
+            )
+
             // Index number
             Text(
                 "${index + 1}",
                 color = textSub,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(22.dp)
+                modifier = Modifier.width(20.dp)
             )
 
             // Spotify icon badge
@@ -675,8 +778,18 @@ private fun TrackMatchItem(
                         strokeWidth = 2.dp
                     )
                 }
-                isMatched -> {
+                isMatched && matchResult.isSelected -> {
                     Icon(Icons.Default.CheckCircle, contentDescription = "Matched", tint = Color(0xFF34C759), modifier = Modifier.size(20.dp))
+                }
+                isMatched && !matchResult.isSelected -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("Skipped", color = textSub, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
                 else -> {
                     Icon(Icons.Default.Error, contentDescription = "Not Found", tint = Color(0xFFFF453A), modifier = Modifier.size(20.dp))
@@ -787,14 +900,20 @@ private fun TrackMatchItem(
                         .clickable {
                             showSearchField = true
                             manualQuery = "${matchResult.spotifyTrack.title} ${matchResult.spotifyTrack.artist}"
+                            if (matchResult.alternativeResults.isEmpty()) {
+                                onRetrySearch(manualQuery)
+                            }
                         }
                         .padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.SearchOff, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(20.dp))
-                    Text("No match found", color = Color(0xFFFF453A), fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.Search, contentDescription = "Manual Search", tint = textSub, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("No match found", color = Color(0xFFFF453A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Tap to search YouTube and match this song", color = textSub, fontSize = 11.sp)
+                    }
+                    Icon(Icons.Default.Search, contentDescription = "Manual Search", tint = AccentOrange, modifier = Modifier.size(18.dp))
                 }
             }
         }

@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,19 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -109,15 +99,49 @@ fun OnlinePlaylistsScreen(
     var showCreateChoiceDialog by remember { mutableStateOf(false) }
     var showCreateDialogType by remember { mutableStateOf<String?>(null) } // "youtube", "online", "local"
     var editingPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
+    var showSpotifySyncScreen by remember { mutableStateOf(false) }
+    var linkingSpotifyPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
 
-    val isDetailOpen = selectedPlaylist != null || selectedCustomPlaylist != null
-    LaunchedEffect(isDetailOpen) {
-        onDetailVisibilityChanged(isDetailOpen)
+    val triggerSpotifySync: (OnlinePlaylistEntity) -> Unit = { playlist ->
+        val url = playlist.spotifyUrl
+        if (url.isNullOrBlank()) {
+            linkingSpotifyPlaylist = playlist
+        } else {
+            viewModel.syncSpotifyPlaylist(
+                context = context,
+                playlistId = playlist.id,
+                playlistName = playlist.name,
+                spotifyUrl = url,
+                onChecking = {
+                    Toast.makeText(context, "Checking Spotify for updates...", Toast.LENGTH_SHORT).show()
+                },
+                onNoNewTracks = {
+                    Toast.makeText(context, "All caught up! \"${playlist.name}\" is already up to date. ✨", Toast.LENGTH_LONG).show()
+                },
+                onNewTracksFound = { count ->
+                    Toast.makeText(context, "Found $count new track(s)! Matching...", Toast.LENGTH_SHORT).show()
+                    showSpotifySyncScreen = true
+                },
+                onError = { err ->
+                    Toast.makeText(context, "Spotify Sync failed: $err", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
     }
 
-    androidx.activity.compose.BackHandler(enabled = isDetailOpen) {
-        selectedPlaylist = null
-        selectedCustomPlaylist = null
+    val isDetailOpen = selectedPlaylist != null || selectedCustomPlaylist != null
+    LaunchedEffect(isDetailOpen, showSpotifySyncScreen) {
+        onDetailVisibilityChanged(isDetailOpen || showSpotifySyncScreen)
+    }
+
+    androidx.activity.compose.BackHandler(enabled = isDetailOpen || showSpotifySyncScreen) {
+        if (showSpotifySyncScreen) {
+            viewModel.resetSpotifyImport()
+            showSpotifySyncScreen = false
+        } else {
+            selectedPlaylist = null
+            selectedCustomPlaylist = null
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -428,7 +452,9 @@ fun OnlinePlaylistsScreen(
                                     onClick = { selectedCustomPlaylist = playlist },
                                     onSetHero = { viewModel.setHeroPlaylistId("custom_${playlist.id}") },
                                     onEdit = { editingPlaylist = playlist },
-                                    onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) }
+                                    onDelete = { viewModel.deleteOnlinePlaylist(playlist.id) },
+                                    onSyncSpotify = { triggerSpotifySync(playlist) },
+                                    onLinkSpotify = { linkingSpotifyPlaylist = playlist }
                                 )
                             }
                         }
@@ -995,7 +1021,7 @@ fun OnlinePlaylistsScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(androidx.compose.animation.core.tween(200))
         ) {
             if (selectedCustomPlaylist != null) {
-                val custom = selectedCustomPlaylist!!
+                val custom = customOnlinePlaylists.find { it.id == selectedCustomPlaylist?.id } ?: selectedCustomPlaylist!!
                 val flow = remember(custom.id) { viewModel.getOnlinePlaylistTracks(custom.id) }
                 val tracks by flow.collectAsState(initial = emptyList())
 
@@ -1009,6 +1035,18 @@ fun OnlinePlaylistsScreen(
                     isCustomUserPlaylist = true,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
+                    spotifyUrl = custom.spotifyUrl,
+                    onSyncSpotify = if (!custom.spotifyUrl.isNullOrBlank()) {
+                        { triggerSpotifySync(custom) }
+                    } else null,
+                    onLinkSpotify = { newUrl ->
+                        viewModel.updateOnlinePlaylistSpotifyUrl(custom.id, newUrl)
+                        triggerSpotifySync(custom.copy(spotifyUrl = newUrl))
+                    },
+                    onUnlinkSpotify = {
+                        viewModel.updateOnlinePlaylistSpotifyUrl(custom.id, null)
+                        Toast.makeText(context, "Unlinked from Spotify", Toast.LENGTH_SHORT).show()
+                    },
                     onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                     onBackClick = { selectedCustomPlaylist = null },
                     onPlayAllClick = {
@@ -1057,6 +1095,86 @@ fun OnlinePlaylistsScreen(
                     }
                 )
             }
+        }
+
+        // Overlay for Spotify Sync Screen
+        AnimatedVisibility(
+            visible = showSpotifySyncScreen,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(androidx.compose.animation.core.tween(300)),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(androidx.compose.animation.core.tween(250))
+        ) {
+            SpotifyImportScreen(
+                viewModel = viewModel,
+                onBackClick = {
+                    viewModel.resetSpotifyImport()
+                    showSpotifySyncScreen = false
+                }
+            )
+        }
+
+        // Dialog for linking Spotify to an existing playlist
+        if (linkingSpotifyPlaylist != null) {
+            val targetPlaylist = linkingSpotifyPlaylist!!
+            var inputUrl by remember { mutableStateOf(targetPlaylist.spotifyUrl ?: "") }
+            AlertDialog(
+                onDismissRequest = { linkingSpotifyPlaylist = null },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1DB954).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(16.dp))
+                        }
+                        Text("Link Spotify Playlist", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "Paste the public Spotify link for \"${targetPlaylist.name}\" to enable 1-tap resyncing in the future:",
+                            color = if (isDarkMode) TextSecondary else Color(0xFF6E6E73),
+                            fontSize = 13.sp
+                        )
+                        OutlinedTextField(
+                            value = inputUrl,
+                            onValueChange = { inputUrl = it },
+                            placeholder = { Text("https://open.spotify.com/playlist/...", fontSize = 13.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF1DB954),
+                                unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val trimmed = inputUrl.trim()
+                            if (trimmed.isNotBlank()) {
+                                viewModel.updateOnlinePlaylistSpotifyUrl(targetPlaylist.id, trimmed)
+                                linkingSpotifyPlaylist = null
+                                triggerSpotifySync(targetPlaylist.copy(spotifyUrl = trimmed))
+                            }
+                        },
+                        enabled = inputUrl.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954))
+                    ) {
+                        Text("Link & Sync", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { linkingSpotifyPlaylist = null }) {
+                        Text("Cancel")
+                    }
+                },
+                containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White
+            )
         }
     }
 }
@@ -1223,7 +1341,9 @@ fun CustomPlaylistCard(
     onClick: () -> Unit,
     onSetHero: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onSyncSpotify: (() -> Unit)? = null,
+    onLinkSpotify: (() -> Unit)? = null
 ) {
     val tracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
     val tracks by tracksFlow.collectAsState(initial = emptyList())
@@ -1256,6 +1376,26 @@ fun CustomPlaylistCard(
                 cornerRadius = 12.dp
             )
 
+            // Spotify Synced Badge in top-start corner
+            if (!playlist.spotifyUrl.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1DB954)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Sync,
+                        contentDescription = "Spotify Synced",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
             // 3-Dots Menu Button overlay in top-end corner
             Box(
                 modifier = Modifier
@@ -1278,6 +1418,19 @@ fun CustomPlaylistCard(
                 }
 
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (!playlist.spotifyUrl.isNullOrBlank() && onSyncSpotify != null) {
+                        DropdownMenuItem(
+                            text = { Text("Sync with Spotify") },
+                            onClick = { showMenu = false; onSyncSpotify() },
+                            leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954)) }
+                        )
+                    } else if (onLinkSpotify != null) {
+                        DropdownMenuItem(
+                            text = { Text("Link Spotify") },
+                            onClick = { showMenu = false; onLinkSpotify() },
+                            leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954)) }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Edit Details") },
                         onClick = { showMenu = false; onEdit() },

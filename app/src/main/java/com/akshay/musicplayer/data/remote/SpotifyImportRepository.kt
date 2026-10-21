@@ -97,7 +97,7 @@ class SpotifyImportRepository {
 
             val tokenBody = httpClient.newCall(tokenRequest).execute().use { tokenResponse ->
                 if (!tokenResponse.isSuccessful) {
-                    Log.e(TAG, "[TOKEN] Step 2 failed: HTTP ${tokenResponse.code}")
+                    Log.d(TAG, "[TOKEN] Anonymous token endpoint returned HTTP ${tokenResponse.code}; falling back to embed parser")
                     return@withContext null
                 }
                 tokenResponse.body?.string()
@@ -117,7 +117,7 @@ class SpotifyImportRepository {
             }
             token
         } catch (e: Exception) {
-            Log.e(TAG, "[TOKEN] Exception fetching anonymous token", e)
+            Log.w(TAG, "[TOKEN] Exception fetching anonymous token: ${e.message}")
             null
         }
     }

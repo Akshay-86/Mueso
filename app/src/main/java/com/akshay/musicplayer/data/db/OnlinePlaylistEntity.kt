@@ -9,5 +9,6 @@ data class OnlinePlaylistEntity(
     val name: String,
     val artworkUrl: String? = null,
     val description: String? = null,
-    val dateCreated: Long = System.currentTimeMillis()
+    val dateCreated: Long = System.currentTimeMillis(),
+    val spotifyUrl: String? = null
 )

@@ -193,6 +193,13 @@ class PlaylistManager(
         }
     }
 
+    fun updateOnlinePlaylistSpotifyUrl(playlistId: Long, spotifyUrl: String?) {
+        coroutineScope.launch(Dispatchers.IO) {
+            onlinePlaylistDao.updateOnlinePlaylistSpotifyUrl(playlistId, spotifyUrl?.takeIf { it.isNotBlank() })
+            markDirty()
+        }
+    }
+
     fun updateCachedPlaylistArtwork(playlistId: Long) {
         val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
         val firstArtwork = tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl

@@ -46,7 +46,8 @@ data class BackupOnlinePlaylist(
     val description: String? = null,
     val artworkUrl: String? = null,
     val dateCreated: Long = System.currentTimeMillis(),
-    val tracks: List<BackupTrack> = emptyList()
+    val tracks: List<BackupTrack> = emptyList(),
+    val spotifyUrl: String? = null
 )
 
 @JsonClass(generateAdapter = true)

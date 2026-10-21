@@ -192,115 +192,8 @@ fun AboutScreen(
                 }
             }
 
-            // ─── 2. Key Features ───
-            item {
-                Text(
-                    text = "Key Features",
-                    color = AccentOrange,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(cardBg)
-                        .padding(vertical = 6.dp)
-                ) {
-                    FeatureRow(
-                        icon = Icons.Default.ViewCarousel,
-                        title = "Reels-Style Vertical Player",
-                        subtitle = "Smooth vertical swipe transitions with customizable album background framing",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Lossless & High Quality Audio",
-                        subtitle = "Adaptive streaming up to 320 kbps and crystal-clear offline downloads",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Person,
-                        title = "Dedicated Artist Exploration",
-                        subtitle = "Full artist profiles with top songs, albums, singles, and instant radio/shuffle",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Search,
-                        title = "Multi-Category Search & Shelves",
-                        subtitle = "Explore moods, genres, curated shelves, and fast in-memory cached search",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                        title = "Spotify Playlist Import",
-                        subtitle = "Paste Spotify links to match, review, and import playlists directly",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Shield,
-                        title = "Smart SponsorBlock Integration",
-                        subtitle = "Skip sponsorships, self-promotions, intros/outros, and non-music filler",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Lyrics,
-                        title = "Synchronized Karaoke Lyrics",
-                        subtitle = "Real-time synced lyrics with custom timing offset adjustment & search picker",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Palette,
-                        title = "Dynamic Theming & AMOLED",
-                        subtitle = "Pure Black AMOLED mode, custom accent colors, font scaling & corner radius",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.CloudUpload,
-                        title = "Google Drive Cloud Backup",
-                        subtitle = "Automatic cloud sync for custom playlists, background frames, and preferences",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.SystemUpdate,
-                        title = "In-App GitHub Updates",
-                        subtitle = "Direct release checker with architecture-specific APK downloads and installer",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                    HorizontalDivider(color = dividerColor)
-                    FeatureRow(
-                        icon = Icons.Default.Bedtime,
-                        title = "Sleep Timer & Lockscreen Controls",
-                        subtitle = "Duration, stop-after-song, or end-of-playlist timers with lockscreen controls",
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
-                }
-            }
-
-            // ─── 3. Developer & Links ───
+            // ─── 2. Developer & Links ───
             item {
                 Text(
                     text = "Developer & Community",
@@ -359,7 +252,7 @@ fun AboutScreen(
                 }
             }
 
-            // ─── 4. Build & System Info ───
+            // ─── 3. Build & System Info ───
             item {
                 Text(
                     text = "Build & System Information",
@@ -392,10 +285,10 @@ fun AboutScreen(
                 }
             }
 
-            // ─── 5. Open Source & Credits ───
+            // ─── 4. Credits & Inspirations ───
             item {
                 Text(
-                    text = "Open Source Credits",
+                    text = "Credits & Inspirations",
                     color = AccentOrange,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
@@ -410,6 +303,19 @@ fun AboutScreen(
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
+                    LinkRow(
+                        icon = Icons.Default.Favorite,
+                        title = "Resso (by ByteDance)",
+                        subtitle = "Core UI/UX inspiration for Mueso's reels-style vertical music player (now discontinued)",
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://en.wikipedia.org/wiki/Resso")
+                            } catch (_: Exception) {}
+                        },
+                        textPrimary = textPrimary,
+                        textSub = textSub
+                    )
+                    HorizontalDivider(color = dividerColor)
                     LinkRow(
                         icon = Icons.Default.MusicNote,
                         title = "Zuno (by @noFAYZ)",
@@ -474,23 +380,10 @@ fun AboutScreen(
                         textPrimary = textPrimary,
                         textSub = textSub
                     )
-                    HorizontalDivider(color = dividerColor)
-                    LinkRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "AndroidX Media3 (ExoPlayer)",
-                        subtitle = "Google's media engine for playback, caching & session service",
-                        onClick = {
-                            try {
-                                uriHandler.openUri("https://developer.android.com/media/media3")
-                            } catch (_: Exception) {}
-                        },
-                        textPrimary = textPrimary,
-                        textSub = textSub
-                    )
                 }
             }
 
-            // ─── 6. License ───
+            // ─── 5. License ───
             item {
                 Text(
                     text = "License",
@@ -560,37 +453,6 @@ fun AboutScreen(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun FeatureRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    textPrimary: Color,
-    textSub: Color
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(AccentOrange.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-            Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = textSub, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
 }

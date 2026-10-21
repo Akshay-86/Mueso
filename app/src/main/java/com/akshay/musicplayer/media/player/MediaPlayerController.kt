@@ -25,6 +25,7 @@ interface MediaPlayerController {
     fun getRepeatMode(): Int
     fun setShuffleEnabled(enabled: Boolean)
     fun moveQueueItem(fromIndex: Int, toIndex: Int)
+    fun removeQueueItem(index: Int)
     fun seekToIndex(index: Int)
     fun updateTrackInQueue(index: Int, track: TrackEntity)
     fun appendTracksToQueue(tracks: List<TrackEntity>)

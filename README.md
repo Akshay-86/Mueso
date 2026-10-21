@@ -72,16 +72,21 @@
 
 ## ✨ Features
 
-- **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view.
+- **📱 Reels-Style Vertical Swipe Player**: Modern fullscreen Vertical Pager layout for smooth swipe-up/down gestures to transition between tracks like reels, complete with dynamic background artwork blur, animated playback controls, and quick lyrics view (101% inspired by the legendary Resso app).
+- **📻 Classic Player & Floating Mini Player**: Switch anytime between the immersive reels player and a classic player layout featuring an animated floating mini-player capsule with gesture controls.
 - **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position album art. Customized positions are persisted and synced per playlist track.
-- **🎨 Dynamic Theming & Pure Black AMOLED**: Pitch-black pure AMOLED dark mode for OLED battery savings, customizable vibrant accent color palettes, dynamic font scaling, and adjustable card corner radius.
+- **🎨 Dynamic Theming & Pure Black AMOLED**: Pitch-black pure AMOLED dark mode for OLED battery savings, light mode, vibrant multi-shade accent color palettes, dynamic font scaling, and adjustable card corner radius.
 - **⚡ Native InnerTube Engine & YouTube Music Personalization**: Zero-overhead native Kotlin InnerTube client for ultra-fast streaming and account synchronization. Connect your YouTube Music account to stream your personalized library, custom playlists, and recommendations without third-party dependencies.
 - **🎤 Dedicated Artist Detail Pages**: Full-featured artist exploration screen featuring artist banner, subscriber count, bio, and organized sections for **Top Songs**, **Albums**, **Singles & EPs**, **Music Videos**, **Live Performances**, **Featured On**, and **Similar Artists**, plus instant **Radio** and **Shuffle** launch buttons.
 - **🔍 Multi-Category Search & LRU Caching**: Fast search across **All**, **Songs**, **Videos**, **Albums**, **Playlists**, and **Artists** with in-memory caching for instant tab switches without redundant network calls.
 - **🎭 Moods, Genres & Curated Shelves**: Explore dynamic categories (Chill, Focus, Workout, Party, Romance, Charts, and more) with customized row shelves and direct playlist playback.
-- **🚀 Pure Native Audio Streaming & Continuous Background Playback**: High-performance ExoPlayer streaming with multi-strategy InnerTube extraction, proactive next-track prefetching, partial WakeLock, and battery-optimization guard for uninterrupted listening when the screen is off or in the background.
+- **🚀 Pure Native Audio Streaming & Continuous Background Playback**: High-performance streaming with multi-strategy InnerTube extraction, proactive next-track prefetching, partial WakeLock, and battery-optimization guard for uninterrupted listening when the screen is off or in the background.
 - **🎵 Synced Lyrics & Interactive Candidate Picker**: Automatic real-time synced lyrics via LRCLIB with line-by-line karaoke highlights, manual timing offset adjusters (+/- 500ms), and an interactive search dialog to match alternate lyrics.
-- **🟢 Spotify-to-YouTube Playlist Import**: Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams with interactive top-down review and alternative selection.
+- **🟢 Smart Spotify Import & Delta Sync**:
+  - Paste any public Spotify playlist URL to instantly fetch track listings and match them against high-quality online audio streams.
+  - **Permanent Link Storage & 1-Tap Delta Sync**: Stored Spotify links allow one-tap syncing that automatically deduplicates existing tracks and matches *only newly added songs*.
+  - **Batch Checkbox Selection**: Select, deselect, or search-match unmatched tracks before creating or syncing playlists.
+- **📋 Smart Queue Management**: Up Next queue bottom sheet with drag-and-drop reordering, smooth animated track removal (`✕`), and clear queue controls.
 - **🛡️ Smart SponsorBlock Audio Filtering**: Master toggle with customizable sub-settings to automatically skip non-music segments, sponsor messages, self-promotions, intros/outros, and filler in real-time during online streaming.
 - **📥 Offline Library & Quality-Aware Downloads**: Download audio tracks directly in High / Medium / Low quality with natively embedded ID3v2.3 (MP3) and MP4 Box (M4A) metadata tags, high-res cover art, and companion `.lrc` lyrics files.
 - **🔄 In-App Updates & Self-Installer**: Automatically check GitHub Releases for app updates, view changelogs, track download progress, and install new APKs directly within the app.
@@ -149,18 +154,17 @@ cd Mueso
 
 ---
 
-## 🙏 Open Source Credits
+## 🙏 Credits & Inspirations
 
-Mueso is built on top of amazing open-source technologies, tools, and community APIs:
+Mueso is built on top of amazing open-source technologies, community APIs, and great product inspirations:
 
-- [Zuno](https://github.com/noFAYZ/zuno) - Open-source desktop YouTube Music client by [@noFAYZ](https://github.com/noFAYZ); foundational inspiration and reference for multi-client stream resolving strategies (iOS, Android, TV, Web Remix) and player options.
-- [AndroidX Media3 ExoPlayer](https://developer.android.com/media/media3) - Media playback, caching, and background session service.
-- [Jetpack Compose](https://developer.android.com/jetpack/compose) - Modern Android declarative UI framework.
-- [SponsorBlock API](https://sponsor.ajay.app/) - Crowd-sourced database for skipping non-music segments and sponsorships.
-- [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player) - YouTube IFrame player wrapper by Pierfrancesco Soffritti.
-- [LRCLIB](https://lrclib.net/) - Free and open community-driven synchronized lyrics provider.
-- [jaudiotagger](https://github.com/AdrienPoupa/jaudiotagger) - Pure Java audio metadata tagging library by Adrien Poupa.
-- [Coil](https://coil-kt.github.io/coil/) - Fast, lightweight image loading library for Android and Jetpack Compose.
+- **[Resso](https://en.wikipedia.org/wiki/Resso) (by ByteDance)** - The core UI & UX inspiration for Mueso's reels-style vertical music player. A phenomenal, ahead-of-its-time music experience (now discontinued) that 101% inspired Mueso's entire fullscreen swipe-up listening flow.
+- **[Zuno](https://github.com/noFAYZ/zuno)** - Open-source desktop YouTube Music client by [@noFAYZ](https://github.com/noFAYZ); foundational inspiration and reference for multi-client stream resolving strategies (iOS, Android, TV, Web Remix) and player options.
+- **[SponsorBlock API](https://sponsor.ajay.app/)** - Crowd-sourced database for skipping non-music segments and sponsorships.
+- **[android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)** - YouTube IFrame player wrapper by Pierfrancesco Soffritti.
+- **[LRCLIB](https://lrclib.net/)** - Free and open community-driven synchronized lyrics provider.
+- **[jaudiotagger](https://github.com/AdrienPoupa/jaudiotagger)** - Pure Java audio metadata tagging library by Adrien Poupa for ID3 & MP4 metadata.
+- **[Coil](https://coil-kt.github.io/coil/)** - Fast, lightweight image loading library for Android and Jetpack Compose.
 
 ---
 

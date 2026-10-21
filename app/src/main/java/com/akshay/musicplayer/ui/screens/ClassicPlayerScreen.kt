@@ -605,6 +605,7 @@ fun ClassicPlayerScreen(
                 showQueueSheet = false
             },
             onMove = { from, to -> viewModel.moveInQueue(from, to) },
+            onRemove = { globalIndex, track -> viewModel.removeFromQueue(track.id, globalIndex) },
             onClearQueue = { viewModel.clearUpcomingQueue() },
             onDismiss = { showQueueSheet = false }
         )

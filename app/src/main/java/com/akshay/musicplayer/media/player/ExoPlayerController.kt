@@ -1758,6 +1758,24 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         mediaController?.moveMediaItem(fromIndex, toIndex)
     }
 
+    override fun removeQueueItem(index: Int) {
+        Log.d("MUESO_SYNC", "ExoPlayer removeQueueItem: index=$index")
+        if (index in tracksQueue.indices) {
+            val mutable = tracksQueue.toMutableList()
+            mutable.removeAt(index)
+            tracksQueue = mutable
+            if (index < currentQueueIndex) {
+                currentQueueIndex = (currentQueueIndex - 1).coerceAtLeast(0)
+            }
+            notifyQueueOrCommandsChanged()
+        }
+        mediaController?.let { controller ->
+            if (index in 0 until controller.mediaItemCount) {
+                controller.removeMediaItem(index)
+            }
+        }
+    }
+
     override fun seekToIndex(index: Int) {
         Log.d("MUESO_SYNC", "seekToIndex: index=$index")
         startServiceIfForeground()

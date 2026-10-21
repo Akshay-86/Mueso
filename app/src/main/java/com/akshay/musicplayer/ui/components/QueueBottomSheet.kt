@@ -1,5 +1,13 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -18,8 +26,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MusicNote
@@ -35,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.akshay.musicplayer.domain.models.TrackEntity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val AccentOrange: Color
     @Composable
@@ -69,6 +82,7 @@ fun QueueBottomSheet(
     isDarkMode: Boolean = true,
     onTrackClick: (Int) -> Unit,
     onMove: (from: Int, to: Int) -> Unit = { _, _ -> },
+    onRemove: (Int, TrackEntity) -> Unit = { _, _ -> },
     onClearQueue: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -164,6 +178,8 @@ fun QueueBottomSheet(
             }
         } else {
             var localUpcomingTracks by remember(upcomingTracks) { mutableStateOf(upcomingTracks) }
+            var removingTrackIds by remember { mutableStateOf(setOf<Long>()) }
+            val coroutineScope = rememberCoroutineScope()
             var initialDragLocalIndex by remember { mutableStateOf<Int?>(null) }
             var draggedIndex by remember { mutableStateOf<Int?>(null) }
             var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -175,20 +191,52 @@ fun QueueBottomSheet(
                     .padding(horizontal = 8.dp)
                     .padding(bottom = 32.dp)
             ) {
-                itemsIndexed(localUpcomingTracks, key = { _, track -> track.id }) { localIndex, track ->
+                itemsIndexed(localUpcomingTracks, key = { index, track -> "${track.id}_$index" }) { localIndex, track ->
                     val isDragging = draggedIndex == localIndex
                     // Map local index back to full tracks list index
                     val globalIndex = upcomingStartIndex + localIndex
+                    val isRemoving = track.id in removingTrackIds
 
-                    Column {
-                        QueueTrackItem(
-                            track = track,
-                            isPlaying = false,
-                            isDragging = isDragging,
-                            dragOffsetY = if (isDragging) dragOffset else 0f,
-                            isDarkMode = isDarkMode,
-                            onClick = { onTrackClick(globalIndex) },
-                            dragModifier = Modifier.pointerInput(track.id) {
+                    Column(
+                        modifier = Modifier.animateItem()
+                    ) {
+                        AnimatedVisibility(
+                            visible = !isRemoving,
+                            enter = fadeIn() + expandVertically(),
+                            exit = shrinkVertically(
+                                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                            ) + fadeOut(
+                                animationSpec = tween(durationMillis = 180)
+                            ) + slideOutHorizontally(
+                                targetOffsetX = { -it },
+                                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                            )
+                        ) {
+                            QueueTrackItem(
+                                track = track,
+                                isPlaying = false,
+                                isDragging = isDragging,
+                                dragOffsetY = if (isDragging) dragOffset else 0f,
+                                isDarkMode = isDarkMode,
+                                onClick = { onTrackClick(globalIndex) },
+                                onRemove = {
+                                    val trackId = track.id
+                                    if (trackId !in removingTrackIds) {
+                                        removingTrackIds = removingTrackIds + trackId
+                                        coroutineScope.launch {
+                                            delay(240)
+                                            val list = localUpcomingTracks.toMutableList()
+                                            val currentLocalIndex = list.indexOfFirst { it.id == trackId }
+                                            if (currentLocalIndex != -1) {
+                                                list.removeAt(currentLocalIndex)
+                                                localUpcomingTracks = list
+                                                onRemove(upcomingStartIndex + currentLocalIndex, track)
+                                            }
+                                            removingTrackIds = removingTrackIds - trackId
+                                        }
+                                    }
+                                },
+                                dragModifier = Modifier.pointerInput(track.id) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
                                         initialDragLocalIndex = localIndex
@@ -254,6 +302,7 @@ fun QueueBottomSheet(
                                 )
                             }
                         )
+                    }
 
                         // Divider after the last song of playlist
                         if (isPlaylistContext && playlistTrackCount > 0 && globalIndex == playlistTrackCount - 1) {
@@ -297,6 +346,7 @@ private fun QueueTrackItem(
     dragOffsetY: Float,
     isDarkMode: Boolean = true,
     onClick: () -> Unit,
+    onRemove: () -> Unit,
     dragModifier: Modifier
 ) {
     val bgColor = when {
@@ -376,5 +426,21 @@ private fun QueueTrackItem(
             fontSize = 12.sp
         )
 
+        // Remove from Queue Button
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                .clickable { onRemove() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove from Queue",
+                tint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF6E6E73),
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }

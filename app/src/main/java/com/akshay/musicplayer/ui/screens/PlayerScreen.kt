@@ -226,6 +226,7 @@ fun VerticalPagerScreen(
                     viewModel.dismissQueueSheet()
                 },
                 onMove = { from, to -> viewModel.moveInQueue(from, to) },
+                onRemove = { globalIndex, track -> viewModel.removeFromQueue(track.id, globalIndex) },
                 onClearQueue = { viewModel.clearUpcomingQueue() },
                 onDismiss = { viewModel.dismissQueueSheet() }
             )

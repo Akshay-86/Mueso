@@ -32,6 +32,7 @@ class BackupWorker(
                     description = p.description,
                     artworkUrl = p.artworkUrl,
                     dateCreated = p.dateCreated,
+                    spotifyUrl = p.spotifyUrl,
                     tracks = tracks.map { t ->
                         val idKey = "bg_bias_${t.trackId}"
                         var bias = if (sharedPrefs.contains(idKey)) sharedPrefs.getFloat(idKey, 0f) else 0f

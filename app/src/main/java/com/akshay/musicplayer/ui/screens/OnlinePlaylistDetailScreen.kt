@@ -13,19 +13,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
@@ -90,7 +81,11 @@ fun OnlinePlaylistDetailScreen(
     onDownloadTrack: ((TrackEntity) -> Unit)? = null,
     onDeletePlaylist: (() -> Unit)? = null,
     onRenamePlaylist: ((String) -> Unit)? = null,
-    onEditPlaylistDetails: ((name: String, description: String) -> Unit)? = null
+    onEditPlaylistDetails: ((name: String, description: String) -> Unit)? = null,
+    spotifyUrl: String? = null,
+    onSyncSpotify: (() -> Unit)? = null,
+    onLinkSpotify: ((String) -> Unit)? = null,
+    onUnlinkSpotify: (() -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
@@ -99,6 +94,7 @@ fun OnlinePlaylistDetailScreen(
     var showAddToPlaylist by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showLinkSpotifyDialog by remember { mutableStateOf(false) }
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
@@ -192,6 +188,88 @@ fun OnlinePlaylistDetailScreen(
         )
     }
 
+    if (showLinkSpotifyDialog && onLinkSpotify != null) {
+        var inputUrl by remember { mutableStateOf(spotifyUrl ?: "") }
+        AlertDialog(
+            onDismissRequest = { showLinkSpotifyDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1DB954).copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(16.dp))
+                    }
+                    Text(
+                        if (spotifyUrl.isNullOrBlank()) "Link Spotify Playlist" else "Edit Spotify Link",
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Paste a public Spotify playlist link to enable 1-tap syncing of newly added songs into this playlist.",
+                        color = textSecondary,
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = inputUrl,
+                        onValueChange = { inputUrl = it },
+                        placeholder = { Text("https://open.spotify.com/playlist/...", color = textSecondary.copy(alpha = 0.6f), fontSize = 13.sp) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF1DB954),
+                            unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.2f),
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (!spotifyUrl.isNullOrBlank() && onUnlinkSpotify != null) {
+                        TextButton(
+                            onClick = {
+                                onUnlinkSpotify()
+                                showLinkSpotifyDialog = false
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF453A))
+                        ) {
+                            Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Unlink Spotify Playlist", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = inputUrl.trim()
+                        if (trimmed.isNotBlank()) {
+                            onLinkSpotify(trimmed)
+                            showLinkSpotifyDialog = false
+                        }
+                    },
+                    enabled = inputUrl.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954))
+                ) {
+                    Text(if (spotifyUrl.isNullOrBlank()) "Link & Sync" else "Save", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLinkSpotifyDialog = false }) {
+                    Text("Cancel", color = textSecondary)
+                }
+            },
+            containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -271,6 +349,36 @@ fun OnlinePlaylistDetailScreen(
                                     containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
                                     shadowElevation = 16.dp
                                 ) {
+                                    if (onSyncSpotify != null) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
+                                                    Text("Sync with Spotify", color = textPrimary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                onSyncSpotify()
+                                            }
+                                        )
+                                    }
+
+                                    if (onLinkSpotify != null) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
+                                                    Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = textPrimary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                showLinkSpotifyDialog = true
+                                            }
+                                        )
+                                    }
+
                                     if (onEditPlaylistDetails != null || onRenamePlaylist != null) {
                                         DropdownMenuItem(
                                             text = {
@@ -429,6 +537,32 @@ fun OnlinePlaylistDetailScreen(
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
+
+                                if (!spotifyUrl.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0xFF1DB954).copy(alpha = 0.2f))
+                                            .clickable(enabled = onSyncSpotify != null) { onSyncSpotify?.invoke() }
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Sync,
+                                            contentDescription = "Sync",
+                                            tint = Color(0xFF1DB954),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            "Spotify Linked • Tap to Sync",
+                                            color = Color(0xFF1DB954),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -481,6 +615,24 @@ fun OnlinePlaylistDetailScreen(
                             Text("Shuffle", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
                         }
 
+                        // Spotify Sync Quick Button
+                        if (onSyncSpotify != null) {
+                            IconButton(
+                                onClick = onSyncSpotify,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1DB954).copy(alpha = 0.18f))
+                            ) {
+                                Icon(
+                                    Icons.Default.Sync,
+                                    contentDescription = "Sync with Spotify",
+                                    tint = Color(0xFF1DB954),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
                         // 3-Dots Action Row Menu Button
                         var showActionMenu by remember { mutableStateOf(false) }
                         Box {
@@ -507,6 +659,34 @@ fun OnlinePlaylistDetailScreen(
                                 containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
                                 shadowElevation = 16.dp
                             ) {
+                                if (onSyncSpotify != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
+                                                Text("Sync with Spotify", color = textPrimary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showActionMenu = false
+                                            onSyncSpotify()
+                                        }
+                                    )
+                                }
+                                if (onLinkSpotify != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
+                                                Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = textPrimary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showActionMenu = false
+                                            showLinkSpotifyDialog = true
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

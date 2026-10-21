@@ -261,7 +261,8 @@ class BackupManager(
                                         name = opName,
                                         description = op.description,
                                         artworkUrl = op.artworkUrl,
-                                        dateCreated = op.dateCreated
+                                        dateCreated = op.dateCreated,
+                                        spotifyUrl = op.spotifyUrl
                                     )
                                 )
                                 val trackList = op.tracks ?: emptyList()
@@ -342,6 +343,7 @@ class BackupManager(
                         description = p.description,
                         artworkUrl = p.artworkUrl,
                         dateCreated = p.dateCreated,
+                        spotifyUrl = p.spotifyUrl,
                         tracks = tracks.map { t ->
                             val bias = getTrackBiasFromPrefs(t.trackId, t.filePath, t.title, t.artist)
                             com.akshay.musicplayer.data.backup.BackupTrack(
@@ -456,6 +458,7 @@ class BackupManager(
                         description = p.description,
                         artworkUrl = p.artworkUrl,
                         dateCreated = p.dateCreated,
+                        spotifyUrl = p.spotifyUrl,
                         tracks = tracks.map { t ->
                             val bias = getTrackBiasFromPrefs(t.trackId, t.filePath, t.title, t.artist)
                             com.akshay.musicplayer.data.backup.BackupTrack(
@@ -572,7 +575,8 @@ class BackupManager(
                                     name = opName,
                                     description = op.description,
                                     artworkUrl = op.artworkUrl,
-                                    dateCreated = op.dateCreated
+                                    dateCreated = op.dateCreated,
+                                    spotifyUrl = op.spotifyUrl
                                 )
                             )
                             val trackList = op.tracks ?: emptyList()
