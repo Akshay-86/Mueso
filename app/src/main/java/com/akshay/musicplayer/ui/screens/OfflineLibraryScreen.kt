@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,110 +98,130 @@ fun OfflineLibraryScreen(
     val playlists by viewModel.playlists.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    val playbackState by viewModel.playbackState.collectAsState()
+    val isClassic = playerLayoutStyle == "classic"
+    val hasTrackPlaying = playbackState.currentTrackId != 0L
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(top = 60.dp)
     ) {
-        // Animated tab content
-        AnimatedContent(
-            targetState = selectedTab,
-            transitionSpec = {
-                if (targetState > initialState) {
-                    (slideInHorizontally(
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        initialOffsetX = { it }
-                    ) + fadeIn(tween(200)))
-                        .togetherWith(
-                            slideOutHorizontally(
-                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                targetOffsetX = { -it / 3 }
-                            ) + fadeOut(tween(150))
-                        )
-                } else {
-                    (slideInHorizontally(
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        initialOffsetX = { -it }
-                    ) + fadeIn(tween(200)))
-                        .togetherWith(
-                            slideOutHorizontally(
-                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                targetOffsetX = { it / 3 }
-                            ) + fadeOut(tween(150))
-                        )
-                }
-            },
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = if (playerLayoutStyle == "classic") 160.dp else 60.dp),
-            label = "tabContent"
-        ) { tab ->
-            when (tab) {
-                1 -> AllSongsTab(
-                    uiState = uiState,
-                    sortOption = sortOption,
-                    isDarkMode = isDarkMode,
-                    viewModel = viewModel,
-                    onSortChange = {
-                        sortOption = it
-                        sharedPreferences.edit().putString("offline_sort_option", it.name).apply()
-                    },
-                    onTrackClick = { list, index ->
-                        viewModel.playQueue(list, index)
-                        onNavigateToPlayer()
-                    },
-                    onAddToPlaylist = { trackToAdd = it },
-                    onRefresh = { viewModel.loadLocalTracks(forceReload = true) }
-                )
-                else -> PlaylistsTab(
-                    viewModel = viewModel,
-                    isDarkMode = isDarkMode,
-                    onPlaylistClick = onPlaylistClick
-                )
-            }
-        }
-
-        // Bottom center pill tabs
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = if (playerLayoutStyle == "classic") 118.dp else 16.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .statusBarsPadding()
+                .padding(top = 60.dp)
         ) {
-            listOf("Playlists" to 0, "All Songs" to 1).forEach { (title, index) ->
-                val isSelected = selectedTab == index
-                val bgColor by animateColorAsState(
-                    if (isSelected) AccentOrange else Color.Transparent,
-                    animationSpec = tween(250),
-                    label = "tabBg"
-                )
-                val textColor by animateColorAsState(
-                    if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)),
-                    animationSpec = tween(250),
-                    label = "tabText"
-                )
-                Box(
+            // ── Top Segmented Pill Switcher ("Playlists" | "All Songs") ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(24.dp))
-                        .background(bgColor)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { viewModel.setOfflineLibraryTab(index) }
-                        .padding(horizontal = 24.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = title,
-                        color = textColor,
-                        fontSize = 14.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    listOf("Playlists" to 0, "All Songs" to 1).forEach { (title, index) ->
+                        val isSelected = selectedTab == index
+                        val bgColor by animateColorAsState(
+                            if (isSelected) AccentOrange else Color.Transparent,
+                            animationSpec = tween(250),
+                            label = "tabBg"
+                        )
+                        val textColor by animateColorAsState(
+                            if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)),
+                            animationSpec = tween(250),
+                            label = "tabText"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(bgColor)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { viewModel.setOfflineLibraryTab(index) }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = title,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            val bottomPadding = if (isClassic) {
+                if (hasTrackPlaying) 140.dp else 80.dp
+            } else 80.dp
+
+            // Animated tab content
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (slideInHorizontally(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            initialOffsetX = { it }
+                        ) + fadeIn(tween(200)))
+                            .togetherWith(
+                                slideOutHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    targetOffsetX = { -it / 3 }
+                                ) + fadeOut(tween(150))
+                            )
+                    } else {
+                        (slideInHorizontally(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            initialOffsetX = { -it }
+                        ) + fadeIn(tween(200)))
+                            .togetherWith(
+                                slideOutHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    targetOffsetX = { it / 3 }
+                                ) + fadeOut(tween(150))
+                            )
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                label = "tabContent"
+            ) { tab ->
+                when (tab) {
+                    1 -> AllSongsTab(
+                        uiState = uiState,
+                        sortOption = sortOption,
+                        isDarkMode = isDarkMode,
+                        viewModel = viewModel,
+                        bottomPadding = bottomPadding,
+                        onSortChange = {
+                            sortOption = it
+                            sharedPreferences.edit().putString("offline_sort_option", it.name).apply()
+                        },
+                        onTrackClick = { list, index ->
+                            viewModel.playQueue(list, index)
+                            onNavigateToPlayer()
+                        },
+                        onAddToPlaylist = { trackToAdd = it },
+                        onRefresh = { viewModel.loadLocalTracks(forceReload = true) }
+                    )
+                    else -> PlaylistsTab(
+                        viewModel = viewModel,
+                        isDarkMode = isDarkMode,
+                        bottomPadding = bottomPadding,
+                        onPlaylistClick = onPlaylistClick
                     )
                 }
             }
@@ -226,6 +247,7 @@ private fun AllSongsTab(
     sortOption: SortOption,
     isDarkMode: Boolean,
     viewModel: PlayerViewModel,
+    bottomPadding: Dp = 80.dp,
     onSortChange: (SortOption) -> Unit,
     onTrackClick: (List<TrackEntity>, Int) -> Unit,
     onAddToPlaylist: (TrackEntity) -> Unit,
@@ -335,7 +357,8 @@ private fun AllSongsTab(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(32.dp),
+                            .padding(horizontal = 32.dp)
+                            .padding(bottom = bottomPadding),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!isAudioGranted) {
@@ -429,7 +452,7 @@ private fun AllSongsTab(
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 120.dp)
+                        contentPadding = PaddingValues(bottom = bottomPadding)
                     ) {
                         itemsIndexed(sortedTracks) { index, track ->
                             TrackListItem(
@@ -454,7 +477,8 @@ private fun AllSongsTab(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(32.dp),
+                    .padding(horizontal = 32.dp)
+                    .padding(bottom = bottomPadding),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -839,6 +863,7 @@ fun TrackListItem(
 private fun PlaylistsTab(
     viewModel: PlayerViewModel,
     isDarkMode: Boolean = true,
+    bottomPadding: Dp = 80.dp,
     onPlaylistClick: (PlaylistEntity) -> Unit
 ) {
     val playlists by viewModel.playlists.collectAsState()
@@ -872,7 +897,9 @@ private fun PlaylistsTab(
         if (playlists.isEmpty()) {
             // Empty state
             Column(
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = bottomPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -930,7 +957,7 @@ private fun PlaylistsTab(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp),
+                    contentPadding = PaddingValues(bottom = bottomPadding),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(playlists) { playlist ->
