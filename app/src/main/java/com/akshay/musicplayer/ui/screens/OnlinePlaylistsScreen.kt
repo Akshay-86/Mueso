@@ -1376,26 +1376,6 @@ fun CustomPlaylistCard(
                 cornerRadius = 12.dp
             )
 
-            // Spotify Synced Badge in top-start corner
-            if (!playlist.spotifyUrl.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1DB954)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Sync,
-                        contentDescription = "Spotify Synced",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-
             // 3-Dots Menu Button overlay in top-end corner
             Box(
                 modifier = Modifier

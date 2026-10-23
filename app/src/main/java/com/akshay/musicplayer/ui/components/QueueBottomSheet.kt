@@ -43,6 +43,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,6 +72,11 @@ private val AccentOrange: Color
 private val SurfaceDark: Color
     @Composable
     get() = if (com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current) Color(0xFF0D0D0D) else Color(0xFF1A1A2E)
+
+private data class QueueHolder(
+    val stableId: Long,
+    val track: TrackEntity
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -177,9 +183,15 @@ fun QueueBottomSheet(
                 )
             }
         } else {
-            var localUpcomingTracks by remember(upcomingTracks) { mutableStateOf(upcomingTracks) }
-            var removingTrackIds by remember { mutableStateOf(setOf<Long>()) }
-            val coroutineScope = rememberCoroutineScope()
+            var nextHolderId by remember { mutableLongStateOf(1L) }
+            var localUpcomingTracks by remember(upcomingTracks) {
+                mutableStateOf(
+                    upcomingTracks.map { track ->
+                        QueueHolder(stableId = nextHolderId++, track = track)
+                    }
+                )
+            }
+            var draggedHolderId by remember { mutableStateOf<Long?>(null) }
             var initialDragLocalIndex by remember { mutableStateOf<Int?>(null) }
             var draggedIndex by remember { mutableStateOf<Int?>(null) }
             var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -191,58 +203,42 @@ fun QueueBottomSheet(
                     .padding(horizontal = 8.dp)
                     .padding(bottom = 32.dp)
             ) {
-                itemsIndexed(localUpcomingTracks, key = { index, track -> "${track.id}_$index" }) { localIndex, track ->
-                    val isDragging = draggedIndex == localIndex
+                itemsIndexed(localUpcomingTracks, key = { _, holder -> holder.stableId }) { localIndex, holder ->
+                    val track = holder.track
+                    val isDragging = draggedHolderId == holder.stableId
                     // Map local index back to full tracks list index
                     val globalIndex = upcomingStartIndex + localIndex
-                    val isRemoving = track.id in removingTrackIds
 
                     Column(
                         modifier = Modifier.animateItem()
                     ) {
-                        AnimatedVisibility(
-                            visible = !isRemoving,
-                            enter = fadeIn() + expandVertically(),
-                            exit = shrinkVertically(
-                                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                            ) + fadeOut(
-                                animationSpec = tween(durationMillis = 180)
-                            ) + slideOutHorizontally(
-                                targetOffsetX = { -it },
-                                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                            )
-                        ) {
-                            QueueTrackItem(
-                                track = track,
-                                isPlaying = false,
-                                isDragging = isDragging,
-                                dragOffsetY = if (isDragging) dragOffset else 0f,
-                                isDarkMode = isDarkMode,
-                                onClick = { onTrackClick(globalIndex) },
-                                onRemove = {
-                                    val trackId = track.id
-                                    if (trackId !in removingTrackIds) {
-                                        removingTrackIds = removingTrackIds + trackId
-                                        coroutineScope.launch {
-                                            delay(240)
-                                            val list = localUpcomingTracks.toMutableList()
-                                            val currentLocalIndex = list.indexOfFirst { it.id == trackId }
-                                            if (currentLocalIndex != -1) {
-                                                list.removeAt(currentLocalIndex)
-                                                localUpcomingTracks = list
-                                                onRemove(upcomingStartIndex + currentLocalIndex, track)
-                                            }
-                                            removingTrackIds = removingTrackIds - trackId
-                                        }
-                                    }
-                                },
-                                dragModifier = Modifier.pointerInput(track.id) {
+                        QueueTrackItem(
+                            track = track,
+                            isPlaying = false,
+                            isDragging = isDragging,
+                            dragOffsetY = if (isDragging) dragOffset else 0f,
+                            isDarkMode = isDarkMode,
+                            onClick = { onTrackClick(globalIndex) },
+                            onRemove = {
+                                val list = localUpcomingTracks.toMutableList()
+                                val removeIdx = list.indexOfFirst { it.stableId == holder.stableId }
+                                if (removeIdx != -1) {
+                                    val removed = list.removeAt(removeIdx)
+                                    localUpcomingTracks = list
+                                    onRemove(upcomingStartIndex + removeIdx, removed.track)
+                                }
+                            },
+                            dragModifier = Modifier.pointerInput(holder.stableId) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
-                                        initialDragLocalIndex = localIndex
-                                        draggedIndex = localIndex
-                                        dragOffset = 0f
-                                        android.util.Log.d("MUESO_DRAG", "[Queue] Started dragging '${track.title}' from local index $localIndex (global $globalIndex)")
+                                        val curIdx = localUpcomingTracks.indexOfFirst { it.stableId == holder.stableId }
+                                        if (curIdx != -1) {
+                                            initialDragLocalIndex = curIdx
+                                            draggedIndex = curIdx
+                                            draggedHolderId = holder.stableId
+                                            dragOffset = 0f
+                                            android.util.Log.d("MUESO_DRAG", "[Queue] Started dragging '${track.title}' from local index $curIdx (global ${upcomingStartIndex + curIdx})")
+                                        }
                                     },
                                     onDrag = { change, dragAmount ->
                                         change.consume()
@@ -283,6 +279,7 @@ fun QueueBottomSheet(
                                             android.util.Log.d("MUESO_DRAG", "[Queue] Drag finished! Committed queue move from global index $globalFrom -> $globalTo")
                                         }
                                         draggedIndex = null
+                                        draggedHolderId = null
                                         initialDragLocalIndex = null
                                         dragOffset = 0f
                                     },
@@ -296,13 +293,13 @@ fun QueueBottomSheet(
                                             android.util.Log.d("MUESO_DRAG", "[Queue] Drag end/cancel! Committed queue move from global index $globalFrom -> $globalTo")
                                         }
                                         draggedIndex = null
+                                        draggedHolderId = null
                                         initialDragLocalIndex = null
                                         dragOffset = 0f
                                     }
                                 )
                             }
                         )
-                    }
 
                         // Divider after the last song of playlist
                         if (isPlaylistContext && playlistTrackCount > 0 && globalIndex == playlistTrackCount - 1) {

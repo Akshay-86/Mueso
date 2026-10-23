@@ -774,6 +774,18 @@ class PlayerViewModel(
     private val _selectedOnlinePlaylist = MutableStateFlow<SelectedOnlinePlaylist?>(null)
     val selectedOnlinePlaylist: StateFlow<SelectedOnlinePlaylist?> = _selectedOnlinePlaylist.asStateFlow()
 
+    private val _lyricsFetchStatus = MutableStateFlow<Map<Long, LyricsFetchStatus>>(emptyMap())
+    val lyricsFetchStatus: StateFlow<Map<Long, LyricsFetchStatus>> = _lyricsFetchStatus.asStateFlow()
+
+    private val _lyricsOffsetMs = MutableStateFlow(0L)
+    val lyricsOffsetMs: StateFlow<Long> = _lyricsOffsetMs.asStateFlow()
+
+    private val _isResolvingTrack = MutableStateFlow(false)
+    val isResolvingTrack: StateFlow<Boolean> = _isResolvingTrack.asStateFlow()
+
+    private val _resolvingTrackTitle = MutableStateFlow<String?>(null)
+    val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
+
     fun setSelectedOnlinePlaylist(pl: SelectedOnlinePlaylist?) {
         _selectedOnlinePlaylist.value = pl
     }
@@ -901,6 +913,15 @@ class PlayerViewModel(
                     _isPlaylistContext.value = true
                     _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
                     currentTracks = restoredPlaylistTracks
+                    val startIndex = restoredPlaylistTracks.indexOfFirst { it.id == lastTrackId }.coerceAtLeast(0)
+                    val startTrack = restoredPlaylistTracks[startIndex]
+                    _playbackState.value = PlaybackState(
+                        isPlaying = false,
+                        currentTrackId = startTrack.id,
+                        currentPositionMs = lastPosition,
+                        durationMs = startTrack.duration.coerceAtLeast(0L)
+                    )
+                    mediaPlayerController.restoreQueue(restoredPlaylistTracks, startIndex, lastPosition)
                     Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restored online playlist preview with ${restoredPlaylistTracks.size} tracks")
                     return
                 }
@@ -938,6 +959,13 @@ class PlayerViewModel(
                 artworkUrl = artworkUrl
             )
             currentTracks = listOf(previewTrack)
+            _playbackState.value = PlaybackState(
+                isPlaying = false,
+                currentTrackId = previewTrack.id,
+                currentPositionMs = lastPosition,
+                durationMs = duration.coerceAtLeast(0L)
+            )
+            mediaPlayerController.restoreQueue(listOf(previewTrack), 0, lastPosition)
             Log.d("MUESO_RESTORE", "initRestoredTrackPreview: currentTracks initialized with 1 preview track [${previewTrack.title}]")
         }
     }
@@ -1807,11 +1835,6 @@ class PlayerViewModel(
         }
     }
 
-    private val _lyricsFetchStatus = MutableStateFlow<Map<Long, LyricsFetchStatus>>(emptyMap())
-    val lyricsFetchStatus: StateFlow<Map<Long, LyricsFetchStatus>> = _lyricsFetchStatus.asStateFlow()
-
-    private val _lyricsOffsetMs = MutableStateFlow(0L)
-    val lyricsOffsetMs: StateFlow<Long> = _lyricsOffsetMs.asStateFlow()
 
     fun adjustLyricsOffset(deltaMs: Long) {
         val newOffset = _lyricsOffsetMs.value + deltaMs
@@ -2201,11 +2224,6 @@ class PlayerViewModel(
         }
     }
 
-    private val _isResolvingTrack = MutableStateFlow(false)
-    val isResolvingTrack: StateFlow<Boolean> = _isResolvingTrack.asStateFlow()
-
-    private val _resolvingTrackTitle = MutableStateFlow<String?>(null)
-    val resolvingTrackTitle: StateFlow<String?> = _resolvingTrackTitle.asStateFlow()
 
     private var originalUnshuffledTracks: List<TrackEntity>? = null
 
@@ -2310,11 +2328,10 @@ class PlayerViewModel(
 
     fun playTrackIfChanged(track: TrackEntity) {
         lastUserSkipTime = System.currentTimeMillis()
-        Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, lastRequested=$lastRequestedTrackId")
-        // Skip if this is already what we asked ExoPlayer to play (async guard)
-        // or if ExoPlayer already confirmed it's playing this track
-        if (track.id == lastRequestedTrackId || track.id == _playbackState.value.currentTrackId) {
-            Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: SKIPPING.")
+        Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, isPlaying=${_playbackState.value.isPlaying}, lastRequested=$lastRequestedTrackId")
+        // Only skip if this track is ALREADY actively playing
+        if (_playbackState.value.isPlaying && (track.id == lastRequestedTrackId || track.id == _playbackState.value.currentTrackId)) {
+            Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: already actively playing. SKIPPING.")
             return
         }
         val index = currentTracks.indexOfFirst { it.id == track.id }
@@ -2338,6 +2355,13 @@ class PlayerViewModel(
 
             // Immediately cut off playback of previous track while switching to next track
             mediaPlayerController.pause()
+
+            // If mediaPlayerController doesn't have currentTracks loaded, set and play!
+            if (mediaPlayerController.getCurrentQueue() != currentTracks) {
+                mediaPlayerController.setPlaylistAndPlay(currentTracks, index)
+                warmNextTrack(index + 1)
+                return
+            }
 
             val isUnresolvedOrExpired = track.filePath.startsWith("online:") &&
                     (track.filePath.removePrefix("online:").contains(" ") || track.filePath.removePrefix("online:").length != 11)
@@ -2407,7 +2431,7 @@ class PlayerViewModel(
         currentTracks = mutableList
 
         // Synchronize with ExoPlayer
-        mediaPlayerController.removeQueueItem(index)
+        mediaPlayerController.removeQueueTrack(trackId, index)
     }
 
     fun removeFromQueue(index: Int) {
@@ -2418,6 +2442,29 @@ class PlayerViewModel(
 
     fun togglePlayPause() {
         viewModelScope.launch {
+            if (currentTracks.isNotEmpty()) {
+                val curTrackId = _playbackState.value.currentTrackId
+                val curIdx = if (curTrackId != null) {
+                    currentTracks.indexOfFirst { it.id == curTrackId }.takeIf { it != -1 } ?: 0
+                } else 0
+                val curTrack = currentTracks.getOrNull(curIdx)
+
+                val controllerState = mediaPlayerController.playbackState().value
+                if (_playbackState.value.isPlaying || controllerState.isPlaying) {
+                    mediaPlayerController.pause()
+                    return@launch
+                }
+
+                val controllerQueue = mediaPlayerController.getCurrentQueue()
+                val controllerCurrentId = controllerState.currentTrackId
+                val isSameTrackActive = controllerCurrentId != null && controllerCurrentId == curTrack?.id && controllerQueue.isNotEmpty()
+
+                if (!isSameTrackActive && curTrack != null) {
+                    Log.i("MUESO_SYNC", "togglePlayPause: Controller inactive on '${curTrack.title}'. Starting playback via setPlaylistAndPlay")
+                    mediaPlayerController.setPlaylistAndPlay(currentTracks, curIdx)
+                    return@launch
+                }
+            }
             mediaPlayerController.togglePlayPause()
         }
     }

@@ -93,8 +93,39 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var pendingNetworkRetryIndex: Int = -1
     private var pendingNetworkRetryPosMs: Long = 0L
     private var networkRetryJob: Job? = null
+    private var bufferingWatchdogJob: Job? = null
 
     override fun isWaitingForNetwork(): Boolean = isWaitingForNetwork
+    override fun getCurrentQueue(): List<TrackEntity> = tracksQueue
+    override fun getCurrentQueueIndex(): Int = currentQueueIndex
+
+    private fun startBufferingWatchdog() {
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = scope.launch(Dispatchers.Main) {
+            delay(6000)
+            val controller = mediaController
+            if (controller != null && controller.playbackState == Player.STATE_BUFFERING && (isPlayingDirectOnline || isPlayingLosslessOnline)) {
+                val track = currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex)
+                if (track != null) {
+                    val resumePos = maxOf(lastValidPositionMs, _playbackState.value.currentPositionMs, controller.currentPosition).coerceAtLeast(0L)
+                    Log.w("MUESO_STREAM", "Buffering stalled for >6s on '${track.title}' at ${resumePos}ms. Refreshing direct audio stream...")
+                    val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+                    if (videoId.isNotBlank()) {
+                        val freshUrl = withContext(Dispatchers.IO) {
+                            onlineRepo.resolveStreamUrl(videoId, context, forceRefresh = true)
+                        }
+                        if (freshUrl.isNotBlank() && freshUrl.startsWith("http") && (currentOnlineTrack?.id == track.id || currentTrackId == track.id)) {
+                            Log.i("MUESO_STREAM", "Buffering watchdog: successfully acquired fresh stream URL. Resuming at ${resumePos}ms")
+                            playDirectOnlineStreamInExoPlayer(track, freshUrl, startPositionMs = resumePos, autoPlay = true)
+                        } else if (currentOnlineTrack?.id == track.id || currentTrackId == track.id) {
+                            Log.w("MUESO_STREAM", "Buffering watchdog: stream refresh failed, falling back to YouTube web player")
+                            fallbackToOnlinePlayer(track, videoId, (resumePos / 1000f).coerceAtLeast(0f))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private var isNoisyReceiverRegistered = false
     private val noisyReceiver = object : BroadcastReceiver() {
@@ -124,6 +155,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (isPlayingOnline) return
+            if (onlineResolutionJob?.isActive == true) {
+                Log.d("MUESO_SYNC", "Ignoring onPlaybackStateChanged($playbackState) while onlineResolutionJob is active")
+                return
+            }
+
+            if (playbackState == Player.STATE_BUFFERING) {
+                if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+                    startBufferingWatchdog()
+                }
+            } else {
+                bufferingWatchdogJob?.cancel()
+            }
 
             if (isRestoring) {
                 if (playbackState == Player.STATE_READY) {
@@ -132,14 +175,30 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 }
                 handlePositionUpdates(mediaController?.isPlaying == true)
                 if (playbackState == Player.STATE_ENDED) {
-                    handleTrackEnded()
+                    val controller = mediaController
+                    val dur = controller?.duration ?: 0L
+                    val pos = controller?.currentPosition ?: 0L
+                    val hasItem = (controller?.mediaItemCount ?: 0) > 0 && controller?.currentMediaItem != null
+                    if (hasItem && (dur > 0L && pos >= (dur - 3000L).coerceAtLeast(0L))) {
+                        handleTrackEnded()
+                    } else {
+                        Log.d("MUESO_SYNC", "Ignoring STATE_ENDED during restore: player empty or not at track end (hasItem=$hasItem, pos=$pos, dur=$dur)")
+                    }
                 }
                 return
             }
             updatePlaybackState()
             handlePositionUpdates(mediaController?.isPlaying == true)
             if (playbackState == Player.STATE_ENDED) {
-                handleTrackEnded()
+                val controller = mediaController
+                val dur = controller?.duration ?: 0L
+                val pos = controller?.currentPosition ?: 0L
+                val hasItem = (controller?.mediaItemCount ?: 0) > 0 && controller?.currentMediaItem != null
+                if (hasItem && (dur > 0L && pos >= (dur - 3000L).coerceAtLeast(0L))) {
+                    handleTrackEnded()
+                } else {
+                    Log.d("MUESO_SYNC", "Ignoring STATE_ENDED: player empty or not at track end (hasItem=$hasItem, pos=$pos, dur=$dur)")
+                }
             }
         }
 
@@ -149,6 +208,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 // Do not manipulate ytPlayerManager here.
                 return
             }
+            if (onlineResolutionJob?.isActive == true) return
 
             if (!isRestoring) {
                 updatePlaybackState()
@@ -158,6 +218,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (isPlayingOnline) return
+            if (onlineResolutionJob?.isActive == true) return
 
             if (!isRestoring) {
                 updatePlaybackState()
@@ -1268,17 +1329,22 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     private fun updatePlaybackState() {
         if (isPlayingOnline) return
+        if (onlineResolutionJob?.isActive == true) return
 
         val controller = mediaController
         if (controller != null) {
             val controllerMediaItemId = controller.currentMediaItem?.mediaId?.toLongOrNull()
             val isCurrentTrackItem = controllerMediaItemId == currentTrackId
             val curPos = controller.currentPosition
-            val effectivePos = if (isCurrentTrackItem) curPos else 0L
+            val effectivePos = if (isCurrentTrackItem) {
+                if (curPos > 0L) curPos else lastValidPositionMs
+            } else 0L
             if (isCurrentTrackItem && curPos > 0L) {
                 lastValidPositionMs = curPos
             }
-            val dur = if (isCurrentTrackItem) controller.duration.coerceAtLeast(0L) else _playbackState.value.durationMs
+            val playerDur = controller.duration
+            val trackDur = currentOnlineTrack?.duration ?: tracksQueue.find { it.id == currentTrackId }?.duration ?: _playbackState.value.durationMs
+            val dur = if (isCurrentTrackItem && playerDur > 0L) playerDur else trackDur.coerceAtLeast(0L)
             val isPlayingEffective = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
             val isBuffering = controller.playbackState == Player.STATE_BUFFERING
             _playbackState.value = PlaybackState(
@@ -1483,10 +1549,17 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
     override fun restoreQueue(tracks: List<TrackEntity>, startIndex: Int, startPositionMs: Long) {
         if (tracks.isEmpty()) return
+        val track = tracks.getOrNull(startIndex) ?: return
+        val isSameTrackAlreadyRestored = currentTrackId == track.id && (isPlayingDirectOnline || isPlayingLosslessOnline || isPlayingOnline || isRestoringOnlineLossless)
         tracksQueue = tracks
         currentQueueIndex = startIndex
         notifyQueueOrCommandsChanged()
-        val track = tracks.getOrNull(startIndex) ?: return
+
+        if (isSameTrackAlreadyRestored) {
+            Log.d("MUESO_RESTORE", "restoreQueue: '${track.title}' is already active/restoring in ExoPlayer. Updating queue (${tracks.size} tracks) without re-resolving.")
+            return
+        }
+
         currentTrackId = track.id
         Log.d("MUESO_RESTORE", "ExoPlayerController.restoreQueue called: totalTracks=${tracks.size}, startIndex=$startIndex, startPositionMs=${startPositionMs}ms, trackId=${track.id}, trackTitle='${track.title}', path='${track.filePath}'")
 
@@ -1683,24 +1756,39 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         if (isPlayingOnline) {
             ytPlayerManager.togglePlayPause()
         } else {
-            mediaController?.let { controller ->
-                val shouldPause = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
-                if (shouldPause) {
-                    controller.pause()
-                    _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
+            val controller = mediaController
+            if (controller == null) {
+                Log.w("MUESO_SYNC", "togglePlayPause: mediaController is null, waiting for connection...")
+                mediaControllerFuture?.addListener({
+                    togglePlayPause()
+                }, ContextCompat.getMainExecutor(context))
+                return
+            }
+
+            val shouldPause = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
+            if (shouldPause) {
+                controller.pause()
+                _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
+            } else {
+                val currentTrack = tracksQueue.getOrNull(currentQueueIndex)
+                val isStaleOrEnded = controller.mediaItemCount == 0 ||
+                        controller.playbackState == Player.STATE_ENDED ||
+                        controller.playbackState == Player.STATE_IDLE ||
+                        (currentTrack != null && isOnlineTrack(currentTrack) && !isPlayingDirectOnline && !isPlayingLosslessOnline)
+
+                if (isStaleOrEnded && tracksQueue.isNotEmpty()) {
+                    Log.d("MUESO_SYNC", "ExoPlayer togglePlayPause: starting/reloading track at index $currentQueueIndex")
+                    setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
                 } else {
-                    if (controller.mediaItemCount == 0 && tracksQueue.isNotEmpty()) {
-                        setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
-                    } else {
-                        controller.play()
-                        _playbackState.value = _playbackState.value.copy(isPlaying = true)
-                    }
+                    controller.play()
+                    _playbackState.value = _playbackState.value.copy(isPlaying = true)
                 }
             }
         }
     }
 
     override fun pause() {
+        bufferingWatchdogJob?.cancel()
         com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = false
         pendingTrackEndedRunnable?.let {
             mainHandler.removeCallbacks(it)
@@ -1724,8 +1812,12 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             ytPlayerManager.seekTo(positionMs / 1000f)
             _playbackState.value = _playbackState.value.copy(currentPositionMs = positionMs)
         } else {
+            lastValidPositionMs = positionMs
+            _playbackState.value = _playbackState.value.copy(currentPositionMs = positionMs)
             mediaController?.seekTo(positionMs)
-            updatePlaybackState()
+            if (isPlayingDirectOnline || isPlayingLosslessOnline) {
+                startBufferingWatchdog()
+            }
         }
     }
 
@@ -1754,24 +1846,49 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             val item = mutable.removeAt(fromIndex)
             mutable.add(toIndex, item)
             tracksQueue = mutable
+            if (fromIndex == currentQueueIndex) {
+                currentQueueIndex = toIndex
+            } else if (fromIndex < currentQueueIndex && toIndex >= currentQueueIndex) {
+                currentQueueIndex--
+            } else if (fromIndex > currentQueueIndex && toIndex <= currentQueueIndex) {
+                currentQueueIndex++
+            }
+            notifyQueueOrCommandsChanged()
         }
-        mediaController?.moveMediaItem(fromIndex, toIndex)
+        if (!isOnlinePlaybackOrQueue() && !tracksQueue.any { isOnlineTrack(it) }) {
+            mediaController?.let { controller ->
+                if (fromIndex in 0 until controller.mediaItemCount && toIndex in 0 until controller.mediaItemCount) {
+                    controller.moveMediaItem(fromIndex, toIndex)
+                }
+            }
+        }
     }
 
     override fun removeQueueItem(index: Int) {
-        Log.d("MUESO_SYNC", "ExoPlayer removeQueueItem: index=$index")
-        if (index in tracksQueue.indices) {
+        removeQueueTrack(trackId = -1L, fallbackIndex = index)
+    }
+
+    override fun removeQueueTrack(trackId: Long, fallbackIndex: Int) {
+        val resolvedIndex = if (trackId != -1L) {
+            tracksQueue.indexOfFirst { it.id == trackId }.takeIf { it != -1 } ?: fallbackIndex
+        } else {
+            fallbackIndex
+        }
+        Log.d("MUESO_SYNC", "ExoPlayer removeQueueTrack: trackId=$trackId, resolvedIndex=$resolvedIndex")
+        if (resolvedIndex in tracksQueue.indices) {
             val mutable = tracksQueue.toMutableList()
-            mutable.removeAt(index)
+            mutable.removeAt(resolvedIndex)
             tracksQueue = mutable
-            if (index < currentQueueIndex) {
+            if (resolvedIndex < currentQueueIndex) {
                 currentQueueIndex = (currentQueueIndex - 1).coerceAtLeast(0)
             }
             notifyQueueOrCommandsChanged()
         }
-        mediaController?.let { controller ->
-            if (index in 0 until controller.mediaItemCount) {
-                controller.removeMediaItem(index)
+        if (!isOnlinePlaybackOrQueue() && !tracksQueue.any { isOnlineTrack(it) }) {
+            mediaController?.let { controller ->
+                if (resolvedIndex in 0 until controller.mediaItemCount && resolvedIndex != controller.currentMediaItemIndex) {
+                    controller.removeMediaItem(resolvedIndex)
+                }
             }
         }
     }
@@ -1779,6 +1896,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     override fun seekToIndex(index: Int) {
         Log.d("MUESO_SYNC", "seekToIndex: index=$index")
         startServiceIfForeground()
+        bufferingWatchdogJob?.cancel()
         fallbackJob?.cancel()
         networkRetryJob?.cancel()
         onlineResolutionJob?.cancel()
@@ -1786,15 +1904,19 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         currentQueueIndex = index
         notifyQueueOrCommandsChanged()
 
+        val track = tracksQueue.getOrNull(index)
+        val isTargetOnline = track != null && isOnlineTrack(track)
+
         // Immediately pause current audio output to prevent audio bleed when skipping to a new track
         mediaController?.pause()
-        mediaController?.clearMediaItems()
+        if (isTargetOnline || isOnlinePlaybackOrQueue()) {
+            mediaController?.clearMediaItems()
+        }
         ytPlayerManager.pause()
 
         // Keep CPU & Wi-Fi awake during track resolution and handover
         com.akshay.musicplayer.media.service.MediaSessionBridge.isTransitioningOrBuffering = true
 
-        val track = tracksQueue.getOrNull(index)
         if (track != null) {
             currentTrackId = track.id
             lastPositionTrackId = track.id

@@ -537,32 +537,6 @@ fun OnlinePlaylistDetailScreen(
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
-
-                                if (!spotifyUrl.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(Color(0xFF1DB954).copy(alpha = 0.2f))
-                                            .clickable(enabled = onSyncSpotify != null) { onSyncSpotify?.invoke() }
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Sync,
-                                            contentDescription = "Sync",
-                                            tint = Color(0xFF1DB954),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Text(
-                                            "Spotify Linked • Tap to Sync",
-                                            color = Color(0xFF1DB954),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -613,24 +587,6 @@ fun OnlinePlaylistDetailScreen(
                             Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = textPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Shuffle", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
-                        }
-
-                        // Spotify Sync Quick Button
-                        if (onSyncSpotify != null) {
-                            IconButton(
-                                onClick = onSyncSpotify,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1DB954).copy(alpha = 0.18f))
-                            ) {
-                                Icon(
-                                    Icons.Default.Sync,
-                                    contentDescription = "Sync with Spotify",
-                                    tint = Color(0xFF1DB954),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
                         }
 
                         // 3-Dots Action Row Menu Button

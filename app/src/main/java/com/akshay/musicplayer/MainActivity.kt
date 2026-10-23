@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity() {
                     SplashScreen(
                         onAnimationFinished = {
                             showSplash = false
-                            if (hasCompletedOnboarding && PermissionHelper.isAudioPermissionGranted(context)) {
+                            if (hasCompletedOnboarding) {
                                 playerViewModel.restoreLastPlaybackStateOrOffline(context)
                             }
                         }
@@ -183,9 +183,7 @@ class MainActivity : ComponentActivity() {
                                         .putBoolean("has_seen_google_onboarding", true)
                                         .apply()
                                     hasCompletedOnboarding = true
-                                    if (PermissionHelper.isAudioPermissionGranted(context)) {
-                                        playerViewModel.restoreLastPlaybackStateOrOffline(context)
-                                    }
+                                    playerViewModel.restoreLastPlaybackStateOrOffline(context)
                                 }
                             )
                         } else {

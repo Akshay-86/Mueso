@@ -26,6 +26,9 @@ interface MediaPlayerController {
     fun setShuffleEnabled(enabled: Boolean)
     fun moveQueueItem(fromIndex: Int, toIndex: Int)
     fun removeQueueItem(index: Int)
+    fun removeQueueTrack(trackId: Long, fallbackIndex: Int = -1) {
+        if (fallbackIndex >= 0) removeQueueItem(fallbackIndex)
+    }
     fun seekToIndex(index: Int)
     fun updateTrackInQueue(index: Int, track: TrackEntity)
     fun appendTracksToQueue(tracks: List<TrackEntity>)
@@ -33,6 +36,8 @@ interface MediaPlayerController {
     fun clearUpcomingQueue(fromIndex: Int)
     fun isWaitingForNetwork(): Boolean = false
     fun retryPendingNetworkTrack() {}
+    fun getCurrentQueue(): List<TrackEntity> = emptyList()
+    fun getCurrentQueueIndex(): Int = 0
     fun activeAudioFormat(): StateFlow<com.akshay.musicplayer.domain.models.ActiveAudioFormat>
     fun getOnlinePlayerView(): android.view.View? = null
 }
