@@ -899,7 +899,10 @@ private fun TrackMatchItem(
                         .background(Color(0xFFFF453A).copy(alpha = 0.08f))
                         .clickable {
                             showSearchField = true
-                            manualQuery = "${matchResult.spotifyTrack.title} ${matchResult.spotifyTrack.artist}"
+                            manualQuery = com.akshay.musicplayer.data.remote.OnlineMusicRepository.cleanSearchQuery(
+                                matchResult.spotifyTrack.title,
+                                matchResult.spotifyTrack.artist
+                            )
                             if (matchResult.alternativeResults.isEmpty()) {
                                 onRetrySearch(manualQuery)
                             }

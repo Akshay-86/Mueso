@@ -181,9 +181,11 @@ class SpotifyImportManager(
             // Search YT for each track sequentially
             for (i in playlistData.tracks.indices) {
                 val spotifyTrack = playlistData.tracks[i]
-                val query = "${spotifyTrack.title} ${spotifyTrack.artist}"
+                val cleanTitle = OnlineMusicRepository.cleanTitleForLyrics(spotifyTrack.title)
+                val primaryArtist = OnlineMusicRepository.getPrimaryArtist(spotifyTrack.artist)
+                val query = OnlineMusicRepository.cleanSearchQuery(cleanTitle, primaryArtist)
 
-                Log.d(TAG, "Matching [${i + 1}/${playlistData.tracks.size}]: \"$query\"")
+                Log.d(TAG, "Matching [${i + 1}/${playlistData.tracks.size}]: \"$query\" (raw: \"${spotifyTrack.title}\" - \"${spotifyTrack.artist}\")")
 
                 // Mark this track as searching
                 _matchResults.value = _matchResults.value.toMutableList().also { list ->
@@ -196,14 +198,18 @@ class SpotifyImportManager(
 
                 try {
                     val searchResults = onlineRepo.searchOnlineTracks(query)
-                    val sorted = searchResults.sortedBy { if (it.isVideo) 1 else 0 }
-                    val bestMatch = sorted.find { !it.isVideo } ?: sorted.firstOrNull()
+                    val ranked = OnlineMusicRepository.rankTracks(searchResults, query)
+                    val bestMatch = OnlineMusicRepository.findBestTrackMatch(
+                        candidates = ranked,
+                        targetTitle = cleanTitle,
+                        targetArtist = primaryArtist
+                    )
 
                     _matchResults.value = _matchResults.value.toMutableList().also { list ->
                         list[i] = list[i].copy(
                             matchedTrack = bestMatch,
                             isSearching = false,
-                            alternativeResults = sorted.take(5),
+                            alternativeResults = ranked.take(8),
                             isSelected = (bestMatch != null)
                         )
                     }
@@ -211,7 +217,7 @@ class SpotifyImportManager(
                     if (bestMatch != null) {
                         Log.d(TAG, "  ✓ Matched: \"${bestMatch.title}\" by ${bestMatch.artist}")
                     } else {
-                        Log.d(TAG, "  ✗ No match found")
+                        Log.d(TAG, "  ✗ No match found for \"$query\"")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "  ✗ Search error for \"$query\"", e)
@@ -233,19 +239,20 @@ class SpotifyImportManager(
         coroutineScope.launch(Dispatchers.IO) {
             if (index !in _matchResults.value.indices) return@launch
 
-            Log.d(TAG, "Manual re-search for track $index with query: \"$query\"")
+            val cleanQuery = OnlineMusicRepository.cleanSearchQuery(query)
+            Log.d(TAG, "Manual re-search for track $index with query: \"$cleanQuery\" (input: \"$query\")")
 
             _matchResults.value = _matchResults.value.toMutableList().also { list ->
                 list[index] = list[index].copy(isSearching = true, showAlternatives = true)
             }
 
             try {
-                val searchResults = onlineRepo.searchOnlineTracks(query)
-                val sorted = searchResults.sortedBy { if (it.isVideo) 1 else 0 }
+                val searchResults = onlineRepo.searchOnlineTracks(cleanQuery)
+                val ranked = OnlineMusicRepository.rankTracks(searchResults, cleanQuery)
                 _matchResults.value = _matchResults.value.toMutableList().also { list ->
                     list[index] = list[index].copy(
                         isSearching = false,
-                        alternativeResults = sorted.take(8),
+                        alternativeResults = ranked.take(10),
                         showAlternatives = true
                     )
                 }
@@ -408,8 +415,11 @@ class SpotifyImportManager(
 
             for (i in newTracks.indices) {
                 val spotifyTrack = newTracks[i]
-                val query = "${spotifyTrack.title} ${spotifyTrack.artist}"
-                Log.d(TAG, "Matching sync track [${i + 1}/${newTracks.size}]: \"$query\"")
+                val cleanTitle = OnlineMusicRepository.cleanTitleForLyrics(spotifyTrack.title)
+                val primaryArtist = OnlineMusicRepository.getPrimaryArtist(spotifyTrack.artist)
+                val query = OnlineMusicRepository.cleanSearchQuery(cleanTitle, primaryArtist)
+
+                Log.d(TAG, "Matching sync track [${i + 1}/${newTracks.size}]: \"$query\" (raw: \"${spotifyTrack.title}\" - \"${spotifyTrack.artist}\")")
 
                 _matchResults.value = _matchResults.value.toMutableList().also { list ->
                     list[i] = list[i].copy(isSearching = true)
@@ -419,16 +429,26 @@ class SpotifyImportManager(
 
                 try {
                     val searchResults = onlineRepo.searchOnlineTracks(query)
-                    val sorted = searchResults.sortedBy { if (it.isVideo) 1 else 0 }
-                    val bestMatch = sorted.find { !it.isVideo } ?: sorted.firstOrNull()
+                    val ranked = OnlineMusicRepository.rankTracks(searchResults, query)
+                    val bestMatch = OnlineMusicRepository.findBestTrackMatch(
+                        candidates = ranked,
+                        targetTitle = cleanTitle,
+                        targetArtist = primaryArtist
+                    )
 
                     _matchResults.value = _matchResults.value.toMutableList().also { list ->
                         list[i] = list[i].copy(
                             matchedTrack = bestMatch,
                             isSearching = false,
-                            alternativeResults = sorted.take(5),
+                            alternativeResults = ranked.take(8),
                             isSelected = (bestMatch != null)
                         )
+                    }
+
+                    if (bestMatch != null) {
+                        Log.d(TAG, "  ✓ Matched sync track: \"${bestMatch.title}\" by ${bestMatch.artist}")
+                    } else {
+                        Log.d(TAG, "  ✗ No match found for sync track \"$query\"")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Search error for \"$query\"", e)

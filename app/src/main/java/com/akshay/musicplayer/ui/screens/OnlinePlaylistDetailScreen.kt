@@ -114,7 +114,7 @@ fun OnlinePlaylistDetailScreen(
         if (searchQuery.isBlank()) displayTracks
         else {
             val q = searchQuery.trim().lowercase()
-            displayTracks.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
+            displayTracks.filter { com.akshay.musicplayer.data.remote.OnlineMusicRepository.isQueryMatch(it.title, it.artist, q) }
         }
     }
 

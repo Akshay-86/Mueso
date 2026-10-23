@@ -1076,7 +1076,9 @@ class PlayerViewModel(
             videoId = if (queryOrId.length == 11 && !queryOrId.contains(" ") && !queryOrId.contains("/")) {
                 queryOrId
             } else {
-                val q = if (queryOrId.isBlank() || queryOrId.contains("googlevideo")) "${track.artist} ${track.title}".trim() else queryOrId
+                val q = if (queryOrId.isBlank() || queryOrId.contains("googlevideo")) {
+                    OnlineMusicRepository.cleanSearchQuery(track.title, track.artist)
+                } else queryOrId
                 val searchResults = try {
                     if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
                         onlineRepository.searchOnlineTracks(q)
@@ -1085,7 +1087,13 @@ class PlayerViewModel(
                     Log.w("MUESO_SYNC", "resolveTrack search failed for '$q': ${e.message}")
                     emptyList()
                 }
-                val best = searchResults.find { !it.isVideo } ?: searchResults.firstOrNull()
+                val ranked = OnlineMusicRepository.rankTracks(searchResults, q)
+                val best = OnlineMusicRepository.findBestTrackMatch(
+                    candidates = ranked,
+                    targetTitle = track.title,
+                    targetArtist = track.artist,
+                    targetDurationMs = track.duration
+                ) ?: ranked.firstOrNull()
                 best?.let { onlineRepository.extractVideoId(it) } ?: ""
             }
         }
@@ -1103,7 +1111,7 @@ class PlayerViewModel(
     private suspend fun reResolveTrackStream(track: TrackEntity): TrackEntity {
         var videoId = onlineRepository.extractVideoId(track)
         if (videoId.isBlank()) {
-            val query = "${track.artist} ${track.title}".trim()
+            val query = OnlineMusicRepository.cleanSearchQuery(track.title, track.artist)
             val searchResults = try {
                 if (com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()) {
                     onlineRepository.searchOnlineTracks(query)
@@ -1112,7 +1120,13 @@ class PlayerViewModel(
                 Log.w("MUESO_SYNC", "reResolveTrackStream search failed for '$query': ${e.message}")
                 emptyList()
             }
-            val best = searchResults.find { !it.isVideo } ?: searchResults.firstOrNull()
+            val ranked = OnlineMusicRepository.rankTracks(searchResults, query)
+            val best = OnlineMusicRepository.findBestTrackMatch(
+                candidates = ranked,
+                targetTitle = track.title,
+                targetArtist = track.artist,
+                targetDurationMs = track.duration
+            ) ?: ranked.firstOrNull()
             videoId = best?.let { onlineRepository.extractVideoId(it) } ?: ""
         }
         if (videoId.isNotBlank()) {

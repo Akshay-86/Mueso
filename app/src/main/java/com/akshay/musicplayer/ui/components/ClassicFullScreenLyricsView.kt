@@ -90,7 +90,8 @@ fun ClassicFullScreenLyricsView(
     // Search and tools state
     var isSearchInputActive by remember { mutableStateOf(false) }
     var isOffsetAdjusterActive by remember { mutableStateOf(false) }
-    var searchQuery by remember(track.title) { mutableStateOf(track.title) }
+    val initialQuery = remember(track.title) { com.akshay.musicplayer.data.remote.OnlineMusicRepository.cleanTitleForLyrics(track.title) }
+    var searchQuery by remember(track.title) { mutableStateOf(initialQuery) }
     var isSearchingCandidates by remember { mutableStateOf(false) }
     var candidateResults by remember { mutableStateOf<List<LrclibSearchResultItem>?>(null) }
 
@@ -218,6 +219,9 @@ fun ClassicFullScreenLyricsView(
                             isSearchInputActive = !isSearchInputActive
                             if (isSearchInputActive) {
                                 isOffsetAdjusterActive = false
+                                if (candidateResults == null && searchQuery.isNotBlank()) {
+                                    triggerSearch(searchQuery)
+                                }
                             } else {
                                 candidateResults = null
                             }

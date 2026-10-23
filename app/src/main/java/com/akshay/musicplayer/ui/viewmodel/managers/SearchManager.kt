@@ -73,7 +73,7 @@ class SearchManager(
         val currentTracks = getCurrentTracks()
         val localMatches = if (category.equals("All", ignoreCase = true) || category.equals("Songs", ignoreCase = true)) {
             currentTracks.filter {
-                it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+                OnlineMusicRepository.isQueryMatch(it.title, it.artist, q)
             }
         } else {
             emptyList()
@@ -129,7 +129,7 @@ class SearchManager(
                         val artistsDeferred = async { onlineRepository.searchArtists(query.trim()) }
                         val albumsDeferred = async { onlineRepository.searchAlbums(query.trim()) }
 
-                        val onlineResults = tracksDeferred.await().sortedBy { if (it.isVideo) 1 else 0 }
+                        val onlineResults = OnlineMusicRepository.rankTracks(tracksDeferred.await(), query.trim())
                         val localIds = localMatches.map { it.id }.toSet()
                         val combinedTracks = localMatches + onlineResults.filter { it.id !in localIds }
                         val artists = artistsDeferred.await().take(4)
@@ -148,7 +148,8 @@ class SearchManager(
                     else -> {
                         _artistResults.value = emptyList()
                         _playlistResults.value = emptyList()
-                        val onlineResults = onlineRepository.searchOnlineTracks(query.trim(), category).sortedBy { if (it.isVideo) 1 else 0 }
+                        val rawTracks = onlineRepository.searchOnlineTracks(query.trim(), category)
+                        val onlineResults = OnlineMusicRepository.rankTracks(rawTracks, query.trim())
                         val localIds = localMatches.map { it.id }.toSet()
                         val combinedTracks = localMatches + onlineResults.filter { it.id !in localIds }
                         _searchResults.value = combinedTracks

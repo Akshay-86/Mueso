@@ -46,6 +46,186 @@ class OnlineMusicRepository {
 
     companion object {
         private const val TAG = "MUESO_ONLINE_REPO"
+
+        fun cleanTitleForLyrics(rawTitle: String): String {
+            var t = rawTitle
+            // 1. If contains pipe '|', take the part before '|' (very common for YT titles with movie/artist info)
+            if (t.contains("|")) {
+                t = t.substringBefore("|").trim()
+            }
+            // 2. Remove @mentions and #hashtags
+            t = t.replace(Regex("[@#][a-zA-Z0-9_.]+"), " ")
+            // 3. Remove common YouTube / video noise inside parentheses or brackets
+            t = t.replace(
+                Regex(
+                    "(?i)\\s*[\\[\\(](?:official\\s*(?:music\\s*)?(?:video|audio|lyric|lyrical)?|full\\s*(?:video|audio|song)|lyric(?:al)?\\s*(?:video)?|video\\s*song|visualizer|audio|4k(?:\\s*uhd)?|hd|hq|remaster(?:ed)?|extended(?:\\s*mix)?|prod\\..*?|dir\\..*?)[\\]\\)]"
+                ),
+                " "
+            )
+            // 4. Remove standalone noise words at the end
+            t = t.replace(
+                Regex("(?i)\\b(official\\s*video|official\\s*audio|lyrical\\s*video|full\\s*video\\s*song|video\\s*song)\\b"),
+                " "
+            )
+            // 5. Remove (From "...") or (feat. ...)
+            t = t.replace(
+                Regex("(?i)\\s*[\\[\\(](?:from|feat\\.?|featuring)\\s*[\"']?([^\"'\\[\\]\\(\\)]+)[\"']?[\\]\\)]"),
+                " "
+            )
+            // 6. Clean whitespace and trailing punctuation
+            t = t.trim().trim(' ', '-', '|', ':', ',')
+            return t.ifBlank { rawTitle.trim() }
+        }
+
+        fun cleanArtistForLyrics(rawArtist: String): String {
+            var a = rawArtist.trim()
+            if (a.isBlank() || a.equals("Unknown Artist", ignoreCase = true) ||
+                a.equals("Song", ignoreCase = true) || a.equals("Video", ignoreCase = true) ||
+                a.equals("Single", ignoreCase = true)
+            ) return ""
+            a = a.replace(Regex("^@"), "").trim()
+            return a
+        }
+
+        fun getPrimaryArtist(rawArtist: String): String {
+            val clean = cleanArtistForLyrics(rawArtist)
+            if (clean.isBlank()) return ""
+            val first = clean.split(Regex("(?i),|&|\\bfeat\\.?\\b|\\bfeaturing\\b")).firstOrNull()?.trim() ?: clean
+            return first.replace(Regex("^@"), "").trim()
+        }
+
+        fun calculateTitleMatchScore(candidate: String, target: String): Int {
+            val c = candidate.trim().lowercase()
+            val t = target.trim().lowercase()
+            if (c == t) return 100
+
+            val cleanC = c.replace(Regex("[^a-z0-9]"), "")
+            val cleanT = t.replace(Regex("[^a-z0-9]"), "")
+            if (cleanC.isEmpty() || cleanT.isEmpty()) return 0
+            if (cleanC == cleanT) return 95
+
+            // Check if one starts with the other
+            if (cleanC.startsWith(cleanT) || cleanT.startsWith(cleanC)) return 80
+
+            // Check token overlap
+            val targetTokens = t.split(Regex("[^a-z0-9]+")).filter { it.isNotBlank() }
+            if (targetTokens.isNotEmpty()) {
+                val matchedTokens = targetTokens.count { c.contains(it) }
+                val ratio = matchedTokens.toFloat() / targetTokens.size
+                if (ratio >= 0.75f) return (60 * ratio).toInt()
+            }
+
+            // Substring fallback for names >= 4 chars
+            if (cleanC.contains(cleanT) || cleanT.contains(cleanC)) {
+                if (cleanT.length >= 4 && cleanC.length >= 4) return 50
+            }
+
+            return 0
+        }
+
+        fun cleanSearchQuery(title: String, artist: String = ""): String {
+            val cleanTitle = cleanTitleForLyrics(title)
+            val primaryArtist = getPrimaryArtist(artist)
+            return if (primaryArtist.isNotBlank() && !cleanTitle.contains(primaryArtist, ignoreCase = true)) {
+                "$cleanTitle $primaryArtist".trim()
+            } else {
+                cleanTitle
+            }
+        }
+
+        fun isQueryMatch(title: String, artist: String, query: String): Boolean {
+            val q = query.trim().lowercase()
+            if (q.isBlank()) return true
+            val t = title.lowercase()
+            val a = artist.lowercase()
+
+            val pattern = Regex("(?i)(?:\\b|^)${Regex.escape(q)}(?:\\b|$)")
+            if (pattern.containsMatchIn(t) || pattern.containsMatchIn(a) || t.contains(q) || a.contains(q)) {
+                return true
+            }
+
+            val tokens = q.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotBlank() }
+            if (tokens.isEmpty()) return true
+            val combined = "$t $a"
+            return tokens.all { tok ->
+                Regex("(?i)(?:\\b|^)${Regex.escape(tok)}").containsMatchIn(combined)
+            }
+        }
+
+        fun rankTracks(tracks: List<TrackEntity>, query: String): List<TrackEntity> {
+            if (tracks.isEmpty() || query.isBlank()) return tracks
+            val matchingSongs = mutableListOf<TrackEntity>()
+            val matchingVideos = mutableListOf<TrackEntity>()
+            val alikeSongs = mutableListOf<TrackEntity>()
+            val alikeVideos = mutableListOf<TrackEntity>()
+
+            for (track in tracks) {
+                val isVid = track.isVideo
+                val matches = isQueryMatch(track.title, track.artist, query)
+                when {
+                    matches && !isVid -> matchingSongs.add(track)
+                    matches && isVid -> matchingVideos.add(track)
+                    !matches && !isVid -> alikeSongs.add(track)
+                    else -> alikeVideos.add(track)
+                }
+            }
+            return matchingSongs + matchingVideos + alikeSongs + alikeVideos
+        }
+
+        fun findBestTrackMatch(
+            candidates: List<TrackEntity>,
+            targetTitle: String,
+            targetArtist: String,
+            targetDurationMs: Long = 0L
+        ): TrackEntity? {
+            if (candidates.isEmpty()) return null
+
+            val cleanTargetTitle = cleanTitleForLyrics(targetTitle)
+            val cleanTargetArtist = cleanArtistForLyrics(targetArtist).lowercase()
+            val primaryArtist = getPrimaryArtist(targetArtist).lowercase()
+
+            var bestCandidate: TrackEntity? = null
+            var bestScore = -1
+
+            for (cand in candidates) {
+                val candTitle = cand.title
+                val candArtist = cand.artist.lowercase()
+                val isVid = cand.isVideo
+                val candDurMs = cand.duration
+
+                val titleScore = calculateTitleMatchScore(candTitle, cleanTargetTitle)
+                if (titleScore < 40) continue
+
+                var artistBonus = 0
+                if (primaryArtist.isNotBlank() && (candArtist.contains(primaryArtist) || primaryArtist.contains(candArtist))) {
+                    artistBonus = 30
+                } else if (cleanTargetArtist.isNotBlank()) {
+                    val parts = cleanTargetArtist.split(Regex("[,&]")).map { it.trim() }.filter { it.length >= 3 }
+                    if (parts.any { candArtist.contains(it) }) {
+                        artistBonus = 20
+                    }
+                }
+
+                val audioBonus = if (!isVid) 25 else 0
+
+                var durPenalty = 0
+                if (targetDurationMs > 0 && candDurMs > 0) {
+                    val diffSec = Math.abs(candDurMs - targetDurationMs) / 1000L
+                    durPenalty = (diffSec / 2).toInt().coerceAtMost(25)
+                    if (diffSec > 90) {
+                        durPenalty += 30
+                    }
+                }
+
+                val totalScore = titleScore + artistBonus + audioBonus - durPenalty
+                if (totalScore > bestScore) {
+                    bestScore = totalScore
+                    bestCandidate = cand
+                }
+            }
+
+            return if (bestScore >= 50) bestCandidate else null
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -581,32 +761,80 @@ class OnlineMusicRepository {
         language: String = "",
         targetDurationSec: Int = 0
     ): LyricsData? = withContext(Dispatchers.IO) {
-        val (cleanedTitle, cleanedArtist) = cleanTitleAndArtist(title, artist)
-        var result: LyricsData? = null
+        val cleanedTitle = cleanTitleForLyrics(title)
+        val primaryArtist = getPrimaryArtist(artist)
+        val shortTitle = if (cleanedTitle.contains(" - ")) cleanedTitle.substringBefore(" - ").trim() else ""
 
-        if (cleanedArtist.isNotBlank()) {
-            if (targetDurationSec > 0) {
-                result = tryLrclibGet(cleanedTitle, cleanedArtist, targetDurationSec)
-                if (result != null) return@withContext result
+        Log.d(TAG, "fetchLyrics: title='$title' -> cleanedTitle='$cleanedTitle', primaryArtist='$primaryArtist', shortTitle='$shortTitle', dur=${targetDurationSec}s")
+
+        // Step 1: Structured search with track_name & artist_name (highest precision)
+        if (primaryArtist.isNotBlank()) {
+            val encTitle = URLEncoder.encode(cleanedTitle, "UTF-8")
+            val encArtist = URLEncoder.encode(primaryArtist, "UTF-8")
+            val candidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encTitle&artist_name=$encArtist")
+            pickBestLyrics(candidates, cleanedTitle, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via structured search (track_name + artist_name)")
+                return@withContext it
             }
 
-            val query = "$cleanedTitle $cleanedArtist".trim()
-            result = tryLrclibSearch(cleanedTitle, query, targetDurationSec)
-            if (result != null) return@withContext result
-
-            result = tryLrclibGet(cleanedTitle, cleanedArtist, 0)
-            if (result != null) return@withContext result
+            if (shortTitle.isNotBlank()) {
+                val encShort = URLEncoder.encode(shortTitle, "UTF-8")
+                val shortCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort&artist_name=$encArtist")
+                pickBestLyrics(shortCandidates, shortTitle, targetDurationSec)?.let {
+                    Log.d(TAG, "Lyrics found via structured search with shortTitle")
+                    return@withContext it
+                }
+            }
         }
 
-        // Fallback: search LRCLIB with cleaned title directly
-        result = tryLrclibSearch(cleanedTitle, cleanedTitle, targetDurationSec)
-        if (result != null) return@withContext result
+        // Step 2: Structured search with track_name only
+        val encTitle = URLEncoder.encode(cleanedTitle, "UTF-8")
+        val trackCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encTitle")
+        pickBestLyrics(trackCandidates, cleanedTitle, targetDurationSec)?.let {
+            Log.d(TAG, "Lyrics found via structured search (track_name only)")
+            return@withContext it
+        }
+
+        if (shortTitle.isNotBlank()) {
+            val encShort = URLEncoder.encode(shortTitle, "UTF-8")
+            val shortCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort")
+            pickBestLyrics(shortCandidates, shortTitle, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via structured search (shortTitle only)")
+                return@withContext it
+            }
+        }
+
+        // Step 3: Direct GET (without strict duration to avoid 404 from drift)
+        if (primaryArtist.isNotBlank()) {
+            tryLrclibGet(cleanedTitle, primaryArtist, 0)?.let {
+                Log.d(TAG, "Lyrics found via direct get")
+                return@withContext it
+            }
+            if (shortTitle.isNotBlank()) {
+                tryLrclibGet(shortTitle, primaryArtist, 0)?.let {
+                    Log.d(TAG, "Lyrics found via direct get with shortTitle")
+                    return@withContext it
+                }
+            }
+        }
+
+        // Step 4: General query search fallback
+        val q1 = if (primaryArtist.isNotBlank()) "$cleanedTitle $primaryArtist" else cleanedTitle
+        val qCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(q1, "UTF-8")}")
+        pickBestLyrics(qCandidates, cleanedTitle, targetDurationSec)?.let {
+            Log.d(TAG, "Lyrics found via general query '$q1'")
+            return@withContext it
+        }
 
         if (cleanedTitle != title) {
-            result = tryLrclibSearch(title, "$title $artist".trim(), targetDurationSec)
-            if (result != null) return@withContext result
+            val rawCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(title.trim(), "UTF-8")}")
+            pickBestLyrics(rawCandidates, cleanedTitle, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via raw query fallback")
+                return@withContext it
+            }
         }
 
+        Log.w(TAG, "No lyrics found for '$title' by '$artist'")
         return@withContext null
     }
 
@@ -649,134 +877,134 @@ class OnlineMusicRepository {
         }
     }
 
-    private fun tryLrclibSearch(targetTitle: String, query: String, targetDurationSec: Int = 0): LyricsData? {
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val url = "https://lrclib.net/api/search?q=$encodedQuery"
+    private fun fetchCandidatesFromUrl(url: String): List<JSONObject> {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mueso-Android-App/1.2")
             .build()
         return try {
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
+                if (!response.isSuccessful) return emptyList()
+                val body = response.body?.string() ?: return emptyList()
                 val array = JSONArray(body)
-                if (array.length() == 0) return null
-
-                data class Candidate(
-                    val trackName: String,
-                    val durationSec: Int,
-                    val syncedLyrics: String?,
-                    val plainLyrics: String?,
-                    val isSynced: Boolean,
-                    val matchesTitle: Boolean,
-                    val durationDiff: Int
-                )
-
-                val candidates = mutableListOf<Candidate>()
+                val list = ArrayList<JSONObject>(array.length())
                 for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val trackName = item.optString("trackName", "")
-                    val durationSec = item.optDouble("duration", 0.0).toInt()
-                    val syncedLyrics = item.optCleanString("syncedLyrics")
-                    val plainLyrics = item.optCleanString("plainLyrics")
-                    val isSynced = !syncedLyrics.isNullOrBlank()
-                    if (!isSynced && plainLyrics.isNullOrBlank()) continue
-
-                    val matchesTitle = matchesTrackTitle(trackName, targetTitle)
-                    val durationDiff = if (targetDurationSec > 0 && durationSec > 0) {
-                        Math.abs(durationSec - targetDurationSec)
-                    } else if (targetDurationSec > 0) {
-                        9999
-                    } else {
-                        0
-                    }
-
-                    candidates.add(
-                        Candidate(
-                            trackName = trackName,
-                            durationSec = durationSec,
-                            syncedLyrics = syncedLyrics,
-                            plainLyrics = plainLyrics,
-                            isSynced = isSynced,
-                            matchesTitle = matchesTitle,
-                            durationDiff = durationDiff
-                        )
-                    )
+                    array.optJSONObject(i)?.let { list.add(it) }
                 }
-
-                if (candidates.isEmpty()) return null
-
-                // Sort candidates to find the best match:
-                // 1. Title match preferred
-                // 2. Synced lyrics preferred over plain
-                // 3. Closest duration match to targetDurationSec
-                val sorted = candidates.sortedWith(
-                    compareBy<Candidate> { !it.matchesTitle }
-                        .thenBy { !it.isSynced }
-                        .thenBy { it.durationDiff }
-                )
-
-                val best = sorted.firstOrNull() ?: return null
-                val selectedLyrics = best.syncedLyrics ?: best.plainLyrics ?: return null
-                Log.d(TAG, "Selected best lyrics for '$targetTitle' (targetDuration=${targetDurationSec}s): matched '${best.trackName}' duration=${best.durationSec}s (diff=${best.durationDiff}s, synced=${best.isSynced})")
-                LyricsData(lines = LrcParser.parse(selectedLyrics), rawText = selectedLyrics)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    suspend fun searchLrclibCandidates(query: String, targetDurationSec: Int = 0): List<LrclibSearchResultItem> = withContext(Dispatchers.IO) {
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val url = "https://lrclib.net/api/search?q=$encodedQuery"
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "Mueso-Android-App/1.2")
-            .build()
-        return@withContext try {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val body = response.body?.string() ?: return@withContext emptyList()
-                val array = JSONArray(body)
-                val list = mutableListOf<LrclibSearchResultItem>()
-                for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val id = item.optLong("id", 0L)
-                    val trackName = item.optString("trackName", "")
-                    val artistName = item.optString("artistName", "")
-                    val albumName = item.optString("albumName", "")
-                    val durationSeconds = item.optDouble("duration", 0.0).toInt()
-                    val syncedLyrics = item.optCleanString("syncedLyrics")
-                    val plainLyrics = item.optCleanString("plainLyrics")
-                    val isSynced = !syncedLyrics.isNullOrBlank() && (syncedLyrics.contains("[0") || syncedLyrics.contains("[1") || syncedLyrics.contains("[:"))
-                    if (trackName.isNotBlank()) {
-                        list.add(
-                            LrclibSearchResultItem(
-                                id = id,
-                                trackName = trackName,
-                                artistName = artistName,
-                                albumName = albumName,
-                                durationSeconds = durationSeconds,
-                                isSynced = isSynced,
-                                syncedLyrics = syncedLyrics,
-                                plainLyrics = plainLyrics
-                            )
-                        )
-                    }
-                }
-                if (targetDurationSec > 0) {
-                    list.sortedWith(
-                        compareBy<LrclibSearchResultItem> { !it.isSynced }
-                            .thenBy { if (it.durationSeconds > 0) Math.abs(it.durationSeconds - targetDurationSec) else 9999 }
-                    )
-                } else {
-                    list
-                }
+                list
             }
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun pickBestLyrics(
+        candidates: List<JSONObject>,
+        targetTitle: String,
+        targetDurationSec: Int
+    ): LyricsData? {
+        if (candidates.isEmpty()) return null
+
+        data class ScoredCandidate(
+            val json: JSONObject,
+            val score: Int,
+            val isSynced: Boolean,
+            val durationDiff: Int
+        )
+
+        val scored = candidates.mapNotNull { item ->
+            val trackName = item.optString("trackName", "")
+            if (trackName.isBlank()) return@mapNotNull null
+            val syncedLyrics = item.optCleanString("syncedLyrics")
+            val plainLyrics = item.optCleanString("plainLyrics")
+            val hasSynced = !syncedLyrics.isNullOrBlank() &&
+                (syncedLyrics.contains("[0") || syncedLyrics.contains("[1") || syncedLyrics.contains("[:"))
+            if (!hasSynced && plainLyrics.isNullOrBlank()) return@mapNotNull null
+
+            val durationSec = item.optDouble("duration", 0.0).toInt()
+            val durationDiff = if (targetDurationSec > 0 && durationSec > 0) {
+                Math.abs(durationSec - targetDurationSec)
+            } else 0
+
+            val titleScore = calculateTitleMatchScore(trackName, targetTitle)
+            if (titleScore == 0) return@mapNotNull null
+
+            val syncBonus = if (hasSynced) 50 else 0
+            val durPenalty = (durationDiff / 2).coerceAtMost(30)
+            val totalScore = titleScore + syncBonus - durPenalty
+
+            ScoredCandidate(item, totalScore, hasSynced, durationDiff)
+        }
+
+        val best = scored.maxWithOrNull(
+            compareBy<ScoredCandidate> { it.score }
+                .thenBy { it.isSynced }
+                .thenByDescending { -it.durationDiff }
+        )?.json ?: return null
+
+        val selectedLyrics = best.optCleanString("syncedLyrics") ?: best.optCleanString("plainLyrics") ?: return null
+        return LyricsData(lines = LrcParser.parse(selectedLyrics), rawText = selectedLyrics)
+    }
+
+    suspend fun searchLrclibCandidates(query: String, targetDurationSec: Int = 0): List<LrclibSearchResultItem> = withContext(Dispatchers.IO) {
+        val cleanQuery = cleanTitleForLyrics(query)
+        val shortQuery = if (cleanQuery.contains(" - ")) cleanQuery.substringBefore(" - ").trim() else ""
+
+        val rawItems = mutableListOf<JSONObject>()
+
+        // 1. Search by track_name
+        val encClean = URLEncoder.encode(cleanQuery, "UTF-8")
+        rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encClean"))
+
+        if (shortQuery.isNotBlank() && shortQuery != cleanQuery) {
+            val encShort = URLEncoder.encode(shortQuery, "UTF-8")
+            rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort"))
+        }
+
+        // 2. Search by general query
+        rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?q=$encClean"))
+        if (query.trim() != cleanQuery) {
+            val encRaw = URLEncoder.encode(query.trim(), "UTF-8")
+            rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?q=$encRaw"))
+        }
+
+        val seenIds = mutableSetOf<Long>()
+        val list = mutableListOf<LrclibSearchResultItem>()
+
+        for (item in rawItems) {
+            val id = item.optLong("id", 0L)
+            if (id != 0L && !seenIds.add(id)) continue
+
+            val trackName = item.optString("trackName", "")
+            val artistName = item.optString("artistName", "")
+            val albumName = item.optString("albumName", "")
+            val durationSeconds = item.optDouble("duration", 0.0).toInt()
+            val syncedLyrics = item.optCleanString("syncedLyrics")
+            val plainLyrics = item.optCleanString("plainLyrics")
+            val isSynced = !syncedLyrics.isNullOrBlank() &&
+                (syncedLyrics.contains("[0") || syncedLyrics.contains("[1") || syncedLyrics.contains("[:"))
+
+            if (trackName.isNotBlank() && (isSynced || !plainLyrics.isNullOrBlank())) {
+                list.add(
+                    LrclibSearchResultItem(
+                        id = if (id != 0L) id else list.size.toLong() + 1,
+                        trackName = trackName,
+                        artistName = artistName,
+                        albumName = albumName,
+                        durationSeconds = durationSeconds,
+                        isSynced = isSynced,
+                        syncedLyrics = syncedLyrics,
+                        plainLyrics = plainLyrics
+                    )
+                )
+            }
+        }
+
+        return@withContext list.sortedWith(
+            compareBy<LrclibSearchResultItem> { !it.isSynced }
+                .thenByDescending { calculateTitleMatchScore(it.trackName, cleanQuery) }
+                .thenBy { if (targetDurationSec > 0 && it.durationSeconds > 0) Math.abs(it.durationSeconds - targetDurationSec) else 9999 }
+        )
     }
 
     // ==========================================
@@ -883,25 +1111,8 @@ class OnlineMusicRepository {
     }
 
     private fun cleanTitleAndArtist(title: String, artist: String): Pair<String, String> {
-        val noiseRegex = Regex(
-            "(?i)(\\(feat\\..*?\\)|\\[feat\\..*?\\]|\\(official.*?\\)|\\[official.*?\\]|\\(lyrical.*?\\)|\\[lyrical.*?\\]|full video song|video song|lyrical video|official video|full video|audio song|official audio|visualizer|\\(hd\\)|\\[hd\\]|\\(audio\\)|\\[audio\\])",
-            RegexOption.IGNORE_CASE
-        )
-        val cleanedTitle = noiseRegex.replace(title, "")
-            .replace(Regex("(?i)\\b(video|song|official|audio|remix|hd|4k)\\b"), "")
-            .trim()
-            .replace(Regex("\\s+"), " ")
-
-        val cleanedArtist = if (artist.isBlank() || artist == "Unknown Artist" ||
-            artist.equals("Song", ignoreCase = true) || artist.equals("Video", ignoreCase = true) ||
-            artist.equals("Single", ignoreCase = true)
-        ) "" else artist.trim()
-        return Pair(cleanedTitle.ifBlank { title }, cleanedArtist)
-    }
-
-    private fun matchesTrackTitle(candidateTrackName: String, targetTitle: String): Boolean {
-        val cleanCandidate = candidateTrackName.lowercase().replace(Regex("[^a-z0-9]"), "")
-        val cleanTarget = targetTitle.lowercase().replace(Regex("[^a-z0-9]"), "")
-        return cleanCandidate == cleanTarget || cleanCandidate.contains(cleanTarget) || cleanTarget.contains(cleanCandidate)
+        val cleanedTitle = cleanTitleForLyrics(title)
+        val cleanedArtist = cleanArtistForLyrics(artist)
+        return Pair(cleanedTitle, cleanedArtist)
     }
 }

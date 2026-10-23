@@ -237,7 +237,8 @@ private fun InlineLyricsGlassCard(
     val accentColor = LocalAccentColor.current
     val lyricsFont = LocalLyricsFontSize.current
     var isSearchInputActive by remember { mutableStateOf(false) }
-    var searchQuery by remember(trackTitle) { mutableStateOf(trackTitle) }
+    val initialQuery = remember(trackTitle) { com.akshay.musicplayer.data.remote.OnlineMusicRepository.cleanTitleForLyrics(trackTitle) }
+    var searchQuery by remember(trackTitle) { mutableStateOf(initialQuery) }
     var isSearching by remember { mutableStateOf(false) }
     var candidateResults by remember { mutableStateOf<List<LrclibSearchResultItem>?>(null) }
 
@@ -438,7 +439,12 @@ private fun InlineLyricsGlassCard(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.12f))
-                        .clickable { isSearchInputActive = true },
+                        .clickable {
+                            isSearchInputActive = true
+                            if (candidateResults == null && searchQuery.isNotBlank()) {
+                                triggerSearch(searchQuery)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Search, contentDescription = "Expand Search", tint = Color.White, modifier = Modifier.size(16.dp))
@@ -481,7 +487,10 @@ private fun InlineLyricsGlassCard(
                         fontWeight = FontWeight.Bold
                     )
                     TextButton(
-                        onClick = { candidateResults = null },
+                        onClick = {
+                            candidateResults = null
+                            isSearchInputActive = false
+                        },
                         contentPadding = PaddingValues(0.dp)
                     ) {
                         Text("Show Lyrics", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
@@ -491,11 +500,14 @@ private fun InlineLyricsGlassCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 if (currentCandidates.isEmpty()) {
-                    Box(
+                    Column(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text("No matches for '$searchQuery'", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Text("No matches for '$searchQuery'", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Try searching with song title or artist above", color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp)
                     }
                 } else {
                     LazyColumn(

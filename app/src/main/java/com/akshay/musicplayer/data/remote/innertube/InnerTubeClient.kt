@@ -518,24 +518,57 @@ class InnerTubeClient(
     }
 
     /**
-     * LastWave-architecture dual search: combines the top hero result,
-     * official release tracks (filtered by official song protobuf chip),
-     * and fallback results, deduped by videoId.
+     * Dual search combining official release tracks and general search,
+     * ranked in 3 tiers:
+     * 1. YouTube Music songs matching search query (official tracks & remixes of the query)
+     * 2. YouTube video results matching search query (official music videos, lyrical videos)
+     * 3. Alike / similar songs and videos below from both YouTube Music and YouTube
      */
     suspend fun searchSongs(query: String, limit: Int = 30): List<InnerTubeTrack> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val filtered = runCatching { search(query, filter = SONG_SEARCH_FILTER) }.getOrDefault(emptyList())
         val unfiltered = runCatching { search(query, filter = null) }.getOrDefault(emptyList())
 
-        // Strictly prioritize official YouTube Music song releases over general YouTube video results
-        val songsOnly = (filtered + unfiltered).filter { !it.itemType.equals("Video", ignoreCase = true) }
-        val videos = (unfiltered + filtered).filter { it.itemType.equals("Video", ignoreCase = true) }
-
-        val combined = (songsOnly + videos)
+        val allTracks = (filtered + unfiltered)
             .distinctBy { it.videoId }
             .filter { it.videoId.isNotBlank() }
-            .take(limit)
-        combined
+
+        val matchingSongs = mutableListOf<InnerTubeTrack>()
+        val matchingVideos = mutableListOf<InnerTubeTrack>()
+        val alikeSongs = mutableListOf<InnerTubeTrack>()
+        val alikeVideos = mutableListOf<InnerTubeTrack>()
+
+        for (track in allTracks) {
+            val isVid = track.itemType.equals("Video", ignoreCase = true)
+            val matches = isTrackQueryMatch(track.title, track.artist, query)
+            when {
+                matches && !isVid -> matchingSongs.add(track)
+                matches && isVid -> matchingVideos.add(track)
+                !matches && !isVid -> alikeSongs.add(track)
+                else -> alikeVideos.add(track)
+            }
+        }
+
+        (matchingSongs + matchingVideos + alikeSongs + alikeVideos).take(limit)
+    }
+
+    private fun isTrackQueryMatch(title: String, artist: String, query: String): Boolean {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return true
+        val t = title.lowercase()
+        val a = artist.lowercase()
+
+        val pattern = Regex("(?i)(?:\\b|^)${Regex.escape(q)}(?:\\b|$)")
+        if (pattern.containsMatchIn(t) || pattern.containsMatchIn(a) || t.contains(q) || a.contains(q)) {
+            return true
+        }
+
+        val tokens = q.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return true
+        val combined = "$t $a"
+        return tokens.all { tok ->
+            Regex("(?i)(?:\\b|^)${Regex.escape(tok)}").containsMatchIn(combined)
+        }
     }
 
     suspend fun searchTracks(query: String): List<InnerTubeTrack> = searchSongs(query)
