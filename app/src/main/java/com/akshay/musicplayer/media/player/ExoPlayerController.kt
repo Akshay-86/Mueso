@@ -118,8 +118,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                             Log.i("MUESO_STREAM", "Buffering watchdog: successfully acquired fresh stream URL. Resuming at ${resumePos}ms")
                             playDirectOnlineStreamInExoPlayer(track, freshUrl, startPositionMs = resumePos, autoPlay = true)
                         } else if (currentOnlineTrack?.id == track.id || currentTrackId == track.id) {
-                            Log.w("MUESO_STREAM", "Buffering watchdog: stream refresh failed, falling back to YouTube web player")
-                            fallbackToOnlinePlayer(track, videoId, (resumePos / 1000f).coerceAtLeast(0f))
+                            Log.w("MUESO_STREAM", "Buffering watchdog: stream refresh unsuccessful, staging for network retry at ${resumePos}ms")
+                            handleOnlineTrackNetworkError(track, resumePos)
                         }
                     }
                 }
@@ -338,10 +338,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                                 playDirectOnlineStreamInExoPlayer(curTrack, freshUrl, savedPos)
                                 return@withContext
                             }
-                            Log.w("MUESO_SYNC", "Direct stream retry failed for '${curTrack.title}', falling back to YouTube web player at ${savedPos}ms")
-                            isPlayingLosslessOnline = false
-                            isPlayingDirectOnline = false
-                            fallbackToOnlinePlayer(curTrack, videoId, (savedPos / 1000f).coerceAtLeast(0f))
+                            Log.w("MUESO_SYNC", "Direct stream retry failed for '${curTrack.title}', staging for network retry at ${savedPos}ms")
+                            handleOnlineTrackNetworkError(curTrack, savedPos)
                         }
                     }
                     return
@@ -737,6 +735,33 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 }
             } else {
                 seekToIndex(targetIndex)
+            }
+        }
+    }
+
+    private fun retryDirectPlaybackForTrack(track: TrackEntity, index: Int, positionMs: Long) {
+        isPlayingOnline = false
+        isPlayingLosslessOnline = false
+        isPlayingDirectOnline = true
+        currentOnlineTrack = track
+        currentTrackId = track.id
+        currentQueueIndex = index
+        _playbackState.value = _playbackState.value.copy(
+            isPlaying = true,
+            isBuffering = true,
+            currentTrackId = track.id,
+            currentPositionMs = positionMs
+        )
+        scope.launch(Dispatchers.IO) {
+            val videoId = onlineRepo.extractVideoId(track).ifBlank { track.filePath.removePrefix("online:") }
+            val streamUrl = if (videoId.isNotBlank()) onlineRepo.resolveStreamUrl(videoId, context, forceRefresh = true) else ""
+            withContext(Dispatchers.Main) {
+                if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
+                    Log.i("MUESO_STREAM", "retryDirectPlaybackForTrack: direct stream acquired for '${track.title}'. Resuming at ${positionMs}ms")
+                    playDirectOnlineStreamInExoPlayer(track, streamUrl, startPositionMs = positionMs, autoPlay = true)
+                } else {
+                    handleOnlineTrackNetworkError(track, positionMs)
+                }
             }
         }
     }
@@ -1754,6 +1779,18 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             return
         }
         if (isPlayingOnline) {
+            val isBrokenOrPaused = !_playbackState.value.isPlaying || !ytPlayerManager.isPlaying
+            if (isBrokenOrPaused) {
+                val curTrack = currentOnlineTrack ?: tracksQueue.getOrNull(currentQueueIndex)
+                if (curTrack != null) {
+                    val pos = maxOf(lastValidPositionMs, _playbackState.value.currentPositionMs, ytPlayerManager.currentPositionMs).coerceAtLeast(0L)
+                    Log.i("MUESO_SYNC", "togglePlayPause: recovering from stuck/paused online web player for '${curTrack.title}' at ${pos}ms -> switching to direct ExoPlayer stream")
+                    isPlayingOnline = false
+                    ytPlayerManager.pause()
+                    retryDirectPlaybackForTrack(curTrack, currentQueueIndex, pos)
+                    return
+                }
+            }
             ytPlayerManager.togglePlayPause()
         } else {
             val controller = mediaController
@@ -1765,7 +1802,8 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 return
             }
 
-            val shouldPause = (controller.playWhenReady && controller.playbackState != Player.STATE_ENDED) || controller.isPlaying
+            val isBufferingStalled = controller.playbackState == Player.STATE_BUFFERING && (isPlayingDirectOnline || isPlayingLosslessOnline)
+            val shouldPause = ((controller.playWhenReady && controller.playbackState != Player.STATE_ENDED && controller.playbackState != Player.STATE_IDLE && !isBufferingStalled) || controller.isPlaying)
             if (shouldPause) {
                 controller.pause()
                 _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
@@ -1774,11 +1812,19 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 val isStaleOrEnded = controller.mediaItemCount == 0 ||
                         controller.playbackState == Player.STATE_ENDED ||
                         controller.playbackState == Player.STATE_IDLE ||
+                        isBufferingStalled ||
                         (currentTrack != null && isOnlineTrack(currentTrack) && !isPlayingDirectOnline && !isPlayingLosslessOnline)
 
                 if (isStaleOrEnded && tracksQueue.isNotEmpty()) {
-                    Log.d("MUESO_SYNC", "ExoPlayer togglePlayPause: starting/reloading track at index $currentQueueIndex")
-                    setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
+                    val curTrack = currentTrack ?: tracksQueue[currentQueueIndex.coerceIn(tracksQueue.indices)]
+                    val resumePos = maxOf(lastValidPositionMs, _playbackState.value.currentPositionMs, controller.currentPosition).coerceAtLeast(0L)
+                    if (isBufferingStalled) {
+                        Log.i("MUESO_SYNC", "ExoPlayer togglePlayPause: refreshing stalled buffering direct stream for '${curTrack.title}' at ${resumePos}ms")
+                        retryDirectPlaybackForTrack(curTrack, currentQueueIndex, resumePos)
+                    } else {
+                        Log.d("MUESO_SYNC", "ExoPlayer togglePlayPause: starting/reloading track at index $currentQueueIndex")
+                        setPlaylistAndPlay(tracksQueue, currentQueueIndex.coerceIn(tracksQueue.indices))
+                    }
                 } else {
                     controller.play()
                     _playbackState.value = _playbackState.value.copy(isPlaying = true)

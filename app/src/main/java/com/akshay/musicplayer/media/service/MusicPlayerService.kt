@@ -392,38 +392,49 @@ class MusicPlayerService : MediaSessionService() {
         val effectsController = com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(this)
         effectsController.attachSession(player.audioSessionId)
 
+        fun updateLocks() {
+            val shouldHold = (player.playWhenReady &&
+                    player.playbackState != Player.STATE_IDLE &&
+                    player.playbackState != Player.STATE_ENDED) ||
+                    MediaSessionBridge.isOnlinePlaying ||
+                    MediaSessionBridge.isTransitioningOrBuffering
+
+            if (shouldHold) {
+                acquireLocks()
+            } else {
+                releaseLocks()
+            }
+        }
+
         player.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 effectsController.attachSession(audioSessionId)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    acquireLocks()
-                } else if (!MediaSessionBridge.isOnlinePlaying && !MediaSessionBridge.isTransitioningOrBuffering) {
-                    releaseLocks()
-                }
+                updateLocks()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                updateLocks()
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                updateLocks()
             }
         })
 
         MediaSessionBridge.onOnlinePlayingChanged = { isOnline ->
+            updateLocks()
             if (isOnline) {
-                acquireLocks()
                 player.repeatMode = Player.REPEAT_MODE_ONE
             } else {
                 player.repeatMode = Player.REPEAT_MODE_OFF
-                if (!player.isPlaying && !MediaSessionBridge.isTransitioningOrBuffering) {
-                    releaseLocks()
-                }
             }
         }
 
-        MediaSessionBridge.onTransitionStateChanged = { isTransitioning ->
-            if (isTransitioning) {
-                acquireLocks()
-            } else if (!player.isPlaying && !MediaSessionBridge.isOnlinePlaying) {
-                releaseLocks()
-            }
+        MediaSessionBridge.onTransitionStateChanged = { _ ->
+            updateLocks()
         }
 
 
@@ -561,23 +572,16 @@ class MusicPlayerService : MediaSessionService() {
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         try {
-            if (isForegroundServiceStarted) {
-                // Service is already in foreground and stopForeground() is overridden to keep it there.
-                // Pass startInForegroundRequired = false so MediaNotificationManager safely updates the
-                // notification via NotificationManagerCompat.notify() and never calls startForegroundService()
-                // from the background looper.
-                super.onUpdateNotification(session, false)
-            } else {
-                try {
-                    super.onUpdateNotification(session, startInForegroundRequired)
-                    isForegroundServiceStarted = true
-                } catch (e: Exception) {
-                    Log.w("MusicPlayerService", "Failed to startForeground via MediaNotificationManager, falling back to safe update: ${e.message}")
-                    super.onUpdateNotification(session, false)
-                }
-            }
+            super.onUpdateNotification(session, startInForegroundRequired)
+            isForegroundServiceStarted = startInForegroundRequired
         } catch (e: Exception) {
-            Log.w("MusicPlayerService", "Suppressed foreground exception in onUpdateNotification: ${e.message}")
+            Log.w("MusicPlayerService", "Failed to startForeground in onUpdateNotification (required=$startInForegroundRequired): ${e.message}")
+            try {
+                super.onUpdateNotification(session, false)
+                isForegroundServiceStarted = false
+            } catch (e2: Exception) {
+                Log.w("MusicPlayerService", "Suppressed foreground exception in onUpdateNotification: ${e2.message}")
+            }
         }
     }
 
