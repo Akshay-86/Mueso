@@ -20,6 +20,14 @@
 
 **Mueso** is a next-generation, high-performance, 100% native Android music player built with **Kotlin**, **Jetpack Compose**, **Material 3**, and **AndroidX Media3 ExoPlayer**. It requires **zero external backend servers or Python microservices**—running entirely client-side on-device. It seamlessly bridges local offline audio libraries with online streaming, native YouTube Music personalization, rich artist pages, mood & genre exploration, real-time LRCLIB synced lyrics, smart SponsorBlock segment filtering, native ID3/MP4 metadata tagging, offline downloads, and network-loss auto-resumption.
 
+> [!WARNING]
+> **DO NOT USE THIS PLAYER AS YOUR DAILY DRIVER!**
+> Honestly, I don't know much - this entire app is basically **AI slop**. Even if someone submits a contribution or PR, I may not review it correctly. I am also not very active and probably won't respond to issues frequently.
+> 
+> What you *can* do is open issues to point out my mistakes, bugs, or suggestions for improvement, but please don't expect them to be fixed or updated promptly.
+>
+> And yes, This is my primary Music player 😅.
+
 > [!TIP]
 > **Creating or importing a playlist is recommended for the best experience!** Import your favorite Spotify playlists or sync your YouTube Music account to enjoy seamless queue management and reels-style vertical playback.
 

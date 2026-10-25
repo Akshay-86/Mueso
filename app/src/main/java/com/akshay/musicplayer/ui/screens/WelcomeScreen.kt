@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -74,6 +75,8 @@ fun WelcomeScreen(
 
     val googleAccount by viewModel.googleAccount.collectAsState()
     val googleAccountEmail by viewModel.googleAccountEmail.collectAsState()
+    val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    var selectedLayout by remember(playerLayoutStyle) { mutableStateOf(playerLayoutStyle) }
 
     // Activity Result Launchers
     val audioPermissionLauncher = rememberLauncherForActivityResult(
@@ -179,11 +182,72 @@ fun WelcomeScreen(
                     )
                 }
 
-                // ─── 4 COMPACT ROWS WITH 2-3 LINE DESCRIPTIONS ───
+                // ─── PLAYER UI STYLE SELECTOR ───
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "CHOOSE YOUR INTERFACE",
+                        color = accentColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        UiStyleCard(
+                            title = "Reel Swiper",
+                            subtitle = "Full-screen vertical swipe",
+                            icon = Icons.Default.ViewCarousel,
+                            isSelected = selectedLayout == "reels",
+                            accentColor = accentColor,
+                            cardBg = cardBg,
+                            textPrimary = textPrimary,
+                            textSub = textSub,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                selectedLayout = "reels"
+                                viewModel.setPlayerLayoutStyle("reels")
+                            }
+                        )
+
+                        UiStyleCard(
+                            title = "Classic",
+                            subtitle = "Bottom dock mini player",
+                            icon = Icons.Default.Dashboard,
+                            isSelected = selectedLayout == "classic",
+                            accentColor = accentColor,
+                            cardBg = cardBg,
+                            textPrimary = textPrimary,
+                            textSub = textSub,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                selectedLayout = "classic"
+                                viewModel.setPlayerLayoutStyle("classic")
+                            }
+                        )
+                    }
+                }
+
+                // ─── PERMISSIONS & SETUP ───
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Text(
+                        text = "PERMISSIONS & SETUP",
+                        color = textSub,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(start = 2.dp, top = 4.dp)
+                    )
+
                     // Card 1: Music & Audio Access
                     WelcomePermissionCard(
                         title = "Music & Audio Files",
@@ -433,6 +497,108 @@ private fun WelcomePermissionCard(
                     color = Color.White,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UiStyleCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    accentColor: Color,
+    cardBg: Color,
+    textPrimary: Color,
+    textSub: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val borderColor = if (isSelected) accentColor else if (cardBg == Color.White) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.08f)
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(cardBg)
+            .then(
+                if (isSelected) {
+                    Modifier.background(accentColor.copy(alpha = 0.08f))
+                } else Modifier
+            )
+            .border(
+                width = if (isSelected) 1.8.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) accentColor.copy(alpha = 0.16f)
+                            else textSub.copy(alpha = 0.10f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (isSelected) accentColor else textSub,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accentColor else Color.Transparent)
+                        .border(
+                            width = if (isSelected) 0.dp else 1.5.dp,
+                            color = if (isSelected) Color.Transparent else textSub.copy(alpha = 0.4f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    color = if (isSelected) textPrimary else textPrimary.copy(alpha = 0.85f),
+                    fontSize = 13.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                )
+                Text(
+                    text = subtitle,
+                    color = textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

@@ -386,11 +386,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         isSearchActive = false
                         viewModel.setSearchQuery("")
                     },
-                    onQueryChange = { query ->
-                        if (!viewModel.handlePotentialVaultQuery(context, query)) {
-                            viewModel.setSearchQuery(query)
-                        }
-                    },
+                    onQueryChange = { viewModel.setSearchQuery(it) },
                     onSettingsClick = {
                         if (isClassic) {
                             classicNavTab = ClassicNavTab.SETTINGS
@@ -966,16 +962,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     showOnboardingDialog = false
                     sharedPreferences.edit().putBoolean("has_seen_google_onboarding", true).apply()
                 }
-            )
-        }
-
-        // Special Vault Easter Egg Overlay
-        val vaultBitmap by viewModel.vaultBitmap.collectAsState()
-        val isVaultVisible by viewModel.isVaultVisible.collectAsState()
-        if (isVaultVisible) {
-            com.akshay.musicplayer.ui.components.SpecialVaultDialog(
-                bitmap = vaultBitmap,
-                onDismiss = { viewModel.dismissVault() }
             )
         }
     }
