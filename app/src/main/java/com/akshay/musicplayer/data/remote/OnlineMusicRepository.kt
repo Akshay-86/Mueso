@@ -58,13 +58,13 @@ class OnlineMusicRepository {
             // 3. Remove common YouTube / video noise inside parentheses or brackets
             t = t.replace(
                 Regex(
-                    "(?i)\\s*[\\[\\(](?:official\\s*(?:music\\s*)?(?:video|audio|lyric|lyrical)?|full\\s*(?:video|audio|song)|lyric(?:al)?\\s*(?:video)?|video\\s*song|visualizer|audio|4k(?:\\s*uhd)?|hd|hq|remaster(?:ed)?|extended(?:\\s*mix)?|prod\\..*?|dir\\..*?)[\\]\\)]"
+                    "(?i)\\s*[\\[\\(](?:official\\s*(?:music\\s*)?(?:video|audio|lyric|lyrical)?|full\\s*(?:video|audio|song)|lyric(?:al)?\\s*(?:video)?|video\\s*song|visualizer|audio|4k(?:\\s*uhd)?|hd|hq|remaster(?:ed)?|extended(?:\\s*mix)?|prod\\..*?|dir\\..*?|lyrics?)[\\x5D\\)]"
                 ),
                 " "
             )
-            // 4. Remove standalone noise words at the end
+            // 4. Remove standalone noise words
             t = t.replace(
-                Regex("(?i)\\b(official\\s*video|official\\s*audio|lyrical\\s*video|full\\s*video\\s*song|video\\s*song)\\b"),
+                Regex("(?i)\\b(?:official\\s*(?:music\\s*)?(?:video|audio)|lyrical\\s*video|full\\s*video(?:\\s*song)?|video\\s*song|video\\s*(?:song\\s*)?with\\s*lyrics|with\\s*lyrics|lyrics?\\s*video|song\\s*with\\s*lyrics)\\b"),
                 " "
             )
             // 5. Remove (From "...") or (feat. ...)
@@ -72,9 +72,18 @@ class OnlineMusicRepository {
                 Regex("(?i)\\s*[\\[\\(](?:from|feat\\.?|featuring)\\s*[\"']?([^\"'\\[\\]\\(\\)]+)[\"']?[\\]\\)]"),
                 " "
             )
+            t = t.replace(Regex("\\s+"), " ")
             // 6. Clean whitespace and trailing punctuation
             t = t.trim().trim(' ', '-', '|', ':', ',')
             return t.ifBlank { rawTitle.trim() }
+        }
+
+        fun stripLanguageBrackets(text: String): String {
+            val res = text.replace(
+                Regex("(?i)\\s*[\\[\\(](?:telugu|hindi|tamil|malayalam|kannada|punjabi|bengali|marathi|bhojpuri|english|gujarati|odia|urdu|japanese|korean)[\\x5D\\)]"),
+                ""
+            ).trim()
+            return res.ifBlank { text }
         }
 
         fun cleanArtistForLyrics(rawArtist: String): String {
@@ -85,6 +94,19 @@ class OnlineMusicRepository {
             ) return ""
             a = a.replace(Regex("^@"), "").trim()
             return a
+        }
+
+        fun isRecordLabelOrChannel(artist: String): Boolean {
+            val lower = artist.lowercase().trim()
+            if (lower.contains("t-series") || lower.contains("aditya music") ||
+                lower.contains("sony music") || lower.contains("zee music") ||
+                lower.contains("lahari music") || lower.contains("saregama") ||
+                lower.contains("tips official") || lower.contains("speed records") ||
+                lower.contains("yrf") || lower.contains("think music") ||
+                lower.contains("geetha arts") || lower.contains("eros now") ||
+                lower.contains("times music") || lower.contains("junglee music")
+            ) return true
+            return lower.matches(Regex(".*\\b(?:music|records|company|vevo|films|official|studios|entertainment|playback|audio|series|channel|media)\\b.*"))
         }
 
         fun getPrimaryArtist(rawArtist: String): String {
@@ -728,16 +750,21 @@ class OnlineMusicRepository {
                 val segments = mutableListOf<SponsorSegment>()
                 for (i in 0 until array.length()) {
                     val obj = array.optJSONObject(i) ?: continue
+                    val votes = obj.optInt("votes", 0)
+                    if (votes < 0) continue
                     val segArr = obj.optJSONArray("segment") ?: continue
-                    val category = obj.optString("category", "sponsor")
+                    val rawCategory = obj.optString("category", "sponsor")
                     if (segArr.length() >= 2) {
                         val startSec = segArr.optDouble(0, 0.0)
                         val endSec = segArr.optDouble(1, 0.0)
                         if (endSec > startSec) {
+                            val startMs = (startSec * 1000).toLong()
+                            val endMs = (endSec * 1000).toLong()
+                            val category = if (rawCategory == "outro" && startMs < 15_000L) "intro" else rawCategory
                             segments.add(
                                 SponsorSegment(
-                                    startMs = (startSec * 1000).toLong(),
-                                    endMs = (endSec * 1000).toLong(),
+                                    startMs = startMs,
+                                    endMs = endMs,
                                     category = category
                                 )
                             )
@@ -763,73 +790,81 @@ class OnlineMusicRepository {
     ): LyricsData? = withContext(Dispatchers.IO) {
         val cleanedTitle = cleanTitleForLyrics(title)
         val primaryArtist = getPrimaryArtist(artist)
-        val shortTitle = if (cleanedTitle.contains(" - ")) cleanedTitle.substringBefore(" - ").trim() else ""
+        val titleBeforeHyphen = if (cleanedTitle.contains(" - ")) stripLanguageBrackets(cleanedTitle.substringBefore(" - ").trim()) else ""
+        val titleAfterHyphen = if (cleanedTitle.contains(" - ")) stripLanguageBrackets(cleanedTitle.substringAfter(" - ").trim()) else ""
 
-        Log.d(TAG, "fetchLyrics: title='$title' -> cleanedTitle='$cleanedTitle', primaryArtist='$primaryArtist', shortTitle='$shortTitle', dur=${targetDurationSec}s")
+        Log.d(TAG, "fetchLyrics: title='$title' -> cleanedTitle='$cleanedTitle', before='$titleBeforeHyphen', after='$titleAfterHyphen', primaryArtist='$primaryArtist', dur=${targetDurationSec}s")
 
-        // Step 1: Structured search with track_name & artist_name (highest precision)
-        if (primaryArtist.isNotBlank()) {
-            val encTitle = URLEncoder.encode(cleanedTitle, "UTF-8")
+        val isLabel = isRecordLabelOrChannel(primaryArtist)
+
+        // Step 1: If title contains " - ", the part after hyphen is frequently the exact song name (e.g. "Movie - Song")
+        if (titleAfterHyphen.isNotBlank()) {
+            val encAfter = URLEncoder.encode(titleAfterHyphen, "UTF-8")
+            if (primaryArtist.isNotBlank() && !isLabel) {
+                val encArtist = URLEncoder.encode(primaryArtist, "UTF-8")
+                val candidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encAfter&artist_name=$encArtist")
+                pickBestLyrics(candidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+                    Log.d(TAG, "Lyrics found via titleAfterHyphen ('$titleAfterHyphen') + artist")
+                    return@withContext it
+                }
+            }
+            val candidatesAfter = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encAfter")
+            pickBestLyrics(candidatesAfter, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via titleAfterHyphen ('$titleAfterHyphen')")
+                return@withContext it
+            }
+        }
+
+        // Step 2: Structured search with cleanedTitle & primaryArtist (only if artist is not a label/channel)
+        val encTitle = URLEncoder.encode(stripLanguageBrackets(cleanedTitle), "UTF-8")
+        if (primaryArtist.isNotBlank() && !isLabel) {
             val encArtist = URLEncoder.encode(primaryArtist, "UTF-8")
             val candidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encTitle&artist_name=$encArtist")
-            pickBestLyrics(candidates, cleanedTitle, targetDurationSec)?.let {
+            pickBestLyrics(candidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
                 Log.d(TAG, "Lyrics found via structured search (track_name + artist_name)")
                 return@withContext it
             }
-
-            if (shortTitle.isNotBlank()) {
-                val encShort = URLEncoder.encode(shortTitle, "UTF-8")
-                val shortCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort&artist_name=$encArtist")
-                pickBestLyrics(shortCandidates, shortTitle, targetDurationSec)?.let {
-                    Log.d(TAG, "Lyrics found via structured search with shortTitle")
-                    return@withContext it
-                }
-            }
         }
 
-        // Step 2: Structured search with track_name only
-        val encTitle = URLEncoder.encode(cleanedTitle, "UTF-8")
-        val trackCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encTitle")
-        pickBestLyrics(trackCandidates, cleanedTitle, targetDurationSec)?.let {
-            Log.d(TAG, "Lyrics found via structured search (track_name only)")
+        // Step 2b: Structured search with cleanedTitle alone (matches manual search behaviour)
+        val titleOnlyCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encTitle")
+        pickBestLyrics(titleOnlyCandidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+            Log.d(TAG, "Lyrics found via cleanedTitle alone ('$cleanedTitle')")
             return@withContext it
         }
 
-        if (shortTitle.isNotBlank()) {
-            val encShort = URLEncoder.encode(shortTitle, "UTF-8")
-            val shortCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort")
-            pickBestLyrics(shortCandidates, shortTitle, targetDurationSec)?.let {
-                Log.d(TAG, "Lyrics found via structured search (shortTitle only)")
+        // Step 3: Structured search with titleBeforeHyphen (for Western "Artist - Song" or "Song - Album")
+        if (titleBeforeHyphen.isNotBlank() && titleBeforeHyphen != cleanedTitle) {
+            val encBefore = URLEncoder.encode(titleBeforeHyphen, "UTF-8")
+            val candidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encBefore")
+            pickBestLyrics(candidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via titleBeforeHyphen ('$titleBeforeHyphen')")
                 return@withContext it
             }
         }
 
-        // Step 3: Direct GET (without strict duration to avoid 404 from drift)
-        if (primaryArtist.isNotBlank()) {
-            tryLrclibGet(cleanedTitle, primaryArtist, 0)?.let {
-                Log.d(TAG, "Lyrics found via direct get")
+        // Step 4: General query search fallback (combined title + artist if artist is not a label)
+        if (primaryArtist.isNotBlank() && !isLabel && !cleanedTitle.contains(primaryArtist, ignoreCase = true)) {
+            val q1 = "$cleanedTitle $primaryArtist"
+            val qCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(q1, "UTF-8")}")
+            pickBestLyrics(qCandidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via general query '$q1'")
                 return@withContext it
-            }
-            if (shortTitle.isNotBlank()) {
-                tryLrclibGet(shortTitle, primaryArtist, 0)?.let {
-                    Log.d(TAG, "Lyrics found via direct get with shortTitle")
-                    return@withContext it
-                }
             }
         }
 
-        // Step 4: General query search fallback
-        val q1 = if (primaryArtist.isNotBlank()) "$cleanedTitle $primaryArtist" else cleanedTitle
-        val qCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(q1, "UTF-8")}")
-        pickBestLyrics(qCandidates, cleanedTitle, targetDurationSec)?.let {
-            Log.d(TAG, "Lyrics found via general query '$q1'")
+        // Step 4b: General query search with cleanedTitle alone
+        val qTitleCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=$encTitle")
+        pickBestLyrics(qTitleCandidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+            Log.d(TAG, "Lyrics found via pure title query '$cleanedTitle'")
             return@withContext it
         }
 
-        if (cleanedTitle != title) {
-            val rawCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(title.trim(), "UTF-8")}")
-            pickBestLyrics(rawCandidates, cleanedTitle, targetDurationSec)?.let {
-                Log.d(TAG, "Lyrics found via raw query fallback")
+        // Step 5: Direct search with titleAfterHyphen as general query (e.g. searching "Eppudo Ninnu")
+        if (titleAfterHyphen.isNotBlank()) {
+            val afterCandidates = fetchCandidatesFromUrl("https://lrclib.net/api/search?q=${URLEncoder.encode(titleAfterHyphen, "UTF-8")}")
+            pickBestLyrics(afterCandidates, cleanedTitle, titleAfterHyphen, titleBeforeHyphen, targetDurationSec)?.let {
+                Log.d(TAG, "Lyrics found via titleAfterHyphen query '$titleAfterHyphen'")
                 return@withContext it
             }
         }
@@ -882,26 +917,40 @@ class OnlineMusicRepository {
             .url(url)
             .header("User-Agent", "Mueso-Android-App/1.2")
             .build()
-        return try {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
-                val body = response.body?.string() ?: return emptyList()
-                val array = JSONArray(body)
-                val list = ArrayList<JSONObject>(array.length())
-                for (i in 0 until array.length()) {
-                    array.optJSONObject(i)?.let { list.add(it) }
+        for (attempt in 0..1) {
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.code == 503 || response.code == 429) {
+                        if (attempt == 0) {
+                            try { Thread.sleep(500) } catch (_: Exception) {}
+                            return@use
+                        }
+                        return emptyList()
+                    }
+                    if (!response.isSuccessful) return emptyList()
+                    val body = response.body?.string() ?: return emptyList()
+                    val array = JSONArray(body)
+                    val list = ArrayList<JSONObject>(array.length())
+                    for (i in 0 until array.length()) {
+                        array.optJSONObject(i)?.let { list.add(it) }
+                    }
+                    return list
                 }
-                list
+            } catch (_: Exception) {
+                if (attempt == 0) {
+                    try { Thread.sleep(300) } catch (_: Exception) {}
+                }
             }
-        } catch (_: Exception) {
-            emptyList()
         }
+        return emptyList()
     }
 
     private fun pickBestLyrics(
         candidates: List<JSONObject>,
         targetTitle: String,
-        targetDurationSec: Int
+        targetAfterHyphen: String = "",
+        targetBeforeHyphen: String = "",
+        targetDurationSec: Int = 0
     ): LyricsData? {
         if (candidates.isEmpty()) return null
 
@@ -926,11 +975,15 @@ class OnlineMusicRepository {
                 Math.abs(durationSec - targetDurationSec)
             } else 0
 
-            val titleScore = calculateTitleMatchScore(trackName, targetTitle)
+            val titleScore = maxOf(
+                calculateTitleMatchScore(trackName, targetTitle),
+                if (targetAfterHyphen.isNotBlank()) calculateTitleMatchScore(trackName, targetAfterHyphen) else 0,
+                if (targetBeforeHyphen.isNotBlank()) calculateTitleMatchScore(trackName, targetBeforeHyphen) else 0
+            )
             if (titleScore == 0) return@mapNotNull null
 
             val syncBonus = if (hasSynced) 50 else 0
-            val durPenalty = (durationDiff / 2).coerceAtMost(30)
+            val durPenalty = (durationDiff / 2).coerceAtMost(25)
             val totalScore = titleScore + syncBonus - durPenalty
 
             ScoredCandidate(item, totalScore, hasSynced, durationDiff)
@@ -948,17 +1001,23 @@ class OnlineMusicRepository {
 
     suspend fun searchLrclibCandidates(query: String, targetDurationSec: Int = 0): List<LrclibSearchResultItem> = withContext(Dispatchers.IO) {
         val cleanQuery = cleanTitleForLyrics(query)
-        val shortQuery = if (cleanQuery.contains(" - ")) cleanQuery.substringBefore(" - ").trim() else ""
+        val queryBeforeHyphen = if (cleanQuery.contains(" - ")) stripLanguageBrackets(cleanQuery.substringBefore(" - ").trim()) else ""
+        val queryAfterHyphen = if (cleanQuery.contains(" - ")) stripLanguageBrackets(cleanQuery.substringAfter(" - ").trim()) else ""
 
         val rawItems = mutableListOf<JSONObject>()
 
         // 1. Search by track_name
-        val encClean = URLEncoder.encode(cleanQuery, "UTF-8")
+        val encClean = URLEncoder.encode(stripLanguageBrackets(cleanQuery), "UTF-8")
         rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encClean"))
 
-        if (shortQuery.isNotBlank() && shortQuery != cleanQuery) {
-            val encShort = URLEncoder.encode(shortQuery, "UTF-8")
-            rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encShort"))
+        if (queryAfterHyphen.isNotBlank() && queryAfterHyphen != cleanQuery) {
+            val encAfter = URLEncoder.encode(queryAfterHyphen, "UTF-8")
+            rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encAfter"))
+        }
+
+        if (queryBeforeHyphen.isNotBlank() && queryBeforeHyphen != cleanQuery) {
+            val encBefore = URLEncoder.encode(queryBeforeHyphen, "UTF-8")
+            rawItems.addAll(fetchCandidatesFromUrl("https://lrclib.net/api/search?track_name=$encBefore"))
         }
 
         // 2. Search by general query
@@ -1002,7 +1061,13 @@ class OnlineMusicRepository {
 
         return@withContext list.sortedWith(
             compareBy<LrclibSearchResultItem> { !it.isSynced }
-                .thenByDescending { calculateTitleMatchScore(it.trackName, cleanQuery) }
+                .thenByDescending {
+                    maxOf(
+                        calculateTitleMatchScore(it.trackName, cleanQuery),
+                        if (queryAfterHyphen.isNotBlank()) calculateTitleMatchScore(it.trackName, queryAfterHyphen) else 0,
+                        if (queryBeforeHyphen.isNotBlank()) calculateTitleMatchScore(it.trackName, queryBeforeHyphen) else 0
+                    )
+                }
                 .thenBy { if (targetDurationSec > 0 && it.durationSeconds > 0) Math.abs(it.durationSeconds - targetDurationSec) else 9999 }
         )
     }

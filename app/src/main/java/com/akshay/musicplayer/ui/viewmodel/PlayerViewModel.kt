@@ -721,10 +721,23 @@ class PlayerViewModel(
     private val _activeQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
     val activeQueue: StateFlow<List<TrackEntity>> = _activeQueue.asStateFlow()
 
+    private val lyricsCache = java.util.concurrent.ConcurrentHashMap<Long, LyricsData>()
+
     private var currentTracks: List<TrackEntity> = emptyList()
         set(value) {
-            field = value
-            _activeQueue.value = value
+            val preserved = value.map { track ->
+                val cached = lyricsCache[track.id] ?: getLyricsFromCache(track.id)?.also { lyricsCache[track.id] = it }
+                if (track.lyrics == null && cached != null) {
+                    track.copy(lyrics = cached)
+                } else {
+                    if (track.lyrics != null) {
+                        lyricsCache[track.id] = track.lyrics
+                    }
+                    track
+                }
+            }
+            field = preserved
+            _activeQueue.value = preserved
         }
 
     val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
@@ -912,9 +925,14 @@ class PlayerViewModel(
                 if (restoredPlaylistTracks.isNotEmpty()) {
                     _isPlaylistContext.value = true
                     _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
-                    currentTracks = restoredPlaylistTracks
                     val startIndex = restoredPlaylistTracks.indexOfFirst { it.id == lastTrackId }.coerceAtLeast(0)
                     val startTrack = restoredPlaylistTracks[startIndex]
+                    val cachedLyrics = lyricsCache[startTrack.id] ?: getLyricsFromCache(startTrack.id) ?: getSavedCustomLyrics(startTrack.id)
+                    if (cachedLyrics != null) {
+                        lyricsCache[startTrack.id] = cachedLyrics
+                        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (startTrack.id to LyricsFetchStatus.FOUND)
+                    }
+                    currentTracks = restoredPlaylistTracks
                     _playbackState.value = PlaybackState(
                         isPlaying = false,
                         currentTrackId = startTrack.id,
@@ -922,7 +940,7 @@ class PlayerViewModel(
                         durationMs = startTrack.duration.coerceAtLeast(0L)
                     )
                     mediaPlayerController.restoreQueue(restoredPlaylistTracks, startIndex, lastPosition)
-                    Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restored online playlist preview with ${restoredPlaylistTracks.size} tracks")
+                    Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restored online playlist preview with ${restoredPlaylistTracks.size} tracks (hasLyrics=${cachedLyrics != null})")
                     return
                 }
             } catch (e: Exception) {
@@ -948,6 +966,11 @@ class PlayerViewModel(
         }
         Log.d("MUESO_RESTORE", "initRestoredTrackPreview: Restoring single preview track: title='$title', artist='$artist', album='$album', albumId=$albumId, filePath='$filePath', artworkUrl='$artworkUrl', duration=${duration}ms")
         if (title.isNotBlank()) {
+            val cachedLyrics = lyricsCache[lastTrackId] ?: getLyricsFromCache(lastTrackId) ?: getSavedCustomLyrics(lastTrackId)
+            if (cachedLyrics != null) {
+                lyricsCache[lastTrackId] = cachedLyrics
+                _lyricsFetchStatus.value = _lyricsFetchStatus.value + (lastTrackId to LyricsFetchStatus.FOUND)
+            }
             val previewTrack = TrackEntity(
                 id = lastTrackId,
                 title = title,
@@ -956,7 +979,8 @@ class PlayerViewModel(
                 duration = duration,
                 albumId = albumId,
                 filePath = filePath,
-                artworkUrl = artworkUrl
+                artworkUrl = artworkUrl,
+                lyrics = cachedLyrics
             )
             currentTracks = listOf(previewTrack)
             _playbackState.value = PlaybackState(
@@ -966,7 +990,7 @@ class PlayerViewModel(
                 durationMs = duration.coerceAtLeast(0L)
             )
             mediaPlayerController.restoreQueue(listOf(previewTrack), 0, lastPosition)
-            Log.d("MUESO_RESTORE", "initRestoredTrackPreview: currentTracks initialized with 1 preview track [${previewTrack.title}]")
+            Log.d("MUESO_RESTORE", "initRestoredTrackPreview: currentTracks initialized with 1 preview track [${previewTrack.title}] (hasLyrics=${cachedLyrics != null})")
         }
     }
     
@@ -1701,6 +1725,8 @@ class PlayerViewModel(
             val now = System.currentTimeMillis()
             if (now - lastSponsorActionTime < 1000L) return
 
+            val isRecentUserSkip = (now - lastUserSkipTime) < 3000L
+
             for (seg in activeSponsorSegments) {
                 val shouldSkipCategory = when (seg.category) {
                     "sponsor" -> skipSponsor.value
@@ -1712,12 +1738,14 @@ class PlayerViewModel(
                 }
                 if (!shouldSkipCategory) continue
 
-                val isOutro = (seg.category == "outro" && skipIntroOutro.value) ||
-                        ((seg.category == "music_offtopic" || seg.category == "filler") && skipNonMusicOffTopic.value && totalDur > 10_000L && seg.endMs >= totalDur - 3500L) ||
-                        (seg.category == "sponsor" && skipSponsor.value && totalDur > 10_000L && seg.endMs >= totalDur - 3500L)
-                val isIntroAtStart = (seg.category == "intro" || seg.category == "music_offtopic") && seg.startMs <= 1500L
+                // An outro MUST start in the second half of the track, be at least 15s in, and end near the end of the song!
+                val isLegitimateOutroPosition = totalDur > 15_000L && seg.startMs >= (totalDur * 0.5f) && seg.endMs >= (totalDur - 15_000L) && seg.startMs >= 15_000L
+                val isOutro = (seg.category == "outro" && skipIntroOutro.value && isLegitimateOutroPosition) ||
+                        ((seg.category == "music_offtopic" || seg.category == "filler") && skipNonMusicOffTopic.value && isLegitimateOutroPosition) ||
+                        (seg.category == "sponsor" && skipSponsor.value && isLegitimateOutroPosition)
+                val isIntroAtStart = (seg.category == "intro" || seg.category == "music_offtopic" || (seg.category == "outro" && !isLegitimateOutroPosition)) && seg.startMs <= 2500L
 
-                if (isOutro && currentPositionMs in (seg.startMs - 300L)..(seg.endMs + 1000L)) {
+                if (isOutro && !isRecentUserSkip && currentPositionMs in (seg.startMs - 300L)..(seg.endMs + 1000L)) {
                     if (lastSkippedSegmentEndMs == seg.endMs) continue
                     lastSponsorActionTime = now
                     lastSkippedSegmentEndMs = seg.endMs
@@ -1729,10 +1757,10 @@ class PlayerViewModel(
                     if (lastSkippedSegmentEndMs == seg.endMs) continue
                     lastSponsorActionTime = now
                     lastSkippedSegmentEndMs = seg.endMs
-                    Log.d("MUESO_SPONSOR", "Auto-skipping intro segment (${seg.category}) from 0ms to ${seg.endMs}ms for '${track.title}'")
+                    Log.d("MUESO_SPONSOR", "Auto-skipping intro segment (${seg.category}) from ${currentPositionMs}ms to ${seg.endMs}ms for '${track.title}'")
                     mediaPlayerController.seekTo(seg.endMs)
                     break
-                } else if (!isIntroAtStart && currentPositionMs in (seg.startMs - 200L)..(seg.endMs - 300L)) {
+                } else if (!isIntroAtStart && !isOutro && currentPositionMs in (seg.startMs - 200L)..(seg.endMs - 300L)) {
                     if (lastSkippedSegmentEndMs == seg.endMs) continue
                     lastSponsorActionTime = now
                     lastSkippedSegmentEndMs = seg.endMs
@@ -1877,18 +1905,71 @@ class PlayerViewModel(
 
     private var activeLyricsFetchJob: Job? = null
 
+    fun getLyricsFromCache(trackId: Long): com.akshay.musicplayer.domain.models.LyricsData? {
+        val jsonStr = sharedPreferences.getString("lyrics_cache_$trackId", null) ?: return null
+        return try {
+            val jsonObj = org.json.JSONObject(jsonStr)
+            val rawText = jsonObj.optString("rawText", "")
+            val linesArr = jsonObj.optJSONArray("lines")
+            val linesList = mutableListOf<com.akshay.musicplayer.domain.models.LyricLine>()
+            if (linesArr != null) {
+                for (i in 0 until linesArr.length()) {
+                    val lineObj = linesArr.getJSONObject(i)
+                    val time = lineObj.getLong("time")
+                    val text = lineObj.getString("text")
+                    linesList.add(com.akshay.musicplayer.domain.models.LyricLine(time, text))
+                }
+            }
+            com.akshay.musicplayer.domain.models.LyricsData(lines = linesList, rawText = rawText.ifBlank { null })
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveLyricsToCache(trackId: Long, lyricsData: com.akshay.musicplayer.domain.models.LyricsData) {
+        lyricsCache[trackId] = lyricsData
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val jsonObj = org.json.JSONObject()
+                jsonObj.put("rawText", lyricsData.rawText ?: "")
+                val linesArr = org.json.JSONArray()
+                lyricsData.lines.forEach { line ->
+                    val lObj = org.json.JSONObject()
+                    lObj.put("time", line.timestampMs)
+                    lObj.put("text", line.text)
+                    linesArr.put(lObj)
+                }
+                jsonObj.put("lines", linesArr)
+                sharedPreferences.edit().putString("lyrics_cache_$trackId", jsonObj.toString()).apply()
+            } catch (e: Exception) {
+                Log.w("MUESO_LYRICS", "Failed to cache lyrics for track $trackId", e)
+            }
+        }
+    }
+
     private fun fetchLyricsForTrack(track: TrackEntity) {
         if (track.lyrics != null) {
+            lyricsCache[track.id] = track.lyrics
             _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
             return
         }
 
-        val currentStatus = _lyricsFetchStatus.value[track.id]
-        if (currentStatus == LyricsFetchStatus.FETCHING) return
+        // 1. Check in-memory / disk lyrics cache
+        val cached = lyricsCache[track.id] ?: getLyricsFromCache(track.id)
+        if (cached != null) {
+            lyricsCache[track.id] = cached
+            currentTracks = currentTracks.map {
+                if (it.id == track.id) it.copy(lyrics = cached) else it
+            }
+            _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+            return
+        }
 
-        // 1. Check local saved custom lyrics first
+        // 2. Check local saved custom lyrics
         val savedLyrics = getSavedCustomLyrics(track.id)
         if (savedLyrics != null && (savedLyrics.lines.isNotEmpty() || !savedLyrics.rawText.isNullOrBlank())) {
+            lyricsCache[track.id] = savedLyrics
+            saveLyricsToCache(track.id, savedLyrics)
             currentTracks = currentTracks.map {
                 if (it.id == track.id) it.copy(lyrics = savedLyrics) else it
             }
@@ -1896,7 +1977,7 @@ class PlayerViewModel(
             return
         }
 
-        // 2. For offline songs: check embedded tags & sidecar .lrc first
+        // 3. For offline songs: check embedded tags & sidecar .lrc first
         val isOffline = !track.filePath.startsWith("online:") &&
                 !track.filePath.startsWith("http://") &&
                 !track.filePath.startsWith("https://") &&
@@ -1905,6 +1986,8 @@ class PlayerViewModel(
         if (isOffline) {
             val embeddedLyrics = com.akshay.musicplayer.util.EmbeddedLyricsHelper.extractLyrics(track.filePath)
             if (embeddedLyrics != null && (embeddedLyrics.lines.isNotEmpty() || !embeddedLyrics.rawText.isNullOrBlank())) {
+                lyricsCache[track.id] = embeddedLyrics
+                saveLyricsToCache(track.id, embeddedLyrics)
                 currentTracks = currentTracks.map {
                     if (it.id == track.id) it.copy(lyrics = embeddedLyrics) else it
                 }
@@ -1913,11 +1996,14 @@ class PlayerViewModel(
             }
         }
 
+        val currentStatus = _lyricsFetchStatus.value[track.id]
+        if (currentStatus == LyricsFetchStatus.FETCHING) return
+
         _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FETCHING)
 
         activeLyricsFetchJob?.cancel()
         activeLyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(400) // Debounce rapid swiping
+            delay(300) // Debounce rapid swiping
             if (_playbackState.value.currentTrackId != track.id) return@launch
 
             val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
@@ -1926,13 +2012,17 @@ class PlayerViewModel(
 
             withContext(Dispatchers.Main) {
                 if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
+                    lyricsCache[track.id] = lyricsData
+                    saveLyricsToCache(track.id, lyricsData)
                     val updatedTracks = currentTracks.map {
                         if (it.id == track.id) it.copy(lyrics = lyricsData) else it
                     }
                     currentTracks = updatedTracks
                     _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
                 } else {
-                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
+                    if (lyricsCache[track.id] == null && currentTracks.find { it.id == track.id }?.lyrics == null) {
+                        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
+                    }
                 }
             }
         }
@@ -1946,12 +2036,17 @@ class PlayerViewModel(
             val lyricsData = onlineRepository.fetchLyrics(customTitle, customArtist, customLang, durationSec)
             withContext(Dispatchers.Main) {
                 if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
-                    currentTracks = currentTracks.map {
+                    lyricsCache[trackId] = lyricsData
+                    saveLyricsToCache(trackId, lyricsData)
+                    val updatedTracks = currentTracks.map {
                         if (it.id == trackId) it.copy(lyrics = lyricsData) else it
                     }
+                    currentTracks = updatedTracks
                     _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.FOUND)
                 } else {
-                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.NOT_FOUND)
+                    if (lyricsCache[trackId] == null && currentTracks.find { it.id == trackId }?.lyrics == null) {
+                        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (trackId to LyricsFetchStatus.NOT_FOUND)
+                    }
                 }
             }
         }
@@ -1980,6 +2075,8 @@ class PlayerViewModel(
             )
         } else return
 
+        lyricsCache[trackId] = lyricsData
+        saveLyricsToCache(trackId, lyricsData)
         currentTracks = currentTracks.map {
             if (it.id == trackId) it.copy(lyrics = lyricsData) else it
         }
@@ -2343,9 +2440,9 @@ class PlayerViewModel(
     fun playTrackIfChanged(track: TrackEntity) {
         lastUserSkipTime = System.currentTimeMillis()
         Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: asked for ${track.id}. current=${_playbackState.value.currentTrackId}, isPlaying=${_playbackState.value.isPlaying}, lastRequested=$lastRequestedTrackId")
-        // Only skip if this track is ALREADY actively playing
-        if (_playbackState.value.isPlaying && (track.id == lastRequestedTrackId || track.id == _playbackState.value.currentTrackId)) {
-            Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: already actively playing. SKIPPING.")
+        // Only skip if this track is ALREADY actively playing or buffering
+        if ((_playbackState.value.isPlaying || _playbackState.value.isBuffering) && (track.id == lastRequestedTrackId || track.id == _playbackState.value.currentTrackId)) {
+            Log.d("MUESO_SYNC", "ViewModel playTrackIfChanged: already actively playing/buffering. SKIPPING.")
             return
         }
         val index = currentTracks.indexOfFirst { it.id == track.id }

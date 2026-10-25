@@ -25,8 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -132,44 +132,42 @@ fun VerticalPagerScreen(
         pageCount = { tracks.size }
     )
 
-    // Guard to prevent bidirectional sync feedback loop
-    var isSyncingFromVM by remember { mutableStateOf(false) }
-
     // Keep latest tracks for LaunchedEffect
     val currentTracksList by rememberUpdatedState(tracks)
-
     var isFirstSync by remember { mutableStateOf(true) }
 
-    // Sync Pager with ViewModel (when ExoPlayer changes track, e.g. auto-advance)
+    // Sync Pager with ViewModel (when ExoPlayer changes track externally, e.g. auto-advance or next/prev button)
     LaunchedEffect(currentTrackIndex) {
-        Log.d("MUESO_SYNC", "PlayerScreen UI: currentTrackIndex changed to $currentTrackIndex, pagerState is ${pagerState.currentPage}")
-        if (pagerState.currentPage != currentTrackIndex) {
-            isSyncingFromVM = true
-            if (isFirstSync) {
-                isFirstSync = false
-                Log.d("MUESO_SYNC", "PlayerScreen UI: initial instant scrollToPage to $currentTrackIndex")
-                pagerState.scrollToPage(currentTrackIndex)
+        if (currentTrackIndex in currentTracksList.indices) {
+            if (pagerState.currentPage != currentTrackIndex && !pagerState.isScrollInProgress) {
+                if (isFirstSync) {
+                    isFirstSync = false
+                    Log.d("MUESO_SYNC", "PlayerScreen UI: initial instant scrollToPage to $currentTrackIndex")
+                    pagerState.scrollToPage(currentTrackIndex)
+                } else {
+                    Log.d("MUESO_SYNC", "PlayerScreen UI: external track change -> animating pager to $currentTrackIndex")
+                    pagerState.animateScrollToPage(currentTrackIndex)
+                }
             } else {
-                Log.d("MUESO_SYNC", "PlayerScreen UI: animating pager to $currentTrackIndex")
-                pagerState.animateScrollToPage(currentTrackIndex)
-                Log.d("MUESO_SYNC", "PlayerScreen UI: done animating pager to $currentTrackIndex")
+                isFirstSync = false
             }
-            isSyncingFromVM = false
-        } else {
-            isFirstSync = false
         }
     }
 
-    // Sync ViewModel with Pager (when user manually swipes)
+    // Sync ViewModel with Pager (only when user finishes scrolling and settles on a new page)
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
-            .drop(1)
-            .debounce(300) // Wait for user to truly settle during rapid swiping
-            .collect { page ->
-                Log.d("MUESO_SYNC", "PlayerScreen UI: pager settled on page $page. isSyncingFromVM=$isSyncingFromVM")
-                if (!isSyncingFromVM && currentTracksList.isNotEmpty() && page < currentTracksList.size) {
-                    val track = currentTracksList[page]
-                    Log.d("MUESO_SYNC", "PlayerScreen UI: Calling playTrackIfChanged for ${track.id}")
+        snapshotFlow {
+            val isScrolling = pagerState.isScrollInProgress
+            val settled = pagerState.settledPage
+            val current = pagerState.currentPage
+            if (!isScrolling && settled == current) settled else null
+        }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { settledPage ->
+                if (settledPage in currentTracksList.indices && settledPage != currentTrackIndex) {
+                    val track = currentTracksList[settledPage]
+                    Log.d("MUESO_SYNC", "PlayerScreen UI: user settled on page $settledPage -> playTrackIfChanged for ${track.id}")
                     viewModel.playTrackIfChanged(track)
                 }
             }
