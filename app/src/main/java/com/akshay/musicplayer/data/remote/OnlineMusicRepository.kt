@@ -64,7 +64,7 @@ class OnlineMusicRepository {
             )
             // 4. Remove standalone noise words
             t = t.replace(
-                Regex("(?i)\\b(?:official\\s*(?:music\\s*)?(?:video|audio)|lyrical\\s*video|full\\s*video(?:\\s*song)?|video\\s*song|video\\s*(?:song\\s*)?with\\s*lyrics|with\\s*lyrics|lyrics?\\s*video|song\\s*with\\s*lyrics)\\b"),
+                Regex("(?i)\\b(?:official\\s*(?:music\\s*)?(?:video|audio)|lyrical\\s*video|full\\s*video(?:\\s*song)?|video\\s*song|video\\s*(?:song\\s*)?with\\s*lyrics|with\\s*lyrics|lyrics?\\s*video|song\\s*with\\s*lyrics|lyrical|lyrics?|full\\s*song|audio\\s*song)\\b"),
                 " "
             )
             // 5. Remove (From "...") or (feat. ...)

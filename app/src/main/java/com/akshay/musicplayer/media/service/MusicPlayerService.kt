@@ -281,12 +281,13 @@ class MusicPlayerService : MediaSessionService() {
                         ipParam.contains(":") -> 6
                         else -> 4
                     }
-                    val isMobile = urlStr.contains("c=IOS") || urlStr.contains("c=ANDROID")
+                    val isMobile = urlStr.contains("c=IOS") || urlStr.contains("c=ANDROID") || (!urlStr.contains("c=WEB") && !urlStr.contains("c=TVHTML5"))
                     val ua = when {
                         urlStr.contains("c=IOS") -> "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)"
                         urlStr.contains("c=ANDROID") -> "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip"
                         urlStr.contains("c=TVHTML5") -> "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
-                        else -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        urlStr.contains("c=WEB") -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        else -> "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)"
                     }
                     requestBuilder.header("User-Agent", ua)
                     if (isMobile) {
@@ -312,6 +313,7 @@ class MusicPlayerService : MediaSessionService() {
                         val errBody = try { response.peekBody(1024).string() } catch (_: Exception) { "none" }
                         android.util.Log.w("MUESO_HTTP", "HTTP 403 from googlevideo! Family=$family, IP=$ipParam, UA=$ua, Body: $errBody")
                         com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.clearAllCache()
+                        com.akshay.musicplayer.data.remote.stream.YouTubeStreamResolver.clearAllCache()
                     }
                     response
                 } else {

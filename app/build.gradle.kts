@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp") version "2.3.2"
+    id("com.google.devtools.ksp") version "2.3.6"
 }
 
 fun getGitCommitSha(): String {
@@ -28,7 +28,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 11
-        versionName = "v1.5.3"
+        versionName = "v1.5.4"
 
         val gitSha = getGitCommitSha()
         val buildTime = System.currentTimeMillis()

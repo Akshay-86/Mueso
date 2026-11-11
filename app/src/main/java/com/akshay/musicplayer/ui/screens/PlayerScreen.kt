@@ -139,7 +139,8 @@ fun VerticalPagerScreen(
     // Sync Pager with ViewModel (when ExoPlayer changes track externally, e.g. auto-advance or next/prev button)
     LaunchedEffect(currentTrackIndex) {
         if (currentTrackIndex in currentTracksList.indices) {
-            if (pagerState.currentPage != currentTrackIndex && !pagerState.isScrollInProgress) {
+            val isCurrentOrSettled = pagerState.currentPage == currentTrackIndex || pagerState.settledPage == currentTrackIndex
+            if (!isCurrentOrSettled && !pagerState.isScrollInProgress) {
                 if (isFirstSync) {
                     isFirstSync = false
                     Log.d("MUESO_SYNC", "PlayerScreen UI: initial instant scrollToPage to $currentTrackIndex")

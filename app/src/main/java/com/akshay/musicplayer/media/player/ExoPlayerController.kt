@@ -260,7 +260,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             if (newIndex >= 0) {
                 currentQueueIndex = newIndex
                 val currentTrack = tracksQueue[newIndex]
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && currentTrack.filePath.startsWith("online:") && !isPlayingLosslessOnline && !isPlayingDirectOnline) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && isOnlineTrack(currentTrack) && !isPlayingLosslessOnline && !isPlayingDirectOnline) {
                     Log.d("MUESO_SYNC", "ExoPlayer transitioned into online track '${currentTrack.title}'. Handing off to online player.")
                     seekToIndex(newIndex)
                     return
@@ -288,7 +288,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
             val curTrack = tracksQueue.getOrNull(currentQueueIndex) ?: currentOnlineTrack
             val videoId = if (curTrack != null) onlineRepo.extractVideoId(curTrack) else ""
-            val isOnlineStream = curTrack != null && (curTrack.filePath.startsWith("http") || curTrack.filePath.startsWith("online:") || isPlayingLosslessOnline || isPlayingDirectOnline) && videoId.isNotBlank()
+            val isOnlineStream = curTrack != null && (isOnlineTrack(curTrack) || isPlayingLosslessOnline || isPlayingDirectOnline) && videoId.isNotBlank()
             val isNetDown = !com.akshay.musicplayer.data.remote.NetworkMonitor.isConnected()
 
             // Capture the playback position BEFORE updatePlaybackState() resets it to 0, ONLY if it belongs to the current track
@@ -1265,10 +1265,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         }
 
         try {
-            val noisyFilter = IntentFilter().apply {
-                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
-            }
+            val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             ContextCompat.registerReceiver(
                 context,
                 noisyReceiver,
@@ -1276,9 +1273,22 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 ContextCompat.RECEIVER_EXPORTED
             )
             isNoisyReceiverRegistered = true
-            Log.d("ExoPlayerController", "Successfully registered audio becoming noisy & bluetooth receiver")
+            Log.d("ExoPlayerController", "Successfully registered audio becoming noisy receiver")
         } catch (e: Exception) {
-            Log.w("ExoPlayerController", "Failed to register noisy receiver", e)
+            Log.w("ExoPlayerController", "Failed to register audio becoming noisy receiver", e)
+        }
+
+        try {
+            val btFilter = IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            ContextCompat.registerReceiver(
+                context,
+                noisyReceiver,
+                btFilter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            Log.d("ExoPlayerController", "Successfully registered bluetooth connection receiver")
+        } catch (e: Exception) {
+            Log.w("ExoPlayerController", "Bluetooth receiver registration skipped (requires BLUETOOTH_CONNECT on Android 12+)", e)
         }
 
         val sessionToken = SessionToken(context, ComponentName(context, MusicPlayerService::class.java))
@@ -1803,8 +1813,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             }
 
             val isBufferingStalled = controller.playbackState == Player.STATE_BUFFERING && (isPlayingDirectOnline || isPlayingLosslessOnline)
-            val shouldPause = ((controller.playWhenReady && controller.playbackState != Player.STATE_ENDED && controller.playbackState != Player.STATE_IDLE && !isBufferingStalled) || controller.isPlaying)
+            val shouldPause = ((controller.playWhenReady && controller.playbackState != Player.STATE_ENDED && controller.playbackState != Player.STATE_IDLE) || controller.isPlaying)
             if (shouldPause) {
+                bufferingWatchdogJob?.cancel()
                 controller.pause()
                 _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
             } else {
@@ -1843,12 +1854,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
         networkRetryJob?.cancel()
         onlineResolutionJob?.cancel()
         isWaitingForNetwork = false
+        ytPlayerManager.pause()
+        mediaController?.pause()
+        _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
         if (isPlayingOnline) {
-            ytPlayerManager.pause()
             currentOnlineTrack?.let { syncMediaSessionForOnlineTrack(it, isPlaying = false) }
-        } else {
-            mediaController?.pause()
-            _playbackState.value = _playbackState.value.copy(isPlaying = false, isBuffering = false)
         }
     }
 
@@ -1955,9 +1965,6 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
 
         // Immediately pause current audio output to prevent audio bleed when skipping to a new track
         mediaController?.pause()
-        if (isTargetOnline || isOnlinePlaybackOrQueue()) {
-            mediaController?.clearMediaItems()
-        }
         ytPlayerManager.pause()
 
         // Keep CPU & Wi-Fi awake during track resolution and handover

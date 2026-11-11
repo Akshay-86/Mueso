@@ -1,9 +1,12 @@
 # Gradle files
 .gradle/
 build/
+**/build/
+.kotlin/
 
-# Android Studio / IntelliJ IDEA files
+# Android Studio / IntelliJ IDEA / VS Code
 .idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
@@ -15,8 +18,10 @@ local.properties
 # Log files
 *.log
 
-# Android Captures
+# Android Captures & Memory Dumps
 captures/
+*.hprof
+anr/
 
 # External native build artifacts
 .externalNativeBuild/
@@ -31,6 +36,14 @@ captures/
 ehthumbs.db
 Thumbs.db
 
+# Node & Media / Video Generation Artifacts
+node_modules/
+.hyperframes/
+brag-output/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Python
 __pycache__/
 *.pyc
@@ -39,6 +52,7 @@ __pycache__/
 *.jks
 *.keystore
 credentials.txt
+google-services.json
 
 # Optional: Ignore backup files
 *.bak

@@ -716,19 +716,19 @@ class PlayerViewModel(
         }
 
     val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
-        val currentTrackId = state.currentTrackId
-        if (currentTrackId != null) {
-            val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 }
-            if (index != null) {
-                return@combine index
-            }
-        }
-        // Use the pending requested track as a secondary lookup (e.g. user clicked song #4 but ExoPlayer hasn't confirmed yet)
+        // Prioritize pending requested track during async track handover to prevent UI snapback
         val requestedId = lastRequestedTrackId
         if (requestedId != null) {
             val pendingIndex = queue.indexOfFirst { it.id == requestedId }.takeIf { it >= 0 }
             if (pendingIndex != null) {
                 return@combine pendingIndex
+            }
+        }
+        val currentTrackId = state.currentTrackId
+        if (currentTrackId != null) {
+            val index = queue.indexOfFirst { it.id == currentTrackId }.takeIf { it >= 0 }
+            if (index != null) {
+                return@combine index
             }
         }
         getRestoredTrackIndex()
@@ -1724,7 +1724,6 @@ class PlayerViewModel(
                     if (lastSkippedSegmentEndMs == seg.endMs) continue
                     lastSponsorActionTime = now
                     lastSkippedSegmentEndMs = seg.endMs
-                    activeSponsorSegments = emptyList()
                     Log.d("MUESO_SPONSOR", "Auto-skipping outro segment (${seg.category}) from ${seg.startMs}ms to ${seg.endMs}ms for '${track.title}' -> seeking to next track")
                     mediaPlayerController.seekToNext()
                     break
@@ -1766,6 +1765,7 @@ class PlayerViewModel(
             lastPrefetchedNextIndex = nextIndex
             activeNextStreamJob?.cancel()
             activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                delay(600) // Debounce rapid skips to avoid HTTP 429
                 Log.d("MUESO_QUEUE", "Warming/resolving search query for next track at index $nextIndex: ${nextTrack.title}")
                 val resolvedNext = resolveTrack(nextTrack)
                 withContext(Dispatchers.Main) {
@@ -1791,6 +1791,7 @@ class PlayerViewModel(
                 }
                 activeNextStreamJob?.cancel()
                 activeNextStreamJob = viewModelScope.launch(Dispatchers.IO) {
+                    delay(600) // Debounce rapid skips to avoid HTTP 429
                     Log.d("MUESO_QUEUE", "Warming stream URL for next track at index $nextIndex: ${nextTrack.title} ($vid)")
                     onlineRepository.resolveStreamUrl(vid, com.akshay.musicplayer.AppContainer.getContext())
                 }
@@ -1978,27 +1979,40 @@ class PlayerViewModel(
 
         activeLyricsFetchJob?.cancel()
         activeLyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(300) // Debounce rapid swiping
-            if (_playbackState.value.currentTrackId != track.id) return@launch
+            try {
+                delay(300) // Debounce rapid swiping
+                if (_playbackState.value.currentTrackId != track.id) {
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value - track.id
+                    return@launch
+                }
 
-            val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
-            val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value, durationSec)
-            if (_playbackState.value.currentTrackId != track.id) return@launch
+                val durationSec = if (track.duration > 0) (track.duration / 1000).toInt() else 0
+                val lyricsData = onlineRepository.fetchLyrics(track.title, track.artist, preferredLanguage.value, durationSec)
+                if (_playbackState.value.currentTrackId != track.id) {
+                    _lyricsFetchStatus.value = _lyricsFetchStatus.value - track.id
+                    return@launch
+                }
 
-            withContext(Dispatchers.Main) {
-                if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
-                    lyricsCache[track.id] = lyricsData
-                    saveLyricsToCache(track.id, lyricsData)
-                    val updatedTracks = currentTracks.map {
-                        if (it.id == track.id) it.copy(lyrics = lyricsData) else it
-                    }
-                    currentTracks = updatedTracks
-                    _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
-                } else {
-                    if (lyricsCache[track.id] == null && currentTracks.find { it.id == track.id }?.lyrics == null) {
-                        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
+                withContext(Dispatchers.Main) {
+                    if (lyricsData != null && (lyricsData.lines.isNotEmpty() || !lyricsData.rawText.isNullOrBlank())) {
+                        lyricsCache[track.id] = lyricsData
+                        saveLyricsToCache(track.id, lyricsData)
+                        val updatedTracks = currentTracks.map {
+                            if (it.id == track.id) it.copy(lyrics = lyricsData) else it
+                        }
+                        currentTracks = updatedTracks
+                        _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.FOUND)
+                    } else {
+                        if (lyricsCache[track.id] == null && currentTracks.find { it.id == track.id }?.lyrics == null) {
+                            _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
+                        }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _lyricsFetchStatus.value = _lyricsFetchStatus.value - track.id
+                throw e
+            } catch (e: Exception) {
+                _lyricsFetchStatus.value = _lyricsFetchStatus.value + (track.id to LyricsFetchStatus.NOT_FOUND)
             }
         }
     }

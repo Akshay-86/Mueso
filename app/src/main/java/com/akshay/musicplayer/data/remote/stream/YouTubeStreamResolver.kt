@@ -165,9 +165,12 @@ class YouTubeStreamResolver(
         for (strategy in strategies) {
             val url = tryPlayerEndpoint(videoId, strategy, qualityPreference)
             if (url != null) {
-                Log.d(TAG, "Resolved via ${strategy.label} for $videoId (quality=$qualityPreference, url length=${url.length})")
-                streamCache[cacheKey] = CachedStream(url, System.currentTimeMillis() + 3 * 3600 * 1000L)
-                return@withContext url
+                val taggedUrl = if (!url.contains("c=")) {
+                    if (url.contains("?")) "$url&c=${strategy.label}" else "$url?c=${strategy.label}"
+                } else url
+                Log.d(TAG, "Resolved via ${strategy.label} for $videoId (quality=$qualityPreference, url length=${taggedUrl.length})")
+                streamCache[cacheKey] = CachedStream(taggedUrl, System.currentTimeMillis() + 3 * 3600 * 1000L)
+                return@withContext taggedUrl
             }
         }
 
