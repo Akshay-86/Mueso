@@ -220,6 +220,9 @@ fun SpotifyImportScreen(
     }
 
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
         topBar = {
             TopAppBar(
                 title = {
@@ -270,7 +273,7 @@ fun SpotifyImportScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = 16.dp)
                     )
                 }
             }
@@ -283,7 +286,7 @@ fun SpotifyImportScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 140.dp)
         ) {
             // ─── Header / URL Section ───
             item {

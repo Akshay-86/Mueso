@@ -92,6 +92,9 @@ fun SmartArtworkImage(
             ImageRequest.Builder(context)
                 .data(dataModel)
                 .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .networkCachePolicy(coil.request.CachePolicy.ENABLED)
                 .crossfade(true)
                 .build()
         }

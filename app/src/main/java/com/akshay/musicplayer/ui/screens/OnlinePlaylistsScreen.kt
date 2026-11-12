@@ -132,6 +132,13 @@ fun OnlinePlaylistsScreen(
     val isDetailOpen = selectedPlaylist != null || selectedCustomPlaylist != null
     LaunchedEffect(isDetailOpen, showSpotifySyncScreen) {
         onDetailVisibilityChanged(isDetailOpen || showSpotifySyncScreen)
+        viewModel.setSpotifyImportOpen(showSpotifySyncScreen)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.setSpotifyImportOpen(false)
+        }
     }
 
     androidx.activity.compose.BackHandler(enabled = isDetailOpen || showSpotifySyncScreen) {

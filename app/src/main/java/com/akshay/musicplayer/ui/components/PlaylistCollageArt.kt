@@ -24,7 +24,7 @@ fun PlaylistCollageArt(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
     fallbackGradient: List<Color> = listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
-    thumbnailQuality: String = "Highest (1080p Maxres)"
+    thumbnailQuality: String = "Low (Fast)"
 ) {
     val artworkUrls = tracks.mapNotNull { track ->
         val url = track.artworkUrl

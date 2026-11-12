@@ -211,12 +211,14 @@ fun SettingsScreen(
     DisposableEffect(Unit) {
         onDispose {
             viewModel.resetUpdateState()
+            viewModel.setSpotifyImportOpen(false)
         }
     }
 
     // Handle sub-screen back navigation
     androidx.activity.compose.BackHandler(enabled = showSpotifyImport) {
         showSpotifyImport = false
+        viewModel.setSpotifyImportOpen(false)
     }
     androidx.activity.compose.BackHandler(enabled = showAboutPage) {
         showAboutPage = false
@@ -809,7 +811,10 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showSpotifyImport = true }
+                                .clickable {
+                                    showSpotifyImport = true
+                                    viewModel.setSpotifyImportOpen(true)
+                                }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1368,7 +1373,10 @@ fun SettingsScreen(
         ) {
             SpotifyImportScreen(
                 viewModel = viewModel,
-                onBackClick = { showSpotifyImport = false }
+                onBackClick = {
+                    showSpotifyImport = false
+                    viewModel.setSpotifyImportOpen(false)
+                }
             )
         }
 

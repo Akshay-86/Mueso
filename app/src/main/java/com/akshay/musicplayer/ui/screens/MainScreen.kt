@@ -89,6 +89,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val googleAccount by viewModel.googleAccount.collectAsState()
 
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    val isSpotifyImportOpen by viewModel.isSpotifyImportOpen.collectAsState()
     var classicNavTab by remember { mutableStateOf(ClassicNavTab.LIBRARY) }
     var isClassicPlayerExpanded by remember { mutableStateOf(false) }
 
@@ -259,48 +260,61 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         }
                     }
 
-                    // Floating MiniPlayer & Bottom Navigation Bar overlay
-                    Column(
+                    // Floating MiniPlayer & Bottom Navigation Bar overlay (hidden when Spotify Import is open)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !isSpotifyImportOpen,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        enter = androidx.compose.animation.slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + androidx.compose.animation.fadeIn(tween(180)),
+                        exit = androidx.compose.animation.slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(200, easing = FastOutSlowInEasing)
+                        ) + androidx.compose.animation.fadeOut(tween(160))
                     ) {
-                        // Floating MiniPlayer with enter/exit transition
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive,
-                            enter = androidx.compose.animation.fadeIn(animationSpec = tween(180, delayMillis = 60)) +
-                                    androidx.compose.animation.scaleIn(initialScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f)),
-                            exit = androidx.compose.animation.fadeOut(animationSpec = tween(150)) +
-                                    androidx.compose.animation.scaleOut(targetScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f))
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            DockedMiniPlayer(
-                                track = currentTrack,
-                                playbackState = playbackState,
-                                audioFormat = activeAudioFormat,
+                            // Floating MiniPlayer with enter/exit transition
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = currentTrack != null && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive,
+                                enter = androidx.compose.animation.fadeIn(animationSpec = tween(180, delayMillis = 60)) +
+                                        androidx.compose.animation.scaleIn(initialScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f)),
+                                exit = androidx.compose.animation.fadeOut(animationSpec = tween(150)) +
+                                        androidx.compose.animation.scaleOut(targetScale = 0.88f, transformOrigin = TransformOrigin(0.5f, 0.5f))
+                            ) {
+                                DockedMiniPlayer(
+                                    track = currentTrack,
+                                    playbackState = playbackState,
+                                    audioFormat = activeAudioFormat,
+                                    isDarkMode = isDarkMode,
+                                    onExpandClick = { isClassicPlayerExpanded = true },
+                                    onPlayPauseClick = { viewModel.togglePlayPause() },
+                                    onPreviousClick = { viewModel.playPreviousTrack() },
+                                    onNextClick = { viewModel.playNextTrack() },
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
+
+                            // Persistent Bottom Navigation Bar
+                            ClassicBottomBar(
+                                currentTab = classicNavTab,
                                 isDarkMode = isDarkMode,
-                                onExpandClick = { isClassicPlayerExpanded = true },
-                                onPlayPauseClick = { viewModel.togglePlayPause() },
-                                onPreviousClick = { viewModel.playPreviousTrack() },
-                                onNextClick = { viewModel.playNextTrack() },
-                                modifier = Modifier.padding(bottom = 6.dp)
+                                onTabSelected = { tab ->
+                                    classicNavTab = tab
+                                    coroutineScope.launch {
+                                        classicPagerState.animateScrollToPage(
+                                            page = tab.ordinal,
+                                            animationSpec = tween(280, easing = FastOutSlowInEasing)
+                                        )
+                                    }
+                                }
                             )
                         }
-
-                        // Persistent Bottom Navigation Bar
-                        ClassicBottomBar(
-                            currentTab = classicNavTab,
-                            isDarkMode = isDarkMode,
-                            onTabSelected = { tab ->
-                                classicNavTab = tab
-                                coroutineScope.launch {
-                                    classicPagerState.animateScrollToPage(
-                                        page = tab.ordinal,
-                                        animationSpec = tween(280, easing = FastOutSlowInEasing)
-                                    )
-                                }
-                            }
-                        )
                     }
                 }
 

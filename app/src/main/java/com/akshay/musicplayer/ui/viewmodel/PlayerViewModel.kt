@@ -571,6 +571,13 @@ class PlayerViewModel(
     val spotifySyncTargetPlaylistName = spotifyImportManager.syncTargetPlaylistName
     val spotifyIsSyncMode: Boolean get() = spotifyImportManager.isSyncMode
 
+    private val _isSpotifyImportOpen = MutableStateFlow(false)
+    val isSpotifyImportOpen: StateFlow<Boolean> = _isSpotifyImportOpen.asStateFlow()
+
+    fun setSpotifyImportOpen(isOpen: Boolean) {
+        _isSpotifyImportOpen.value = isOpen
+    }
+
     fun fetchSpotifyPlaylist(context: android.content.Context, url: String) = spotifyImportManager.fetchAndMatch(context, url)
     fun syncSpotifyPlaylist(
         context: android.content.Context,
@@ -2860,17 +2867,16 @@ class PlayerViewModel(
     fun forceRefreshAll(context: android.content.Context) {
         val editor = sharedPreferences.edit()
         val keys = sharedPreferences.all.keys.filter {
-            it.startsWith("curated_cache_") || it.startsWith("custom_lyrics_") || it.startsWith("lyrics_offset_")
+            it.startsWith("curated_cache_")
         }
         for (k in keys) {
             editor.remove(k)
         }
         editor.apply()
-        _lyricsOffsetMs.value = 0L
 
         playlistManager.refreshAllPlaylistArtworks()
         loadLocalTracks(forceReload = true)
-        android.widget.Toast.makeText(context, "App refreshed! Lyrics, offsets & caches reset.", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, "Library rescanned & explore caches refreshed.", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     fun getQueueTracks(): List<TrackEntity> = currentTracks
