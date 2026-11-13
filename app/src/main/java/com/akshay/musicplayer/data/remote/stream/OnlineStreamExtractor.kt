@@ -199,6 +199,16 @@ object OnlineStreamExtractor {
                     super.onPageFinished(view, url)
                     view?.evaluateJavascript("if (window.YtResolver && window.AndroidBridge) { window.AndroidBridge.onReady(); }", null)
                 }
+
+                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                    Log.w(TAG, "Headless resolver WebView render process gone; resetting instance")
+                    try {
+                        persistentWebView?.destroy()
+                    } catch (_: Exception) {}
+                    persistentWebView = null
+                    isBundleLoaded = false
+                    return true
+                }
             }
 
             val html = """
@@ -259,7 +269,7 @@ object OnlineStreamExtractor {
         if (videoId.isBlank()) return null
 
         // 1. Instant check in cache
-        val cached = streamCache[videoId]
+        val cached = getCachedStreamUrl(videoId)
         if (!cached.isNullOrBlank()) {
             Log.d(TAG, "Found in-memory cached stream for $videoId")
             return cached
@@ -267,7 +277,7 @@ object OnlineStreamExtractor {
 
         // 2. Headless WebView extraction via bundled Innertube + BotGuard (one at a time, matching Zuno's withDownloadLock)
         return resolveMutex.withLock {
-            val cachedInLock = streamCache[videoId]
+            val cachedInLock = getCachedStreamUrl(videoId)
             if (!cachedInLock.isNullOrBlank()) {
                 return@withLock cachedInLock
             }
@@ -280,6 +290,11 @@ object OnlineStreamExtractor {
                 while (!isBundleLoaded && waitCount < 50) {
                     delay(100L)
                     waitCount++
+                }
+
+                if (persistentWebView == null) {
+                    Log.w(TAG, "persistentWebView is null, cannot extract stream for $videoId")
+                    return@withContext null
                 }
 
                 withTimeoutOrNull(6000L) {

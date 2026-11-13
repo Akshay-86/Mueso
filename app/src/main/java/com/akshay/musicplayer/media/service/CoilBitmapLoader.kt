@@ -106,10 +106,17 @@ class CoilBitmapLoader(private val context: Context) : BitmapLoader {
             }
             // Try extracting embedded picture via MediaMetadataRetriever
             try {
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(context, uri)
-                val rawBytes = retriever.embeddedPicture
-                retriever.release()
+                val rawBytes = try {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        retriever.embeddedPicture
+                    } finally {
+                        retriever.release()
+                    }
+                } catch (_: Exception) {
+                    null
+                }
                 if (rawBytes != null) {
                     val bm = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
                     if (bm != null) return bm
@@ -124,10 +131,17 @@ class CoilBitmapLoader(private val context: Context) : BitmapLoader {
             if (file.exists()) {
                 // Try extracting embedded audio metadata
                 try {
-                    val retriever = MediaMetadataRetriever()
-                    retriever.setDataSource(file.absolutePath)
-                    val rawBytes = retriever.embeddedPicture
-                    retriever.release()
+                    val rawBytes = try {
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(file.absolutePath)
+                            retriever.embeddedPicture
+                        } finally {
+                            retriever.release()
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
                     if (rawBytes != null) {
                         val bm = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
                         if (bm != null) return bm

@@ -294,5 +294,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
         _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
         _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
+        _preferredLanguage.value = sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu"
     }
 }

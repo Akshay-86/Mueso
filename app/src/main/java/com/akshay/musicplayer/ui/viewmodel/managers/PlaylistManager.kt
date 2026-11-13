@@ -119,23 +119,20 @@ class PlaylistManager(
     }
 
     fun addTracksToPlaylist(playlistId: Long, trackIds: List<Long>) {
+        if (trackIds.isEmpty()) return
         coroutineScope.launch(Dispatchers.IO) {
             var maxIndex = playlistDao.getMaxOrderIndex(playlistId)
-            trackIds.forEach { trackId ->
+            val refs = trackIds.map { trackId ->
                 maxIndex++
-                playlistDao.insertTrackIntoPlaylist(
-                    PlaylistTrackCrossRef(playlistId, trackId, maxIndex)
-                )
+                PlaylistTrackCrossRef(playlistId, trackId, maxIndex)
             }
+            playlistDao.insertPlaylistTracks(refs)
         }
     }
 
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
-            playlistDao.removeTrackFromPlaylist(playlistId, trackId)
-            val crossRefs = playlistDao.getPlaylistTracksSync(playlistId).toMutableList()
-            val updated = crossRefs.mapIndexed { index, ref -> ref.copy(orderIndex = index) }
-            playlistDao.updatePlaylistTracks(updated)
+            playlistDao.removeTrackAndReorder(playlistId, trackId)
         }
     }
 
@@ -181,7 +178,24 @@ class PlaylistManager(
 
     fun deleteOnlinePlaylist(playlistId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
+            val tracks = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
             onlinePlaylistDao.deleteOnlinePlaylistAndTracks(playlistId)
+            if (tracks.isNotEmpty()) {
+                val editor = sharedPreferences.edit()
+                for (t in tracks) {
+                    editor.remove("bg_bias_${t.trackId}")
+                    val videoId = if (t.filePath.startsWith("online_") || t.filePath.startsWith("youtube_")) {
+                        t.filePath.substringAfter("online_").substringAfter("youtube_")
+                    } else null
+                    if (!videoId.isNullOrBlank()) {
+                        editor.remove("bg_bias_$videoId")
+                    }
+                    if (!t.title.isNullOrBlank() && !t.artist.isNullOrBlank()) {
+                        editor.remove("bg_bias_${t.title.trim().lowercase()}_${t.artist.trim().lowercase()}")
+                    }
+                }
+                editor.apply()
+            }
             markDirty()
         }
     }
@@ -239,23 +253,23 @@ class PlaylistManager(
     }
 
     fun addTracksToOnlinePlaylist(playlistId: Long, tracks: List<TrackEntity>) {
+        if (tracks.isEmpty()) return
         coroutineScope.launch(Dispatchers.IO) {
             val existing = onlinePlaylistDao.getOnlinePlaylistTracksSync(playlistId)
             var nextOrder = existing.size
-            tracks.forEach { track ->
-                onlinePlaylistDao.insertOnlineTrack(
-                    OnlinePlaylistTrackEntity(
-                        onlinePlaylistId = playlistId,
-                        trackId = track.id,
-                        title = track.title,
-                        artist = track.artist,
-                        artworkUrl = onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl,
-                        filePath = track.filePath,
-                        duration = track.duration,
-                        orderIndex = nextOrder++
-                    )
+            val trackEntities = tracks.map { track ->
+                OnlinePlaylistTrackEntity(
+                    onlinePlaylistId = playlistId,
+                    trackId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    artworkUrl = onlineRepository.getHighResArtworkUrl(track.artworkUrl) ?: track.artworkUrl,
+                    filePath = track.filePath,
+                    duration = track.duration,
+                    orderIndex = nextOrder++
                 )
             }
+            onlinePlaylistDao.insertOnlineTracks(trackEntities)
             updateCachedPlaylistArtwork(playlistId)
             markDirty()
         }
@@ -284,7 +298,7 @@ class PlaylistManager(
 
     fun removeTrackFromOnlinePlaylist(playlistId: Long, trackId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
-            onlinePlaylistDao.removeOnlineTrack(playlistId, trackId)
+            onlinePlaylistDao.removeTrackAndReorder(playlistId, trackId)
             updateCachedPlaylistArtwork(playlistId)
             markDirty()
         }

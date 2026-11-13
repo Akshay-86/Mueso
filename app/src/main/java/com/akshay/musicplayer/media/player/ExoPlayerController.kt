@@ -99,6 +99,15 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var networkRetryJob: Job? = null
     private var bufferingWatchdogJob: Job? = null
 
+    private val networkRestoredListener: () -> Unit = {
+        mainHandler.post {
+            if (isWaitingForNetwork) {
+                Log.i("MUESO_NET", "Network restored callback fired in ExoPlayerController! Resuming playback...")
+                retryPendingNetworkTrack()
+            }
+        }
+    }
+
     override fun isWaitingForNetwork(): Boolean = isWaitingForNetwork
     override fun getCurrentQueue(): List<TrackEntity> = tracksQueue
     override fun getCurrentQueueIndex(): Int = currentQueueIndex
@@ -558,7 +567,9 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             isSyncingToMediaSession = true
             com.akshay.musicplayer.media.service.MediaSessionBridge.isSyncing = true
             try {
-                controller.volume = 0f
+                if (!isPlayingDirectOnline) {
+                    controller.volume = 0f
+                }
 
                 val currentId = controller.currentMediaItem?.mediaId
                 if (currentId != track.id.toString()) {
@@ -1125,14 +1136,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             }
         }
 
-        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener {
-            mainHandler.post {
-                if (isWaitingForNetwork) {
-                    Log.i("MUESO_NET", "Network restored callback fired in ExoPlayerController! Resuming playback...")
-                    retryPendingNetworkTrack()
-                }
-            }
-        }
+        com.akshay.musicplayer.data.remote.NetworkMonitor.addOnNetworkRestoredListener(networkRestoredListener)
 
         com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = {
             mainHandler.post { seekToNext() }
@@ -1194,7 +1198,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 context,
                 noisyReceiver,
                 noisyFilter,
-                ContextCompat.RECEIVER_EXPORTED
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
             isNoisyReceiverRegistered = true
             Log.d("ExoPlayerController", "Successfully registered audio becoming noisy receiver")
@@ -1208,7 +1212,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
                 context,
                 noisyReceiver,
                 btFilter,
-                ContextCompat.RECEIVER_EXPORTED
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
             Log.d("ExoPlayerController", "Successfully registered bluetooth connection receiver")
         } catch (e: Exception) {
@@ -2109,6 +2113,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     }
 
     override fun release() {
+        com.akshay.musicplayer.data.remote.NetworkMonitor.removeOnNetworkRestoredListener(networkRestoredListener)
         if (!com.akshay.musicplayer.media.service.MediaSessionBridge.isServiceRunning) {
             com.akshay.musicplayer.media.service.MediaSessionBridge.onNextRequested = null
             com.akshay.musicplayer.media.service.MediaSessionBridge.onPreviousRequested = null

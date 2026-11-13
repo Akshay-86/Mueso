@@ -147,23 +147,40 @@ fun ClassicPlayerScreen(
     // Seekbar state
     var isDraggingSlider by remember { mutableStateOf(false) }
     var dragSliderValue by remember { mutableFloatStateOf(0f) }
+    var pendingSeekPosition by remember { mutableStateOf<Long?>(null) }
 
-    val currentPosMs = if (isDraggingSlider) dragSliderValue.toLong() else playbackState.currentPositionMs
+    androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
+        if (pendingSeekPosition != null && kotlin.math.abs(playbackState.currentPositionMs - pendingSeekPosition!!) <= 1500L) {
+            pendingSeekPosition = null
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(playbackState.currentTrackId) {
+        pendingSeekPosition = null
+    }
+
+    val currentPosMs = if (isDraggingSlider) dragSliderValue.toLong() else pendingSeekPosition ?: playbackState.currentPositionMs
     val durationMs = playbackState.durationMs.coerceAtLeast(1L)
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(bgColor)
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { change, dragAmount ->
-                        if (dragAmount > 15f) {
-                            change.consume()
-                            onCollapseClick()
+            .pointerInput(isLyricsVisible) {
+                if (!isLyricsVisible) {
+                    var totalDragY = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDragY = 0f },
+                        onDragEnd = { totalDragY = 0f },
+                        onDragCancel = { totalDragY = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            totalDragY += dragAmount
+                            if (totalDragY > 120f && dragAmount > 0f) {
+                                change.consume()
+                                onCollapseClick()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -321,8 +338,10 @@ fun ClassicPlayerScreen(
                             dragSliderValue = it
                         },
                         onValueChangeFinished = {
+                            val target = dragSliderValue.toLong()
+                            pendingSeekPosition = target
                             isDraggingSlider = false
-                            viewModel.seekTo(dragSliderValue.toLong())
+                            viewModel.seekTo(target)
                         },
                         valueRange = 0f..durationMs.toFloat(),
                         colors = sliderColors,

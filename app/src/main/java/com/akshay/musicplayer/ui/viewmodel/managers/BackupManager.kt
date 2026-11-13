@@ -8,6 +8,7 @@ import com.akshay.musicplayer.data.db.PlaylistDao
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -467,8 +468,11 @@ class BackupManager(
             } catch (e: Exception) {
                 android.util.Log.e("MUESO_BACKUP", "connectAndBackupGoogleAccount error: ${e.message}", e)
                 withContext(Dispatchers.Main) {
-                    _isBackupInProgress.value = false
                     onResult(false, e.message ?: "Sign-in verification failed")
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    _isBackupInProgress.value = false
                 }
             }
         }
@@ -585,9 +589,12 @@ class BackupManager(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    _isBackupInProgress.value = false
                     com.akshay.musicplayer.media.notification.NotificationHelper.dismissBackupNotification(context)
                     onResult(false, e.message ?: "Backup failed")
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    _isBackupInProgress.value = false
                 }
             }
         }
@@ -753,8 +760,11 @@ class BackupManager(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    _isRestoreInProgress.value = false
                     onResult(false, e.message ?: "Restore failed")
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    _isRestoreInProgress.value = false
                 }
             }
         }

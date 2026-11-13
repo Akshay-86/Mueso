@@ -121,9 +121,47 @@ class BackupWorker(
                 }
             }
 
+            val backupSettings = if (backupSettingsEnabled) {
+                val currentHeroId = sharedPrefs.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global"
+                var heroName: String? = null
+                if (currentHeroId.startsWith("custom_")) {
+                    val numericId = currentHeroId.removePrefix("custom_").toLongOrNull()
+                    if (numericId != null) {
+                        val p = db.onlinePlaylistDao().getOnlinePlaylistById(numericId)
+                        heroName = p?.name
+                    }
+                }
+                BackupSettings(
+                    heroPlaylistId = currentHeroId,
+                    heroPlaylistName = heroName,
+                    isDarkMode = sharedPrefs.getBoolean("is_dark_mode", true),
+                    showOnLockscreen = sharedPrefs.getBoolean("show_on_lockscreen", true),
+                    highRefreshRate = sharedPrefs.getBoolean("high_refresh_rate", false),
+                    audioQuality = sharedPrefs.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)",
+                    thumbnailQuality = sharedPrefs.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)",
+                    downloadQuality = sharedPrefs.getString("download_quality", "Medium (128 kbps)") ?: "Medium (128 kbps)",
+                    playButtonPosition = sharedPrefs.getString("play_button_position", "Left") ?: "Left",
+                    enableLyrics = sharedPrefs.getBoolean("enable_lyrics", true),
+                    embedLyricsInDownload = sharedPrefs.getBoolean("embed_lyrics_in_download", true),
+                    enableSponsorBlock = sharedPrefs.getBoolean("enable_sponsorblock", true),
+                    skipSponsor = sharedPrefs.getBoolean("skip_sponsor", true),
+                    skipSelfPromo = sharedPrefs.getBoolean("skip_self_promo", true),
+                    skipInteraction = sharedPrefs.getBoolean("skip_interaction", true),
+                    skipIntroOutro = sharedPrefs.getBoolean("skip_intro_outro", true),
+                    skipNonMusicOffTopic = sharedPrefs.getBoolean("skip_non_music_off_topic", true),
+                    themeMode = sharedPrefs.getString("theme_mode", "system") ?: "system",
+                    usePureBlack = sharedPrefs.getBoolean("use_pure_black", false),
+                    accentColorId = sharedPrefs.getString("accent_color_id", "sunset_orange") ?: "sunset_orange",
+                    fontScaleOption = sharedPrefs.getString("font_scale_option", "standard") ?: "standard",
+                    cornerRadiusOption = sharedPrefs.getString("corner_radius_option", "rounded") ?: "rounded",
+                    lyricsFontSizeOption = sharedPrefs.getString("lyrics_font_size_option", "standard") ?: "standard"
+                )
+            } else null
+
             val backupData = MuesoBackupData(
                 onlinePlaylists = if (backupPlaylistsEnabled) backupOnlineList else emptyList(),
                 localPlaylists = if (backupPlaylistsEnabled) backupLocalList else emptyList(),
+                settings = backupSettings,
                 customLyrics = if (backupLyricsEnabled) customLyricsMap else null
             )
 

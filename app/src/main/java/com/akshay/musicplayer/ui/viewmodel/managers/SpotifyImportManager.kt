@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -242,64 +243,85 @@ class SpotifyImportManager(
             val cleanQuery = OnlineMusicRepository.cleanSearchQuery(query)
             Log.d(TAG, "Manual re-search for track $index with query: \"$cleanQuery\" (input: \"$query\")")
 
-            _matchResults.value = _matchResults.value.toMutableList().also { list ->
-                list[index] = list[index].copy(isSearching = true, showAlternatives = true)
+            _matchResults.update { list ->
+                if (index in list.indices) {
+                    list.toMutableList().also {
+                        it[index] = it[index].copy(isSearching = true, showAlternatives = true)
+                    }
+                } else list
             }
 
             try {
                 val searchResults = onlineRepo.searchOnlineTracks(cleanQuery)
                 val ranked = OnlineMusicRepository.rankTracks(searchResults, cleanQuery)
-                _matchResults.value = _matchResults.value.toMutableList().also { list ->
-                    list[index] = list[index].copy(
-                        isSearching = false,
-                        alternativeResults = ranked.take(10),
-                        showAlternatives = true
-                    )
+                _matchResults.update { list ->
+                    if (index in list.indices) {
+                        list.toMutableList().also {
+                            it[index] = it[index].copy(
+                                isSearching = false,
+                                alternativeResults = ranked.take(10),
+                                showAlternatives = true
+                            )
+                        }
+                    } else list
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Manual search error", e)
-                _matchResults.value = _matchResults.value.toMutableList().also { list ->
-                    list[index] = list[index].copy(isSearching = false)
+                _matchResults.update { list ->
+                    if (index in list.indices) {
+                        list.toMutableList().also {
+                            it[index] = it[index].copy(isSearching = false)
+                        }
+                    } else list
                 }
             }
         }
     }
 
     fun selectMatch(trackIndex: Int, selectedTrack: TrackEntity) {
-        if (trackIndex !in _matchResults.value.indices) return
-        _matchResults.value = _matchResults.value.toMutableList().also { list ->
-            list[trackIndex] = list[trackIndex].copy(
-                matchedTrack = selectedTrack,
-                showAlternatives = false,
-                isSelected = true
-            )
+        _matchResults.update { list ->
+            if (trackIndex in list.indices) {
+                list.toMutableList().also {
+                    it[trackIndex] = it[trackIndex].copy(
+                        matchedTrack = selectedTrack,
+                        showAlternatives = false,
+                        isSelected = true
+                    )
+                }
+            } else list
         }
         Log.d(TAG, "Manual match selected for track $trackIndex: \"${selectedTrack.title}\"")
     }
 
     fun toggleAlternatives(index: Int) {
-        if (index !in _matchResults.value.indices) return
-        _matchResults.value = _matchResults.value.toMutableList().also { list ->
-            list[index] = list[index].copy(showAlternatives = !list[index].showAlternatives)
+        _matchResults.update { list ->
+            if (index in list.indices) {
+                list.toMutableList().also {
+                    it[index] = it[index].copy(showAlternatives = !it[index].showAlternatives)
+                }
+            } else list
         }
     }
 
     fun toggleTrackSelection(index: Int) {
-        val current = _matchResults.value.toMutableList()
-        if (index in current.indices) {
-            val item = current[index]
-            if (item.matchedTrack != null) {
-                current[index] = item.copy(isSelected = !item.isSelected)
-                _matchResults.value = current
-            }
+        _matchResults.update { list ->
+            if (index in list.indices) {
+                val item = list[index]
+                if (item.matchedTrack != null) {
+                    list.toMutableList().also {
+                        it[index] = item.copy(isSelected = !item.isSelected)
+                    }
+                } else list
+            } else list
         }
     }
 
     fun selectAllTracks(selected: Boolean) {
-        val current = _matchResults.value.map { item ->
-            if (item.matchedTrack != null) item.copy(isSelected = selected) else item.copy(isSelected = false)
+        _matchResults.update { list ->
+            list.map { item ->
+                if (item.matchedTrack != null) item.copy(isSelected = selected) else item.copy(isSelected = false)
+            }
         }
-        _matchResults.value = current
     }
 
     fun createPlaylist() {

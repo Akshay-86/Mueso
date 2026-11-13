@@ -144,20 +144,30 @@ class MusicPlayerService : MediaSessionService() {
     private fun registerNoisyReceiver() {
         if (isNoisyReceiverRegistered) return
         try {
-            val filter = IntentFilter().apply {
-                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
-            }
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             ContextCompat.registerReceiver(
                 this,
                 noisyReceiver,
                 filter,
-                ContextCompat.RECEIVER_EXPORTED
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
             isNoisyReceiverRegistered = true
-            Log.d("MusicPlayerService", "Successfully registered audio becoming noisy & bluetooth receiver")
+            Log.d("MusicPlayerService", "Successfully registered audio becoming noisy receiver")
         } catch (e: Exception) {
             Log.w("MusicPlayerService", "Failed to register noisy receiver", e)
+        }
+
+        try {
+            val btFilter = IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            ContextCompat.registerReceiver(
+                this,
+                noisyReceiver,
+                btFilter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            Log.d("MusicPlayerService", "Successfully registered bluetooth connection receiver")
+        } catch (e: Exception) {
+            Log.w("MusicPlayerService", "Bluetooth receiver registration skipped (requires BLUETOOTH_CONNECT on Android 12+): ${e.message}")
         }
     }
 

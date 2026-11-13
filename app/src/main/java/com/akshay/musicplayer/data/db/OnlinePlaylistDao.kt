@@ -39,8 +39,19 @@ interface OnlinePlaylistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertOnlineTrack(track: OnlinePlaylistTrackEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertOnlineTracks(tracks: List<OnlinePlaylistTrackEntity>)
+
     @Query("DELETE FROM online_playlist_tracks WHERE onlinePlaylistId = :playlistId AND trackId = :trackId")
     fun removeOnlineTrack(playlistId: Long, trackId: Long): Int
+
+    @androidx.room.Transaction
+    fun removeTrackAndReorder(playlistId: Long, trackId: Long) {
+        removeOnlineTrack(playlistId, trackId)
+        val tracks = getOnlinePlaylistTracksSync(playlistId)
+        val updated = tracks.mapIndexed { index, track -> track.copy(orderIndex = index) }
+        updateOnlinePlaylistTracks(updated)
+    }
 
     @Query("SELECT * FROM online_playlist_tracks WHERE onlinePlaylistId = :playlistId ORDER BY orderIndex ASC")
     fun getOnlinePlaylistTracks(playlistId: Long): Flow<List<OnlinePlaylistTrackEntity>>

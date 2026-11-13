@@ -89,6 +89,11 @@ fun OnlinePlaylistDetailScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = showSearch) {
+        showSearch = false
+        searchQuery = ""
+    }
     var showMenu by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
@@ -865,7 +870,7 @@ fun OnlinePlaylistDetailScreen(
                         onDownload = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
                         onDownloadOptions = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
                         onCancelDownload = { viewModel?.cancelDownload(track.id) },
-                        dragModifier = if (isCustomUserPlaylist && onMoveTrack != null) {
+                        dragModifier = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
                             Modifier.pointerInput(track.id) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {

@@ -13,6 +13,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -95,9 +96,38 @@ class GoogleDriveBackupRepository(private val context: Context) {
         return getAccessToken(account.email ?: "")
     }
 
+    fun invalidateToken(token: String) {
+        if (token.isBlank()) return
+        try {
+            GoogleAuthUtil.clearToken(context, token)
+            android.util.Log.d("MUESO_AUTH", "Cleared expired OAuth token from GoogleAuthUtil cache")
+        } catch (e: Exception) {
+            android.util.Log.w("MUESO_AUTH", "Failed to clear token from GoogleAuthUtil cache: ${e.message}")
+        }
+    }
+
+    suspend fun deleteBackupFile(accessToken: String, fileId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://www.googleapis.com/drive/v3/files/$fileId"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .delete()
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     suspend fun findBackupFile(accessToken: String): DriveBackupInfo? = withContext(Dispatchers.IO) {
         try {
-            val url = "https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='mueso_backup.json'&fields=files(id,name,modifiedTime,size)"
+            val url = "https://www.googleapis.com/drive/v3/files".toHttpUrl().newBuilder()
+                .addQueryParameter("spaces", "appDataFolder")
+                .addQueryParameter("q", "name='mueso_backup.json' and trashed=false")
+                .addQueryParameter("orderBy", "modifiedTime desc")
+                .addQueryParameter("fields", "files(id,name,modifiedTime,size)")
+                .build()
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Authorization", "Bearer $accessToken")
@@ -111,7 +141,29 @@ class GoogleDriveBackupRepository(private val context: Context) {
                 val files = json.optJSONArray("files") ?: return@withContext null
                 if (files.length() == 0) return@withContext null
 
-                val fileObj = files.getJSONObject(0)
+                // Find best backup file: prefer non-empty files
+                var bestIndex = 0
+                for (i in 0 until files.length()) {
+                    val f = files.getJSONObject(i)
+                    if (f.optLong("size", 0L) > 0L) {
+                        bestIndex = i
+                        break
+                    }
+                }
+
+                // Purge older duplicate backup files or 0-byte corrupt files in appDataFolder
+                if (files.length() > 1) {
+                    for (i in 0 until files.length()) {
+                        if (i != bestIndex) {
+                            val staleId = files.getJSONObject(i).optString("id")
+                            if (staleId.isNotEmpty()) {
+                                deleteBackupFile(accessToken, staleId)
+                            }
+                        }
+                    }
+                }
+
+                val fileObj = files.getJSONObject(bestIndex)
                 DriveBackupInfo(
                     fileId = fileObj.getString("id"),
                     modifiedTime = fileObj.optString("modifiedTime", ""),
@@ -126,7 +178,7 @@ class GoogleDriveBackupRepository(private val context: Context) {
 
     suspend fun uploadBackup(email: String, data: MuesoBackupData): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAccessToken(email) ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
+            var token = getAccessToken(email) ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
             val existingFile = findBackupFile(token)
 
             val jsonContent = backupAdapter.toJson(data)
@@ -142,6 +194,9 @@ class GoogleDriveBackupRepository(private val context: Context) {
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->
+                    if (response.code == 401) {
+                        invalidateToken(token)
+                    }
                     if (response.isSuccessful) {
                         Result.success(true)
                     } else {
@@ -151,47 +206,38 @@ class GoogleDriveBackupRepository(private val context: Context) {
                     }
                 }
             } else {
-                // Create new file metadata in appDataFolder
+                // Create new file metadata and content atomically in appDataFolder using Drive multipart upload
                 val metadataJson = JSONObject().apply {
                     put("name", "mueso_backup.json")
                     put("parents", org.json.JSONArray().put("appDataFolder"))
                 }.toString()
 
-                val createMetadataRequest = Request.Builder()
-                    .url("https://www.googleapis.com/drive/v3/files")
-                    .addHeader("Authorization", "Bearer $token")
-                    .post(metadataJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                val multipartBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addPart(
+                        metadataJson.toRequestBody("application/json; charset=utf-8".toMediaType())
+                    )
+                    .addPart(
+                        jsonRequestBody
+                    )
                     .build()
 
-                val fileId = httpClient.newCall(createMetadataRequest).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val errorBody = response.body?.string() ?: ""
-                        android.util.Log.e("MUESO_AUTH", "Upload CREATE METADATA failed: code=${response.code}, body=$errorBody")
-                        return@withContext Result.failure(Exception("Create metadata failed with code ${response.code}: $errorBody"))
+                val createMultipartRequest = Request.Builder()
+                    .url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+                    .addHeader("Authorization", "Bearer $token")
+                    .post(multipartBody)
+                    .build()
+
+                httpClient.newCall(createMultipartRequest).execute().use { response ->
+                    if (response.code == 401) {
+                        invalidateToken(token)
                     }
-                    val respBody = response.body?.string() ?: ""
-                    JSONObject(respBody).optString("id", "")
-                }
-
-                if (fileId.isEmpty()) {
-                    return@withContext Result.failure(Exception("Failed to extract file ID after creation"))
-                }
-
-                // Upload content to the newly created file
-                val uploadUrl = "https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media"
-                val uploadRequest = Request.Builder()
-                    .url(uploadUrl)
-                    .addHeader("Authorization", "Bearer $token")
-                    .patch(jsonRequestBody)
-                    .build()
-
-                httpClient.newCall(uploadRequest).execute().use { response ->
                     if (response.isSuccessful) {
                         Result.success(true)
                     } else {
                         val errorBody = response.body?.string() ?: ""
-                        android.util.Log.e("MUESO_AUTH", "Upload CREATE MEDIA failed: code=${response.code}, body=$errorBody")
-                        Result.failure(Exception("Create media failed with code ${response.code}: $errorBody"))
+                        android.util.Log.e("MUESO_AUTH", "Upload CREATE MULTIPART failed: code=${response.code}, body=$errorBody")
+                        Result.failure(Exception("Create backup failed with code ${response.code}: $errorBody"))
                     }
                 }
             }
@@ -218,11 +264,17 @@ class GoogleDriveBackupRepository(private val context: Context) {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
+                if (response.code == 401) {
+                    invalidateToken(token)
+                }
                 if (!response.isSuccessful) {
                     android.util.Log.e("MUESO_BACKUP", "Download file failed: HTTP ${response.code}")
                     return@withContext Result.failure(Exception("Download failed with code ${response.code}"))
                 }
                 val jsonStr = response.body?.string() ?: return@withContext Result.failure(Exception("Empty backup file body"))
+                if (jsonStr.isBlank()) {
+                    return@withContext Result.failure(Exception("Empty backup file body"))
+                }
                 android.util.Log.d("MUESO_BACKUP", "Downloaded JSON string from Drive (${jsonStr.length} bytes): $jsonStr")
                 val parsed = backupAdapter.fromJson(jsonStr)
                     ?: return@withContext Result.failure(Exception("Failed to parse backup JSON"))

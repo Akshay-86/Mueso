@@ -895,17 +895,18 @@ class OnlineMusicRepository {
         }
     }
 
-    private fun fetchCandidatesFromUrl(url: String): List<JSONObject> {
+    private suspend fun fetchCandidatesFromUrl(url: String): List<JSONObject> {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mueso-Android-App/1.2")
             .build()
         for (attempt in 0..1) {
+            var shouldRetry = false
             try {
                 httpClient.newCall(request).execute().use { response ->
                     if (response.code == 503 || response.code == 429) {
                         if (attempt == 0) {
-                            try { Thread.sleep(500) } catch (_: Exception) {}
+                            shouldRetry = true
                             return@use
                         }
                         return emptyList()
@@ -919,9 +920,12 @@ class OnlineMusicRepository {
                     }
                     return list
                 }
+                if (shouldRetry) {
+                    kotlinx.coroutines.delay(500L)
+                }
             } catch (_: Exception) {
                 if (attempt == 0) {
-                    try { Thread.sleep(300) } catch (_: Exception) {}
+                    kotlinx.coroutines.delay(300L)
                 }
             }
         }

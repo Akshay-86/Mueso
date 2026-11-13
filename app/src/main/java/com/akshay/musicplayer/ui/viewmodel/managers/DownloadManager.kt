@@ -31,6 +31,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.StringReader
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 import com.akshay.musicplayer.media.notification.NotificationHelper
 
@@ -46,7 +47,7 @@ class DownloadManager(
     private val activeJobs = ConcurrentHashMap<Long, Job>()
     private val activeCalls = ConcurrentHashMap<String, okhttp3.Call>()
     private val activeTempFiles = ConcurrentHashMap<Long, File>()
-    private var totalDownloadedInBatch = 0
+    private val totalDownloadedInBatch = AtomicInteger(0)
     private var lastContext: Context? = null
 
     init {
@@ -162,7 +163,7 @@ class DownloadManager(
                                 trackId = track.id,
                                 trackTitle = track.title,
                                 artist = track.artist,
-                                completedCount = totalDownloadedInBatch + 1,
+                                completedCount = totalDownloadedInBatch.get() + 1,
                                 totalCount = activeJobs.size.coerceAtLeast(1),
                                 progress = prog
                             )
@@ -265,7 +266,7 @@ class DownloadManager(
                     val toastMsg = "Saved \"${track.title}\""
 
                     _downloadStates.update { it + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f)) }
-                    totalDownloadedInBatch++
+                    totalDownloadedInBatch.incrementAndGet()
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -324,7 +325,7 @@ class DownloadManager(
                 val toastMsg = "Saved \"${track.title}\" to ${actualDir.name}"
 
                 _downloadStates.update { it + (track.id to DownloadProgress(isDownloading = false, isDownloaded = true, progress = 1f)) }
-                totalDownloadedInBatch++
+                totalDownloadedInBatch.incrementAndGet()
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
                 }
@@ -350,15 +351,16 @@ class DownloadManager(
                 activeCalls.keys.filter { it == prefix || it.startsWith("${prefix}_") }.forEach { activeCalls.remove(it) }
                 activeTempFiles.remove(track.id)
                 if (activeJobs.isEmpty()) {
-                    if (totalDownloadedInBatch > 0) {
+                    val batchCount = totalDownloadedInBatch.get()
+                    if (batchCount > 0) {
                         NotificationHelper.showDownloadComplete(
                             context = context.applicationContext,
-                            totalDownloaded = totalDownloadedInBatch.coerceAtLeast(1),
+                            totalDownloaded = batchCount.coerceAtLeast(1),
                             lastTitle = track.title,
                             lastArtist = track.artist,
                             lastFilePath = savedDestFile?.absolutePath
                         )
-                        totalDownloadedInBatch = 0
+                        totalDownloadedInBatch.set(0)
                     } else {
                         NotificationHelper.dismissDownloadNotification(context.applicationContext)
                     }

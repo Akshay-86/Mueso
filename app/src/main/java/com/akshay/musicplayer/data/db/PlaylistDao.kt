@@ -23,6 +23,9 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertTrackIntoPlaylist(crossRef: PlaylistTrackCrossRef): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertPlaylistTracks(crossRefs: List<PlaylistTrackCrossRef>)
+
     @Query("SELECT trackId FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
     fun getTrackIdsForPlaylist(playlistId: Long): Flow<List<Long>>
 
@@ -34,6 +37,14 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long): Int
+
+    @androidx.room.Transaction
+    fun removeTrackAndReorder(playlistId: Long, trackId: Long) {
+        removeTrackFromPlaylist(playlistId, trackId)
+        val crossRefs = getPlaylistTracksSync(playlistId)
+        val updated = crossRefs.mapIndexed { index, ref -> ref.copy(orderIndex = index) }
+        updatePlaylistTracks(updated)
+    }
     
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId")
     fun clearPlaylistTracks(playlistId: Long): Int

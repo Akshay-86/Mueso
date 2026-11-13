@@ -142,6 +142,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val isDual = playerLayoutStyle == "dual"
     val isReels = !isClassic && !isDual
 
+    var isOnlineDetailActive by remember { mutableStateOf(false) }
+
     androidx.activity.compose.BackHandler(enabled = isClassicPlayerExpanded) {
         isClassicPlayerExpanded = false
     }
@@ -163,7 +165,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
         viewModel.setSearchQuery("")
     }
 
-    androidx.activity.compose.BackHandler(enabled = isClassic && classicNavTab != ClassicNavTab.LIBRARY && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+    androidx.activity.compose.BackHandler(enabled = isClassic && classicNavTab != ClassicNavTab.LIBRARY && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && !isOnlineDetailActive) {
         classicNavTab = ClassicNavTab.LIBRARY
         coroutineScope.launch {
             classicPagerState.animateScrollToPage(
@@ -173,11 +175,11 @@ fun MainScreen(viewModel: PlayerViewModel) {
         }
     }
 
-    androidx.activity.compose.BackHandler(enabled = isReels && pagerState.currentPage != 1 && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+    androidx.activity.compose.BackHandler(enabled = isReels && pagerState.currentPage != 1 && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && !isOnlineDetailActive) {
         coroutineScope.launch { pagerState.animateScrollToPage(1) }
     }
 
-    androidx.activity.compose.BackHandler(enabled = isDual && (dualPagerState.currentPage == 0 || dualPagerState.currentPage == 3) && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+    androidx.activity.compose.BackHandler(enabled = isDual && (dualPagerState.currentPage == 0 || dualPagerState.currentPage == 3) && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && !isOnlineDetailActive) {
         coroutineScope.launch {
             val target = if (dualPagerState.currentPage == 0) 1 else 2
             dualPagerState.animateScrollToPage(target)
@@ -190,12 +192,10 @@ fun MainScreen(viewModel: PlayerViewModel) {
         else -> pagerState.currentPage == 1
     }
 
-    androidx.activity.compose.BackHandler(enabled = isAtHomePlayer && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && hasUnbackedUpChanges && googleAccount != null) {
+    androidx.activity.compose.BackHandler(enabled = isAtHomePlayer && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && !isOnlineDetailActive && hasUnbackedUpChanges && googleAccount != null) {
         viewModel.performDriveBackup(context)
         (context as? android.app.Activity)?.moveTaskToBack(true)
     }
-
-    var isOnlineDetailActive by remember { mutableStateOf(false) }
 
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 

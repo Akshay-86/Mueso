@@ -434,6 +434,9 @@ fun PlayerPageContent(
     }
 
     var isLyricsExpanded by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = isLyricsExpanded) {
+        isLyricsExpanded = false
+    }
     var showAddToPlaylistSheet by remember { mutableStateOf(false) }
     var showTrackMenuSheet by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }

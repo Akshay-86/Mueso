@@ -4,6 +4,7 @@ import com.akshay.musicplayer.data.remote.OnlineMusicRepository
 import com.akshay.musicplayer.data.remote.innertube.InnerTubeArtist
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
 import com.akshay.musicplayer.domain.models.TrackEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -11,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class SearchManager(
@@ -104,23 +106,26 @@ class SearchManager(
             try {
                 when (category.trim().lowercase()) {
                     "artists", "artist" -> {
+                        val artists = onlineRepository.searchArtists(query.trim())
+                        if (!isActive) return@launch
                         _searchResults.value = emptyList()
                         _playlistResults.value = emptyList()
-                        val artists = onlineRepository.searchArtists(query.trim())
                         _artistResults.value = artists
                         searchCache[cacheKey] = CachedCategoryResult(artists = artists)
                     }
                     "albums", "album" -> {
+                        val albums = onlineRepository.searchAlbums(query.trim())
+                        if (!isActive) return@launch
                         _searchResults.value = emptyList()
                         _artistResults.value = emptyList()
-                        val albums = onlineRepository.searchAlbums(query.trim())
                         _playlistResults.value = albums
                         searchCache[cacheKey] = CachedCategoryResult(playlists = albums)
                     }
                     "playlists", "playlist" -> {
+                        val playlists = onlineRepository.searchPlaylists(query.trim(), com.akshay.musicplayer.data.remote.innertube.InnerTubeClient.PLAYLIST_SEARCH_FILTER)
+                        if (!isActive) return@launch
                         _searchResults.value = emptyList()
                         _artistResults.value = emptyList()
-                        val playlists = onlineRepository.searchPlaylists(query.trim(), com.akshay.musicplayer.data.remote.innertube.InnerTubeClient.PLAYLIST_SEARCH_FILTER)
                         _playlistResults.value = playlists
                         searchCache[cacheKey] = CachedCategoryResult(playlists = playlists)
                     }
@@ -135,6 +140,7 @@ class SearchManager(
                         val artists = artistsDeferred.await().take(4)
                         val albums = albumsDeferred.await().take(4)
 
+                        if (!isActive) return@launch
                         _searchResults.value = combinedTracks
                         _artistResults.value = artists
                         _playlistResults.value = albums
@@ -146,20 +152,25 @@ class SearchManager(
                         )
                     }
                     else -> {
-                        _artistResults.value = emptyList()
-                        _playlistResults.value = emptyList()
                         val rawTracks = onlineRepository.searchOnlineTracks(query.trim(), category)
                         val onlineResults = OnlineMusicRepository.rankTracks(rawTracks, query.trim())
                         val localIds = localMatches.map { it.id }.toSet()
                         val combinedTracks = localMatches + onlineResults.filter { it.id !in localIds }
+                        if (!isActive) return@launch
+                        _artistResults.value = emptyList()
+                        _playlistResults.value = emptyList()
                         _searchResults.value = combinedTracks
                         searchCache[cacheKey] = CachedCategoryResult(tracks = combinedTracks)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                _isSearchingOnline.value = false
+                if (coroutineContext.isActive) {
+                    _isSearchingOnline.value = false
+                }
             }
         }
     }

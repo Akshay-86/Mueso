@@ -1083,10 +1083,11 @@ class PlayerViewModel(
 
     fun playLocalTrackByPath(filePath: String) {
         viewModelScope.launch {
-            loadLocalTracks(forceReload = true)
-            val currentState = _uiState.value
-            if (currentState is PlayerUiState.Success) {
-                val match = currentState.tracks.find { it.filePath == filePath }
+            val tracks = getLocalTracksUseCase().getOrDefault(emptyList())
+            if (tracks.isNotEmpty()) {
+                _allLocalTracks.value = tracks
+                _uiState.value = PlayerUiState.Success(tracks)
+                val match = tracks.find { it.filePath == filePath }
                 if (match != null) {
                     playTrack(match)
                 }
@@ -2358,7 +2359,7 @@ class PlayerViewModel(
 
     fun playNextTrack() {
         lastUserSkipTime = System.currentTimeMillis()
-        val curTrackId = _playbackState.value.currentTrackId
+        val curTrackId = lastRequestedTrackId ?: _playbackState.value.currentTrackId
         val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
         val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
         val playlistEndIdx = if (isPlaylist) _playlistTrackCount.value - 1 else currentTracks.size - 1
@@ -2387,7 +2388,7 @@ class PlayerViewModel(
 
     fun playPreviousTrack() {
         lastUserSkipTime = System.currentTimeMillis()
-        val curTrackId = _playbackState.value.currentTrackId
+        val curTrackId = lastRequestedTrackId ?: _playbackState.value.currentTrackId
         val curIdx = if (curTrackId != null) currentTracks.indexOfFirst { it.id == curTrackId } else -1
         val isPlaylist = _isPlaylistContext.value && _playlistTrackCount.value > 0
 
@@ -2687,6 +2688,13 @@ class PlayerViewModel(
         val mutableList = currentTracks.toMutableList()
         mutableList.removeAt(index)
         currentTracks = mutableList
+
+        if (_isPlaylistContext.value && _playlistTrackCount.value > 0 && index < _playlistTrackCount.value) {
+            _playlistTrackCount.value = (_playlistTrackCount.value - 1).coerceAtLeast(0)
+            if (_playlistTrackCount.value == 0) {
+                _isPlaylistContext.value = false
+            }
+        }
 
         // Synchronize with ExoPlayer
         mediaPlayerController.removeQueueTrack(trackId, index)

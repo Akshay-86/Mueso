@@ -47,7 +47,18 @@ fun PlayerControls(
 ) {
     var isSeeking by remember { androidx.compose.runtime.mutableStateOf(false) }
     var userSeekPosition by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    val currentSliderPosition = if (isSeeking) userSeekPosition else playbackState.currentPositionMs.toFloat()
+    var pendingSeekPosition by remember { androidx.compose.runtime.mutableStateOf<Long?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
+        if (pendingSeekPosition != null && kotlin.math.abs(playbackState.currentPositionMs - pendingSeekPosition!!) <= 1500L) {
+            pendingSeekPosition = null
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(playbackState.currentTrackId) {
+        pendingSeekPosition = null
+    }
+
+    val currentSliderPosition = if (isSeeking) userSeekPosition else pendingSeekPosition?.toFloat() ?: playbackState.currentPositionMs.toFloat()
 
     val showLoading = isSeeking || isResolvingTrack || (playbackState.isBuffering && playbackState.isPlaying)
     val accentColor = LocalAccentColor.current
@@ -82,7 +93,9 @@ fun PlayerControls(
                 userSeekPosition = it
             },
             onValueChangeFinished = {
-                onSeek(userSeekPosition.toLong())
+                val target = userSeekPosition.toLong()
+                pendingSeekPosition = target
+                onSeek(target)
                 isSeeking = false
             },
             valueRange = 0f..playbackState.durationMs.toFloat().coerceAtLeast(1f),
