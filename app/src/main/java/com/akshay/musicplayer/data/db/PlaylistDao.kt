@@ -35,8 +35,17 @@ interface PlaylistDao {
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
     fun removeTrackFromPlaylist(playlistId: Long, trackId: Long): Int
     
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId")
+    fun clearPlaylistTracks(playlistId: Long): Int
+
     @Query("DELETE FROM playlists WHERE id = :playlistId")
     fun deletePlaylist(playlistId: Long): Int
+
+    @androidx.room.Transaction
+    fun deletePlaylistAndTracks(playlistId: Long) {
+        clearPlaylistTracks(playlistId)
+        deletePlaylist(playlistId)
+    }
 
     @Query("UPDATE playlists SET name = :newName WHERE id = :playlistId")
     fun renamePlaylist(playlistId: Long, newName: String): Int

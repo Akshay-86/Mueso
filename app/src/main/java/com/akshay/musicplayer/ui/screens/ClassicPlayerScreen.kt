@@ -81,7 +81,6 @@ import com.akshay.musicplayer.ui.components.ClassicFullScreenLyricsView
 import com.akshay.musicplayer.ui.components.EqualizerBottomSheet
 import com.akshay.musicplayer.ui.components.LyricsView
 import com.akshay.musicplayer.ui.components.QueueBottomSheet
-import com.akshay.musicplayer.ui.components.SignalPathDialog
 import com.akshay.musicplayer.ui.components.SleepTimerBottomSheet
 import com.akshay.musicplayer.ui.components.SmartArtworkImage
 import com.akshay.musicplayer.ui.components.TrackMenuBottomSheet
@@ -140,7 +139,6 @@ fun ClassicPlayerScreen(
     val activePlaylistInfo by viewModel.currentPlayingPlaylist.collectAsState()
 
     var showTrackMenuSheet by remember { mutableStateOf(false) }
-    var showSignalPathDialog by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
@@ -305,8 +303,7 @@ fun ClassicPlayerScreen(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     AudioQualityCapsule(
-                        audioFormat = activeAudioFormat,
-                        onClick = { showSignalPathDialog = true }
+                        audioFormat = activeAudioFormat
                     )
                 }
 
@@ -565,7 +562,6 @@ fun ClassicPlayerScreen(
                     onCollapseClick()
                 }
             },
-            onShowSignalPath = { showSignalPathDialog = true },
             onShowEqualizer = { showEqualizerSheet = true },
             onAddToPlaylist = { showAddToPlaylistSheet = true },
             onDismiss = { showTrackMenuSheet = false }
@@ -577,19 +573,6 @@ fun ClassicPlayerScreen(
             effectsController = viewModel.audioEffectsController,
             isDarkMode = isDarkMode,
             onDismiss = { showEqualizerSheet = false }
-        )
-    }
-
-    if (showSignalPathDialog) {
-        SignalPathDialog(
-            audioFormat = activeAudioFormat,
-            track = track,
-            playbackState = playbackState,
-            isEqualizerActive = isEqActive && !isBitPerfectActive,
-            isClarityActive = isClarityActive,
-            isBitPerfectActive = isBitPerfectActive,
-            onOpenEqualizer = { showEqualizerSheet = true },
-            onDismiss = { showSignalPathDialog = false }
         )
     }
 

@@ -68,7 +68,8 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     onNavigateToPlayer: () -> Unit
 ) {
-    val tracks by viewModel.getPlaylistTracks(playlist.id).collectAsState(initial = emptyList<TrackEntity>())
+    val tracksFlow = remember(playlist.id) { viewModel.getPlaylistTracks(playlist.id) }
+    val tracks by tracksFlow.collectAsState(initial = emptyList<TrackEntity>())
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }

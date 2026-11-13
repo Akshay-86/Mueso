@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,7 +54,6 @@ fun TrackMenuBottomSheet(
     isPlaylistContext: Boolean = false,
     onGoToArtist: () -> Unit = {},
     onGoToAlbum: () -> Unit = {},
-    onShowSignalPath: () -> Unit = {},
     onShowEqualizer: () -> Unit = {},
     onAddToPlaylist: () -> Unit = {},
     onDismiss: () -> Unit
@@ -199,19 +197,6 @@ fun TrackMenuBottomSheet(
                 onClick = {
                     onDismiss()
                     onShowEqualizer()
-                }
-            )
-
-            TrackMenuItem(
-                icon = Icons.Default.Info,
-                title = "Audio Signal Path",
-                subtitle = "Format, sample rate, bit depth & DAC routing",
-                tint = accent,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                onClick = {
-                    onDismiss()
-                    onShowSignalPath()
                 }
             )
         }

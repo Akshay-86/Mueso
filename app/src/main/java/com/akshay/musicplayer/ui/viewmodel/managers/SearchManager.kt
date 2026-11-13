@@ -42,7 +42,7 @@ class SearchManager(
         val playlists: List<InnerTubePlaylist> = emptyList()
     )
 
-    private val searchCache = HashMap<String, CachedCategoryResult>()
+    private val searchCache = java.util.concurrent.ConcurrentHashMap<String, CachedCategoryResult>()
     private var searchJob: Job? = null
 
     fun setSearchCategory(category: String) {

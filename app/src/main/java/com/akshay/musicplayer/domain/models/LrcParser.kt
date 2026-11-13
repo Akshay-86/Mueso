@@ -31,15 +31,6 @@ object LrcParser {
                 }
             }
         }
-        val sorted = lines.sortedBy { it.timestampMs }
-        if (sorted.isNotEmpty()) return sorted
-
-        // Fallback: parse plain text lines with sequential 4-second estimates
-        val plainLines = mutableListOf<LyricLine>()
-        val textLines = lrcText.lines().map { it.trim() }.filter { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-        textLines.forEachIndexed { index, line ->
-            plainLines.add(LyricLine(index * 4000L, line))
-        }
-        return plainLines
+        return lines.sortedBy { it.timestampMs }
     }
 }

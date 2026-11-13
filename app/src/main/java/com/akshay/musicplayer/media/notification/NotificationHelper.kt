@@ -176,13 +176,14 @@ object NotificationHelper {
 
         // Quick action: Play Now
         if (!lastFilePath.isNullOrBlank()) {
-            val playIntent = Intent(context, DownloadActionReceiver::class.java).apply {
+            val playIntent = Intent(context, MainActivity::class.java).apply {
                 action = ACTION_PLAY_DOWNLOADED
                 putExtra(EXTRA_FILE_PATH, lastFilePath)
                 putExtra(EXTRA_TITLE, lastTitle)
                 putExtra(EXTRA_ARTIST, lastArtist)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             }
-            val pendingPlay = PendingIntent.getBroadcast(
+            val pendingPlay = PendingIntent.getActivity(
                 context,
                 2002,
                 playIntent,

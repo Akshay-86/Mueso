@@ -98,7 +98,8 @@ class PlaylistManager(
 
     fun deletePlaylist(playlistId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
-            playlistDao.deletePlaylist(playlistId)
+            playlistDao.deletePlaylistAndTracks(playlistId)
+            markDirty()
         }
     }
 
@@ -180,8 +181,7 @@ class PlaylistManager(
 
     fun deleteOnlinePlaylist(playlistId: Long) {
         coroutineScope.launch(Dispatchers.IO) {
-            onlinePlaylistDao.deleteOnlinePlaylist(playlistId)
-            onlinePlaylistDao.clearOnlinePlaylistTracks(playlistId)
+            onlinePlaylistDao.deleteOnlinePlaylistAndTracks(playlistId)
             markDirty()
         }
     }

@@ -232,6 +232,22 @@ fun WelcomeScreen(
                             }
                         )
                     }
+
+                    UiStyleCard(
+                        title = "Dual Realm (4 Pages)",
+                        subtitle = "Dedicated side-by-side decks for Offline MP3s & Online Streaming",
+                        icon = Icons.Default.Layers,
+                        isSelected = selectedLayout == "dual",
+                        accentColor = accentColor,
+                        cardBg = cardBg,
+                        textPrimary = textPrimary,
+                        textSub = textSub,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            selectedLayout = "dual"
+                            viewModel.setPlayerLayoutStyle("dual")
+                        }
+                    )
                 }
 
                 // ─── PERMISSIONS & SETUP ───

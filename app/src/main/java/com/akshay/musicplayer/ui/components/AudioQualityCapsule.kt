@@ -32,13 +32,13 @@ import com.akshay.musicplayer.domain.models.ActiveAudioFormat
 
 /**
  * Audiophile quality capsule pill displayed in player screens and miniplayers.
- * Tapping opens the detailed SignalPathDialog.
+ * Displays real-time audio format quality (FLAC, Hi-Res, MP3, etc.).
  */
 @Composable
 fun AudioQualityCapsule(
     audioFormat: ActiveAudioFormat,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     val isHiRes = audioFormat.isHiRes
     val isLossless = audioFormat.isLossless
@@ -64,7 +64,7 @@ fun AudioQualityCapsule(
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(50),
         color = containerBg,
         border = borderStroke,

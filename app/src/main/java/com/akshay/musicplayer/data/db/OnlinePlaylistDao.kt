@@ -21,6 +21,12 @@ interface OnlinePlaylistDao {
     @Query("DELETE FROM online_playlists WHERE id = :playlistId")
     fun deleteOnlinePlaylist(playlistId: Long): Int
 
+    @androidx.room.Transaction
+    fun deleteOnlinePlaylistAndTracks(playlistId: Long) {
+        clearOnlinePlaylistTracks(playlistId)
+        deleteOnlinePlaylist(playlistId)
+    }
+
     @Query("UPDATE online_playlists SET name = :newName WHERE id = :playlistId")
     fun renameOnlinePlaylist(playlistId: Long, newName: String): Int
 

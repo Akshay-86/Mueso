@@ -86,7 +86,14 @@ class PlayerViewModel(
     }
 
     val settingsManager = SettingsManager(sharedPreferences)
-    val backupManager = BackupManager(sharedPreferences, playlistDao, onlinePlaylistDao, viewModelScope, settingsManager)
+    val backupManager = BackupManager(
+        sharedPreferences = sharedPreferences,
+        playlistDao = playlistDao,
+        onlinePlaylistDao = onlinePlaylistDao,
+        coroutineScope = viewModelScope,
+        settingsManager = settingsManager,
+        getLocalTracks = { getOrFetchLocalTracks() }
+    )
     val searchManager = SearchManager(onlineRepository, viewModelScope) {
         val cached = _allLocalTracks.value
         if (cached.isNotEmpty()) cached
@@ -703,6 +710,40 @@ class PlayerViewModel(
     private val _activeQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
     val activeQueue: StateFlow<List<TrackEntity>> = _activeQueue.asStateFlow()
 
+    enum class PlayerRealm {
+        OFFLINE, ONLINE
+    }
+
+    private val _activeRealm = MutableStateFlow(PlayerRealm.ONLINE)
+    val activeRealm: StateFlow<PlayerRealm> = _activeRealm.asStateFlow()
+
+    private val _offlineQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
+    val offlineQueue: StateFlow<List<TrackEntity>> = _offlineQueue.asStateFlow()
+
+    private val _onlineQueue = MutableStateFlow<List<TrackEntity>>(emptyList())
+    val onlineQueue: StateFlow<List<TrackEntity>> = _onlineQueue.asStateFlow()
+
+    val isNetworkOnline: StateFlow<Boolean> = com.akshay.musicplayer.data.remote.NetworkMonitor.isOnline
+
+    var savedOfflineTrackId: Long? = null
+        private set
+    var savedOfflinePositionMs: Long = 0L
+        private set
+
+    var savedOnlineTrackId: Long? = null
+        private set
+    var savedOnlinePositionMs: Long = 0L
+        private set
+
+    fun isOnlineTrack(track: TrackEntity): Boolean {
+        return track.filePath.startsWith("online:") ||
+                track.filePath.startsWith("http://") ||
+                track.filePath.startsWith("https://") ||
+                track.filePath.contains("googlevideo") ||
+                track.filePath.contains("youtube") ||
+                track.album == "Online Track"
+    }
+
     private val lyricsCache = java.util.concurrent.ConcurrentHashMap<Long, LyricsData>()
 
     private var currentTracks: List<TrackEntity> = emptyList()
@@ -720,6 +761,16 @@ class PlayerViewModel(
             }
             field = preserved
             _activeQueue.value = preserved
+            if (preserved.isNotEmpty()) {
+                val hasOnline = preserved.any { isOnlineTrack(it) }
+                if (hasOnline) {
+                    _onlineQueue.value = preserved
+                    _activeRealm.value = PlayerRealm.ONLINE
+                } else {
+                    _offlineQueue.value = preserved
+                    _activeRealm.value = PlayerRealm.OFFLINE
+                }
+            }
         }
 
     val currentTrackIndexState: StateFlow<Int> = combine(_playbackState, _activeQueue) { state, queue ->
@@ -1162,6 +1213,9 @@ class PlayerViewModel(
             _uiState.value = PlayerUiState.Loading
             getLocalTracksUseCase().onSuccess { tracks ->
                 _allLocalTracks.value = tracks
+                if (_offlineQueue.value.isEmpty() && tracks.isNotEmpty()) {
+                    _offlineQueue.value = tracks
+                }
                 val isOnline = sharedPreferences.getBoolean("last_track_is_online", false)
                 Log.d("MUESO_RESTORE", "loadLocalTracks: Loaded ${tracks.size} local tracks. isOnline=$isOnline, isPlaylistContext=${_isPlaylistContext.value}, currentTracksSize=${currentTracks.size}")
                 if (!isOnline && tracks.isNotEmpty() && (!_isPlaylistContext.value || currentTracks.isEmpty() || currentTracks.size <= 1)) {
@@ -1531,6 +1585,17 @@ class PlayerViewModel(
                 }
 
                 if (state.currentTrackId != null) {
+                    if (_activeRealm.value == PlayerRealm.ONLINE) {
+                        savedOnlineTrackId = state.currentTrackId
+                        if (state.currentPositionMs > 0L) {
+                            savedOnlinePositionMs = state.currentPositionMs
+                        }
+                    } else {
+                        savedOfflineTrackId = state.currentTrackId
+                        if (state.currentPositionMs > 0L) {
+                            savedOfflinePositionMs = state.currentPositionMs
+                        }
+                    }
                     val currentTrackIdx = currentTracks.indexOfFirst { it.id == state.currentTrackId }
                     if (currentTrackIdx >= 0) {
                         // Check if player stepped past the end of an active playlist
@@ -2501,6 +2566,65 @@ class PlayerViewModel(
             } else {
                 mediaPlayerController.seekToIndex(index)
                 warmNextTrack(index + 1)
+            }
+        }
+    }
+
+    fun switchToRealmAndPlay(targetRealm: PlayerRealm, track: TrackEntity? = null, startIndex: Int = 0) {
+        if (_activeRealm.value == targetRealm && track == null) {
+            if (!_playbackState.value.isPlaying) {
+                togglePlayPause()
+            }
+            return
+        }
+
+        // Save departing realm state
+        val curId = _playbackState.value.currentTrackId
+        val curPos = _playbackState.value.currentPositionMs
+        if (curId != null) {
+            if (_activeRealm.value == PlayerRealm.ONLINE) {
+                savedOnlineTrackId = curId
+                if (curPos > 0L) savedOnlinePositionMs = curPos
+            } else {
+                savedOfflineTrackId = curId
+                if (curPos > 0L) savedOfflinePositionMs = curPos
+            }
+        }
+
+        _activeRealm.value = targetRealm
+
+        when (targetRealm) {
+            PlayerRealm.OFFLINE -> {
+                val targetQueue = if (_offlineQueue.value.isNotEmpty()) _offlineQueue.value else _allLocalTracks.value
+                if (targetQueue.isEmpty()) return
+
+                val targetTrack = track ?: (savedOfflineTrackId?.let { id -> targetQueue.find { it.id == id } }
+                    ?: targetQueue.getOrNull(startIndex) ?: targetQueue.first())
+                val targetIdx = targetQueue.indexOfFirst { it.id == targetTrack.id }.coerceAtLeast(0)
+                val targetPos = if (track == null) savedOfflinePositionMs else 0L
+
+                currentTracks = targetQueue
+                mediaPlayerController.setPlaylistAndPlay(targetQueue, targetIdx)
+                if (targetPos > 0L) {
+                    mediaPlayerController.seekTo(targetPos)
+                }
+            }
+            PlayerRealm.ONLINE -> {
+                val targetQueue = _onlineQueue.value
+                if (track != null) {
+                    playTrack(track)
+                } else if (targetQueue.isNotEmpty()) {
+                    val targetTrack = savedOnlineTrackId?.let { id -> targetQueue.find { it.id == id } }
+                        ?: targetQueue.getOrNull(startIndex) ?: targetQueue.first()
+                    val targetIdx = targetQueue.indexOfFirst { it.id == targetTrack.id }.coerceAtLeast(0)
+                    val targetPos = savedOnlinePositionMs
+
+                    currentTracks = targetQueue
+                    playTrackAtIndex(targetIdx)
+                    if (targetPos > 0L) {
+                        mediaPlayerController.seekTo(targetPos)
+                    }
+                }
             }
         }
     }

@@ -64,15 +64,44 @@ class BackupWorker(
 
             // Gather Local Playlists
             val localPlaylistsEntities = db.playlistDao().getAllPlaylists().first()
+            val localTrackMetadataMap = mutableMapOf<Long, Pair<String, String>>()
+            try {
+                val projection = arrayOf(
+                    android.provider.MediaStore.Audio.Media._ID,
+                    android.provider.MediaStore.Audio.Media.TITLE,
+                    android.provider.MediaStore.Audio.Media.ARTIST
+                )
+                applicationContext.contentResolver.query(
+                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
+                    val titleCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
+                    val artistCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val title = cursor.getString(titleCol) ?: ""
+                        val artist = cursor.getString(artistCol) ?: ""
+                        localTrackMetadataMap[id] = Pair(title, artist)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("BackupWorker", "Failed to query local track metadata for backup: ${e.message}")
+            }
+
             val backupLocalList = localPlaylistsEntities.map { p ->
                 val trackRefs = db.playlistDao().getPlaylistTracksSync(p.id)
                 BackupLocalPlaylist(
                     name = p.name,
                     dateCreated = p.dateCreated,
                     tracks = trackRefs.map { ref ->
+                        val meta = localTrackMetadataMap[ref.trackId]
                         BackupLocalTrackInfo(
-                            title = "",
-                            artist = "",
+                            title = meta?.first ?: "",
+                            artist = meta?.second ?: "",
                             orderIndex = ref.orderIndex
                         )
                     }

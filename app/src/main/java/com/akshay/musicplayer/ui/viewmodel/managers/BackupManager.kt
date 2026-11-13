@@ -20,8 +20,13 @@ class BackupManager(
     private val playlistDao: PlaylistDao,
     private val onlinePlaylistDao: OnlinePlaylistDao,
     private val coroutineScope: CoroutineScope,
-    private val settingsManager: SettingsManager? = null
+    private val settingsManager: SettingsManager? = null,
+    private val getLocalTracks: (suspend () -> List<com.akshay.musicplayer.domain.models.TrackEntity>)? = null
 ) {
+    private suspend fun resolveLocalTrackMetadata(): Map<Long, Pair<String, String>> {
+        val tracks = getLocalTracks?.invoke() ?: emptyList()
+        return tracks.associate { it.id to Pair(it.title, it.artist) }
+    }
     private fun buildBackupSettings(): com.akshay.musicplayer.data.backup.BackupSettings {
         val currentHeroId = sharedPreferences.getString("hero_playlist_id", "curated_top_global") ?: "curated_top_global"
         var heroName: String? = null
@@ -298,6 +303,49 @@ class BackupManager(
                                 restoredCount++
                             }
 
+                            // Restore local offline playlists
+                            val localPlaylistsList = backupData.localPlaylists ?: emptyList()
+                            if (localPlaylistsList.isNotEmpty()) {
+                                val existingLocalPlaylists = playlistDao.getAllPlaylists().first()
+                                val allTracks = getLocalTracks?.invoke() ?: emptyList()
+                                fun cleanStr(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{Nd}]+"), "").trim()
+
+                                for (lp in localPlaylistsList) {
+                                    val lpName = lp.name?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
+                                    val existing = existingLocalPlaylists.firstOrNull { it.name.equals(lpName, ignoreCase = true) }
+                                    val targetPlaylistId = if (existing != null) {
+                                        existing.id
+                                    } else {
+                                        playlistDao.insertPlaylist(
+                                            com.akshay.musicplayer.data.db.PlaylistEntity(
+                                                name = lpName,
+                                                dateCreated = lp.dateCreated
+                                            )
+                                        )
+                                    }
+
+                                    val existingRefs = playlistDao.getPlaylistTracksSync(targetPlaylistId).map { it.trackId }.toSet()
+                                    val lpTracks = lp.tracks ?: emptyList()
+                                    for (trackInfo in lpTracks) {
+                                        if (trackInfo.title.isBlank()) continue
+                                        val matchedTrack = allTracks.firstOrNull { localTrack ->
+                                            (localTrack.title.equals(trackInfo.title, ignoreCase = true) &&
+                                                    (trackInfo.artist.isBlank() || localTrack.artist.contains(trackInfo.artist, ignoreCase = true) || trackInfo.artist.contains(localTrack.artist, ignoreCase = true))) ||
+                                            (localTrack.title.isNotBlank() && cleanStr(localTrack.title) == cleanStr(trackInfo.title))
+                                        }
+                                        if (matchedTrack != null && matchedTrack.id !in existingRefs) {
+                                            playlistDao.insertTrackIntoPlaylist(
+                                                com.akshay.musicplayer.data.db.PlaylistTrackCrossRef(
+                                                    playlistId = targetPlaylistId,
+                                                    trackId = matchedTrack.id,
+                                                    orderIndex = trackInfo.orderIndex
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             withContext(Dispatchers.Main) {
                                 val backupLyricsEnabled = sharedPreferences.getBoolean("backup_lyrics", true)
                                 val backupSettingsEnabled = sharedPreferences.getBoolean("backup_settings", true)
@@ -360,15 +408,17 @@ class BackupManager(
                     )
                 }
 
+                val localMetaMap = resolveLocalTrackMetadata()
                 val backupLocalList = localPlaylistEntities.map { p ->
                     val refs = playlistDao.getPlaylistTracksSync(p.id) ?: emptyList()
                     com.akshay.musicplayer.data.backup.BackupLocalPlaylist(
                         name = p.name,
                         dateCreated = p.dateCreated,
                         tracks = refs.map { ref ->
+                            val meta = localMetaMap[ref.trackId]
                             com.akshay.musicplayer.data.backup.BackupLocalTrackInfo(
-                                title = "",
-                                artist = "",
+                                title = meta?.first ?: "",
+                                artist = meta?.second ?: "",
                                 orderIndex = ref.orderIndex
                             )
                         }
@@ -477,15 +527,17 @@ class BackupManager(
 
                 // Collect local playlists
                 val localEntities = playlistDao.getAllPlaylists().first()
+                val uploadLocalMetaMap = resolveLocalTrackMetadata()
                 val backupLocalList = localEntities.map { p ->
                     val refs = playlistDao.getPlaylistTracksSync(p.id)
                     com.akshay.musicplayer.data.backup.BackupLocalPlaylist(
                         name = p.name,
                         dateCreated = p.dateCreated,
                         tracks = refs.map { ref ->
+                            val meta = uploadLocalMetaMap[ref.trackId]
                             com.akshay.musicplayer.data.backup.BackupLocalTrackInfo(
-                                title = "",
-                                artist = "",
+                                title = meta?.first ?: "",
+                                artist = meta?.second ?: "",
                                 orderIndex = ref.orderIndex
                             )
                         }

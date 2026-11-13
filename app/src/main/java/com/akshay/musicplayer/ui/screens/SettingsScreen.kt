@@ -293,14 +293,26 @@ fun SettingsScreen(
                         HorizontalDivider(color = dividerColor)
                         SettingsSelectorItem(
                             title = "Player Layout Style",
-                            subtitle = "Switch between Reels swiper and Classic album player",
+                            subtitle = when (playerLayoutStyle) {
+                                "dual" -> "Dual Realm: 4 dedicated pages (Offline Library, Offline Player, Online Player, Online Library)"
+                                "classic" -> "Classic bottom navigation with dedicated music library tabs"
+                                else -> "Swipe horizontally between Library, Full-Screen Reel Player, and Online Playlists"
+                            },
                             icon = Icons.Default.ViewCarousel,
-                            currentValue = if (playerLayoutStyle == "classic") "Classic Player" else "Reels Swiper",
-                            options = listOf("Reels Swiper", "Classic Player"),
+                            currentValue = when (playerLayoutStyle) {
+                                "dual" -> "Dual Realm (4 Pages)"
+                                "classic" -> "Classic Player"
+                                else -> "Reels Swiper"
+                            },
+                            options = listOf("Reels Swiper", "Classic Player", "Dual Realm (4 Pages)"),
                             isDarkMode = isDarkMode,
                             accentColor = accentColor,
                             onSelect = {
-                                val target = if (it.startsWith("Classic")) "classic" else "reels"
+                                val target = when {
+                                    it.startsWith("Dual") -> "dual"
+                                    it.startsWith("Classic") -> "classic"
+                                    else -> "reels"
+                                }
                                 if (target != playerLayoutStyle) {
                                     viewModel.setPlayerLayoutStyle(target)
                                 }

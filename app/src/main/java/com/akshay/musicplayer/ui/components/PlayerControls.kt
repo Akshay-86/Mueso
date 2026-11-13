@@ -46,9 +46,12 @@ fun PlayerControls(
     modifier: Modifier = Modifier
 ) {
     var isSeeking by remember { androidx.compose.runtime.mutableStateOf(false) }
-    var sliderPosition by remember(playbackState.currentPositionMs) {
-        isSeeking = false
-        mutableFloatStateOf(playbackState.currentPositionMs.toFloat())
+    var sliderPosition by remember { androidx.compose.runtime.mutableFloatStateOf(playbackState.currentPositionMs.toFloat()) }
+
+    androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
+        if (!isSeeking) {
+            sliderPosition = playbackState.currentPositionMs.toFloat()
+        }
     }
 
     val showLoading = isSeeking || isResolvingTrack || (playbackState.isBuffering && playbackState.isPlaying)
@@ -85,6 +88,7 @@ fun PlayerControls(
             },
             onValueChangeFinished = {
                 onSeek(sliderPosition.toLong())
+                isSeeking = false
             },
             valueRange = 0f..playbackState.durationMs.toFloat().coerceAtLeast(1f),
             modifier = sliderModifier,

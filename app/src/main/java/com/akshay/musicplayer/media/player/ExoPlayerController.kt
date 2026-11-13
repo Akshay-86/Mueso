@@ -65,6 +65,11 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
     private var artworkLoadJob: Job? = null
     @Volatile private var isRestoring = false
     private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private val artworkImageLoader by lazy {
+        ImageLoader.Builder(context.applicationContext)
+            .allowHardware(false)
+            .build()
+    }
 
     // Online YouTube Player for streaming tracks that cannot be resolved as raw HTTP streams
     private val ytPlayerManager = OnlineYouTubePlayerManager(context)
@@ -422,7 +427,7 @@ class ExoPlayerController(private val context: Context) : MediaPlayerController 
             // 1. If online HTTP/HTTPS URL
             if (uriString.startsWith("http://") || uriString.startsWith("https://")) {
                 val candidates = onlineRepo.getYouTubeArtworkFallbackList(uriString)
-                val loader = ImageLoader.Builder(context).allowHardware(false).build()
+                val loader = artworkImageLoader
                 for (cand in candidates) {
                     try {
                         val request = ImageRequest.Builder(context)

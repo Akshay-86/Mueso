@@ -152,14 +152,22 @@ object OnlineStreamExtractor {
                     val clean = cleanStreamUrl(streamUrl)
                     cacheStreamUrl(id, clean)
                     val cont = pendingRequests.remove(id)
-                    cont?.resume(clean)
+                    try {
+                        cont?.resume(clean)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Continuation resume ignored for $id (already completed or cancelled): ${e.message}")
+                    }
                 }
 
                 @JavascriptInterface
                 fun onError(id: String, error: String) {
                     Log.w(TAG, "JS resolver error for $id: $error")
                     val cont = pendingRequests.remove(id)
-                    cont?.resume(null)
+                    try {
+                        cont?.resume(null)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Continuation resume ignored for $id (already completed or cancelled): ${e.message}")
+                    }
                 }
             }
 

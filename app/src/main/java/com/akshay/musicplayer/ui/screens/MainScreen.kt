@@ -73,6 +73,10 @@ fun MainScreen(viewModel: PlayerViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val classicPagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+    val dualPagerState = rememberPagerState(
+        initialPage = if (viewModel.activeRealm.value == PlayerViewModel.PlayerRealm.OFFLINE) 1 else 2,
+        pageCount = { 4 }
+    )
     val coroutineScope = rememberCoroutineScope()
     var selectedPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
     var selectedTrackForPlaylist by remember { mutableStateOf<com.akshay.musicplayer.domain.models.TrackEntity?>(null) }
@@ -100,6 +104,14 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 classicPagerState.scrollToPage(ClassicNavTab.SETTINGS.ordinal)
                 showSettingsScreen = false
             }
+        } else if (playerLayoutStyle == "dual") {
+            if (classicNavTab == ClassicNavTab.SETTINGS) {
+                showSettingsScreen = true
+                classicNavTab = ClassicNavTab.LIBRARY
+                classicPagerState.scrollToPage(0)
+            }
+            val target = if (viewModel.activeRealm.value == PlayerViewModel.PlayerRealm.OFFLINE) 1 else 2
+            dualPagerState.scrollToPage(target)
         } else {
             if (classicNavTab == ClassicNavTab.SETTINGS) {
                 showSettingsScreen = true
@@ -116,12 +128,19 @@ fun MainScreen(viewModel: PlayerViewModel) {
     }
 
     val navigateToPlayer: () -> Unit = {
-        if (playerLayoutStyle == "classic") {
-            isClassicPlayerExpanded = true
-        } else {
-            coroutineScope.launch { pagerState.animateScrollToPage(1) }
+        when (playerLayoutStyle) {
+            "classic" -> isClassicPlayerExpanded = true
+            "dual" -> {
+                val target = if (viewModel.activeRealm.value == PlayerViewModel.PlayerRealm.OFFLINE) 1 else 2
+                coroutineScope.launch { dualPagerState.animateScrollToPage(target) }
+            }
+            else -> coroutineScope.launch { pagerState.animateScrollToPage(1) }
         }
     }
+
+    val isClassic = playerLayoutStyle == "classic"
+    val isDual = playerLayoutStyle == "dual"
+    val isReels = !isClassic && !isDual
 
     androidx.activity.compose.BackHandler(enabled = isClassicPlayerExpanded) {
         isClassicPlayerExpanded = false
@@ -144,7 +163,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
         viewModel.setSearchQuery("")
     }
 
-    androidx.activity.compose.BackHandler(enabled = playerLayoutStyle == "classic" && classicNavTab != ClassicNavTab.LIBRARY && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+    androidx.activity.compose.BackHandler(enabled = isClassic && classicNavTab != ClassicNavTab.LIBRARY && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
         classicNavTab = ClassicNavTab.LIBRARY
         coroutineScope.launch {
             classicPagerState.animateScrollToPage(
@@ -154,11 +173,24 @@ fun MainScreen(viewModel: PlayerViewModel) {
         }
     }
 
-    androidx.activity.compose.BackHandler(enabled = playerLayoutStyle != "classic" && pagerState.currentPage != 1 && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+    androidx.activity.compose.BackHandler(enabled = isReels && pagerState.currentPage != 1 && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
         coroutineScope.launch { pagerState.animateScrollToPage(1) }
     }
 
-    androidx.activity.compose.BackHandler(enabled = (playerLayoutStyle == "classic" || pagerState.currentPage == 1) && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && hasUnbackedUpChanges && googleAccount != null) {
+    androidx.activity.compose.BackHandler(enabled = isDual && (dualPagerState.currentPage == 0 || dualPagerState.currentPage == 3) && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen) {
+        coroutineScope.launch {
+            val target = if (dualPagerState.currentPage == 0) 1 else 2
+            dualPagerState.animateScrollToPage(target)
+        }
+    }
+
+    val isAtHomePlayer = when {
+        isClassic -> !isClassicPlayerExpanded
+        isDual -> dualPagerState.currentPage == 1 || dualPagerState.currentPage == 2
+        else -> pagerState.currentPage == 1
+    }
+
+    androidx.activity.compose.BackHandler(enabled = isAtHomePlayer && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && hasUnbackedUpChanges && googleAccount != null) {
         viewModel.performDriveBackup(context)
         (context as? android.app.Activity)?.moveTaskToBack(true)
     }
@@ -216,8 +248,11 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            val isClassic = playerLayoutStyle == "classic"
-            val isOnlineActive = if (isClassic) classicNavTab == ClassicNavTab.EXPLORE else pagerState.currentPage == 2
+            val isOnlineActive = when (playerLayoutStyle) {
+                "classic" -> classicNavTab == ClassicNavTab.EXPLORE
+                "dual" -> dualPagerState.currentPage >= 2
+                else -> pagerState.currentPage == 2
+            }
 
             if (isClassic) {
                 // ─── CLASSIC DUAL-MODE ARCHITECTURE ───
@@ -354,6 +389,38 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     }
                 }
 
+            } else if (isDual) {
+                // ─── DUAL REALM 4-PAGE ARCHITECTURE ───
+                HorizontalPager(
+                    state = dualPagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = !isSearchActive
+                ) { page ->
+                    when (page) {
+                        0 -> OfflineLibraryScreen(
+                            viewModel = viewModel,
+                            onNavigateToPlayer = {
+                                coroutineScope.launch { dualPagerState.animateScrollToPage(1) }
+                            },
+                            onPlaylistClick = { selectedPlaylist = it }
+                        )
+                        1 -> PlayerScreen(
+                            viewModel = viewModel,
+                            isOfflineRealm = true
+                        )
+                        2 -> PlayerScreen(
+                            viewModel = viewModel,
+                            isOfflineRealm = false
+                        )
+                        3 -> OnlinePlaylistsScreen(
+                            viewModel = viewModel,
+                            onNavigateToPlayer = {
+                                coroutineScope.launch { dualPagerState.animateScrollToPage(2) }
+                            },
+                            onDetailVisibilityChanged = { isOnlineDetailActive = it }
+                        )
+                    }
+                }
             } else {
                 // ─── REELS VERTICAL SWIPER & 3-PAGE PAGER ARCHITECTURE ───
                 HorizontalPager(
@@ -383,8 +450,16 @@ fun MainScreen(viewModel: PlayerViewModel) {
             // Top Navigation Bar with integrated search (hidden when viewing a playlist detail on active page, settings, or full player)
             val shouldHideTopBar = if (isClassic) {
                 (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || isOnlineDetailActive || (classicNavTab == ClassicNavTab.SETTINGS) || isClassicPlayerExpanded
+            } else if (isDual) {
+                (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || (dualPagerState.currentPage == 3 && isOnlineDetailActive)
             } else {
                 (selectedPlaylist != null) || (selectedArtistPage != null) || (selectedOnlinePlaylist != null) || (pagerState.currentPage == 2 && isOnlineDetailActive)
+            }
+
+            val currentNavPage = when (playerLayoutStyle) {
+                "classic" -> if (classicNavTab == ClassicNavTab.EXPLORE) 2 else 0
+                "dual" -> dualPagerState.currentPage
+                else -> pagerState.currentPage
             }
 
             if (!shouldHideTopBar) {
@@ -393,7 +468,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     isSearchActive = isSearchActive,
                     searchQuery = searchQuery,
                     isDarkMode = isDarkMode,
-                    currentPage = if (isClassic) (if (classicNavTab == ClassicNavTab.EXPLORE) 2 else 0) else pagerState.currentPage,
+                    currentPage = currentNavPage,
+                    isDualMode = isDual,
                     hasTrackPlaying = hasTrackPlaying,
                     onSearchClick = { isSearchActive = true },
                     onSearchClose = {
@@ -990,6 +1066,7 @@ fun TopNavigationBarWithSearch(
     searchQuery: String,
     isDarkMode: Boolean = true,
     currentPage: Int = 1,
+    isDualMode: Boolean = false,
     hasTrackPlaying: Boolean = false,
     onSearchClick: () -> Unit,
     onSearchClose: () -> Unit,
@@ -999,24 +1076,24 @@ fun TopNavigationBarWithSearch(
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
-    val isPage1 = currentPage == 1
-    val isPage1NoTrackLightMode = isPage1 && !isDarkMode && !hasTrackPlaying
+    val isPlayerPage = if (isDualMode) (currentPage == 1 || currentPage == 2) else (currentPage == 1)
+    val isPlayerPageNoTrackLightMode = isPlayerPage && !isDarkMode && !hasTrackPlaying
 
     val textColor = when {
-        isPage1NoTrackLightMode -> Color(0xFF1D1D1F)
-        isPage1 -> Color.White
+        isPlayerPageNoTrackLightMode -> Color(0xFF1D1D1F)
+        isPlayerPage -> Color.White
         isDarkMode -> Color.White
         else -> Color(0xFF1D1D1F)
     }
     val textSub = when {
-        isPage1NoTrackLightMode -> Color.Black.copy(alpha = 0.5f)
-        isPage1 -> Color.White.copy(alpha = 0.6f)
+        isPlayerPageNoTrackLightMode -> Color.Black.copy(alpha = 0.5f)
+        isPlayerPage -> Color.White.copy(alpha = 0.6f)
         isDarkMode -> Color.White.copy(alpha = 0.4f)
         else -> Color.Black.copy(alpha = 0.4f)
     }
     val searchBg = when {
-        isPage1NoTrackLightMode -> Color.Black.copy(alpha = 0.05f)
-        isPage1 -> Color.White.copy(alpha = 0.2f)
+        isPlayerPageNoTrackLightMode -> Color.Black.copy(alpha = 0.05f)
+        isPlayerPage -> Color.White.copy(alpha = 0.2f)
         isDarkMode -> Color.White.copy(alpha = 0.1f)
         else -> Color.Black.copy(alpha = 0.05f)
     }
@@ -1033,7 +1110,7 @@ fun TopNavigationBarWithSearch(
         modifier = modifier
             .fillMaxWidth()
             .then(
-                if (isPage1) Modifier
+                if (isPlayerPage) Modifier
                 else Modifier.background(
                     brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                         colors = listOf(
@@ -1081,7 +1158,7 @@ fun TopNavigationBarWithSearch(
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = if (isPage1NoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
+                            tint = if (isPlayerPageNoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
                             modifier = Modifier.size(36.dp)
                         )
                     }

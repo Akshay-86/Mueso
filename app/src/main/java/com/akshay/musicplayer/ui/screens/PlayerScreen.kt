@@ -27,7 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -35,6 +37,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
@@ -57,6 +61,7 @@ import com.akshay.musicplayer.ui.components.SleepTimerBottomSheet
 import com.akshay.musicplayer.ui.components.SleepTimerMode
 
 import com.akshay.musicplayer.ui.components.SongInfo
+import com.akshay.musicplayer.ui.state.PlaybackState
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 
@@ -68,19 +73,45 @@ private val AccentOrange: Color
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isOfflineRealm: Boolean? = null
 ) {
     val activeQueue by viewModel.activeQueue.collectAsState()
-
+    val offlineQueue by viewModel.offlineQueue.collectAsState()
+    val onlineQueue by viewModel.onlineQueue.collectAsState()
+    val allLocalTracks by viewModel.allLocalTracks.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
 
-    if (activeQueue.isNotEmpty()) {
+    val tracks = when (isOfflineRealm) {
+        true -> if (offlineQueue.isNotEmpty()) offlineQueue else allLocalTracks
+        false -> onlineQueue
+        null -> activeQueue
+    }
+
+    if (tracks.isNotEmpty()) {
         VerticalPagerScreen(
-            tracks = activeQueue,
+            tracks = tracks,
             viewModel = viewModel,
-            modifier = modifier
+            modifier = modifier,
+            isOfflineRealm = isOfflineRealm
         )
     } else {
+        val emptyTitle = when (isOfflineRealm) {
+            true -> "No Local Music"
+            false -> "No Online Music"
+            null -> "No track playing"
+        }
+        val emptySubtitle = when (isOfflineRealm) {
+            true -> "Add MP3s or downloaded tracks to your device to play offline"
+            false -> "Search or select songs from Online Playlists to start streaming"
+            null -> "Search or select a song to start playing"
+        }
+        val emptyIcon = when (isOfflineRealm) {
+            true -> Icons.Default.LibraryMusic
+            false -> Icons.Default.CloudQueue
+            null -> Icons.Default.MusicNote
+        }
+
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -92,17 +123,33 @@ fun PlayerScreen(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(32.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = emptyIcon,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "No track playing",
+                    text = emptyTitle,
                     color = if (isDarkMode) Color.White else Color(0xFF1D1D1F),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Search or select a song to start playing",
+                    text = emptySubtitle,
                     color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF1D1D1F).copy(alpha = 0.5f),
-                    fontSize = 14.sp
+                    fontSize = 14.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         }
@@ -114,17 +161,34 @@ fun PlayerScreen(
 fun VerticalPagerScreen(
     tracks: List<TrackEntity>,
     viewModel: PlayerViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isOfflineRealm: Boolean? = null
 ) {
+    val activeRealm by viewModel.activeRealm.collectAsState()
+    val isRealmActive = when (isOfflineRealm) {
+        true -> activeRealm == PlayerViewModel.PlayerRealm.OFFLINE
+        false -> activeRealm == PlayerViewModel.PlayerRealm.ONLINE
+        null -> true
+    }
+
     val currentTrackIndex by viewModel.currentTrackIndexState.collectAsState()
 
     val initialIndex = remember(tracks) {
-        val requestedId = viewModel.lastRequestedTrackId
-        if (requestedId != null) {
-            val idx = tracks.indexOfFirst { it.id == requestedId }
-            if (idx >= 0) return@remember idx
+        if (isRealmActive) {
+            val requestedId = viewModel.lastRequestedTrackId
+            if (requestedId != null) {
+                val idx = tracks.indexOfFirst { it.id == requestedId }
+                if (idx >= 0) return@remember idx
+            }
+            currentTrackIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
+        } else {
+            val savedId = if (isOfflineRealm == true) viewModel.savedOfflineTrackId else viewModel.savedOnlineTrackId
+            if (savedId != null) {
+                val idx = tracks.indexOfFirst { it.id == savedId }
+                if (idx >= 0) return@remember idx
+            }
+            0
         }
-        currentTrackIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
     }
 
     val pagerState = rememberPagerState(
@@ -136,9 +200,9 @@ fun VerticalPagerScreen(
     val currentTracksList by rememberUpdatedState(tracks)
     var isFirstSync by remember { mutableStateOf(true) }
 
-    // Sync Pager with ViewModel (when ExoPlayer changes track externally, e.g. auto-advance or next/prev button)
-    LaunchedEffect(currentTrackIndex) {
-        if (currentTrackIndex in currentTracksList.indices) {
+    // Sync Pager with ViewModel (when track changes externally in active realm)
+    LaunchedEffect(currentTrackIndex, isRealmActive) {
+        if (isRealmActive && currentTrackIndex in currentTracksList.indices) {
             val isCurrentOrSettled = pagerState.currentPage == currentTrackIndex || pagerState.settledPage == currentTrackIndex
             if (!isCurrentOrSettled && !pagerState.isScrollInProgress) {
                 if (isFirstSync) {
@@ -155,8 +219,17 @@ fun VerticalPagerScreen(
         }
     }
 
+    // Detect user dragging to avoid triggering realm switch on initial composition or horizontal swipes
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    var userInteracted by remember { mutableStateOf(false) }
+    LaunchedEffect(isDragged) {
+        if (isDragged) {
+            userInteracted = true
+        }
+    }
+
     // Sync ViewModel with Pager (only when user finishes scrolling and settles on a new page)
-    LaunchedEffect(pagerState) {
+    LaunchedEffect(pagerState, isRealmActive) {
         snapshotFlow {
             val isScrolling = pagerState.isScrollInProgress
             val settled = pagerState.settledPage
@@ -166,10 +239,23 @@ fun VerticalPagerScreen(
             .filterNotNull()
             .distinctUntilChanged()
             .collect { settledPage ->
-                if (settledPage in currentTracksList.indices && settledPage != currentTrackIndex) {
+                if (settledPage in currentTracksList.indices) {
                     val track = currentTracksList[settledPage]
-                    Log.d("MUESO_SYNC", "PlayerScreen UI: user settled on page $settledPage -> playTrackIfChanged for ${track.id}")
-                    viewModel.playTrackIfChanged(track)
+                    if (isOfflineRealm != null) {
+                        if (!isRealmActive && userInteracted) {
+                            val target = if (isOfflineRealm) PlayerViewModel.PlayerRealm.OFFLINE else PlayerViewModel.PlayerRealm.ONLINE
+                            Log.d("MUESO_SYNC", "PlayerScreen UI: user scrolled in dormant realm -> switching to $target for '${track.title}'")
+                            viewModel.switchToRealmAndPlay(target, track = track)
+                        } else if (isRealmActive && settledPage != currentTrackIndex) {
+                            Log.d("MUESO_SYNC", "PlayerScreen UI: user settled on page $settledPage -> playTrackIfChanged for ${track.id}")
+                            viewModel.playTrackIfChanged(track)
+                        }
+                    } else {
+                        if (settledPage != currentTrackIndex) {
+                            Log.d("MUESO_SYNC", "PlayerScreen UI: user settled on page $settledPage -> playTrackIfChanged for ${track.id}")
+                            viewModel.playTrackIfChanged(track)
+                        }
+                    }
                 }
             }
     }
@@ -203,7 +289,8 @@ fun VerticalPagerScreen(
                     PlayerPageContent(
                         track = track,
                         viewModel = viewModel,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        isOfflineRealm = isOfflineRealm
                     )
                 }
             }
@@ -221,7 +308,13 @@ fun VerticalPagerScreen(
                 playlistTrackCount = playlistTrackCount,
                 isDarkMode = isDarkMode,
                 onTrackClick = { index ->
-                    viewModel.playTrackAtIndex(index)
+                    if (isOfflineRealm == true) {
+                        viewModel.switchToRealmAndPlay(PlayerViewModel.PlayerRealm.OFFLINE, tracks.getOrNull(index), index)
+                    } else if (isOfflineRealm == false) {
+                        viewModel.switchToRealmAndPlay(PlayerViewModel.PlayerRealm.ONLINE, tracks.getOrNull(index), index)
+                    } else {
+                        viewModel.playTrackAtIndex(index)
+                    }
                     viewModel.dismissQueueSheet()
                 },
                 onMove = { from, to -> viewModel.moveInQueue(from, to) },
@@ -267,9 +360,34 @@ fun VerticalPagerScreen(
 fun PlayerPageContent(
     track: TrackEntity,
     viewModel: PlayerViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isOfflineRealm: Boolean? = null
 ) {
-    val playbackState by viewModel.playbackState.collectAsState()
+    val rawPlaybackState by viewModel.playbackState.collectAsState()
+    val activeRealm by viewModel.activeRealm.collectAsState()
+
+    val isCurrentRealmActive = when (isOfflineRealm) {
+        true -> activeRealm == PlayerViewModel.PlayerRealm.OFFLINE
+        false -> activeRealm == PlayerViewModel.PlayerRealm.ONLINE
+        null -> true
+    }
+
+    val playbackState = if (isCurrentRealmActive && rawPlaybackState.currentTrackId == track.id) {
+        rawPlaybackState
+    } else {
+        val savedPos = when (isOfflineRealm) {
+            true -> if (track.id == viewModel.savedOfflineTrackId) viewModel.savedOfflinePositionMs else 0L
+            false -> if (track.id == viewModel.savedOnlineTrackId) viewModel.savedOnlinePositionMs else 0L
+            null -> 0L
+        }
+        PlaybackState(
+            isPlaying = false,
+            isBuffering = false,
+            currentTrackId = track.id,
+            currentPositionMs = savedPos,
+            durationMs = track.duration.coerceAtLeast(0L)
+        )
+    }
     val repeatMode by viewModel.repeatMode.collectAsState()
     val activeSleepMode by viewModel.activeSleepMode.collectAsState()
     val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
@@ -316,7 +434,6 @@ fun PlayerPageContent(
     }
 
     var isLyricsExpanded by remember { mutableStateOf(false) }
-    var showSignalPathDialog by remember { mutableStateOf(false) }
     var showAddToPlaylistSheet by remember { mutableStateOf(false) }
     var showTrackMenuSheet by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
@@ -422,8 +539,7 @@ fun PlayerPageContent(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         com.akshay.musicplayer.ui.components.AudioQualityCapsule(
-                            audioFormat = activeAudioFormat,
-                            onClick = { showSignalPathDialog = true }
+                            audioFormat = activeAudioFormat
                         )
                         IconButton(
                             onClick = { showTrackMenuSheet = true },
@@ -485,7 +601,6 @@ fun PlayerPageContent(
                         onGoToAlbum = {
                             viewModel.openAlbumForCurrentTrack(track)
                         },
-                        onShowSignalPath = { showSignalPathDialog = true },
                         onShowEqualizer = { showEqualizerSheet = true },
                         onAddToPlaylist = { showAddToPlaylistSheet = true },
                         onDismiss = { showTrackMenuSheet = false }
@@ -509,26 +624,38 @@ fun PlayerPageContent(
                     )
                 }
 
-                if (showSignalPathDialog) {
-                    com.akshay.musicplayer.ui.components.SignalPathDialog(
-                        audioFormat = activeAudioFormat,
-                        track = track,
-                        playbackState = playbackState,
-                        isEqualizerActive = isEqActive && !isBitPerfectActive,
-                        isClarityActive = isClarityActive,
-                        isBitPerfectActive = isBitPerfectActive,
-                        onOpenEqualizer = { showEqualizerSheet = true },
-                        onDismiss = { showSignalPathDialog = false }
-                    )
-                }
-
                 PlayerControls(
                     playbackState = playbackState,
-                    onPlayPauseClick = { viewModel.togglePlayPause() },
-                    onNextClick = { viewModel.playNextTrack() },
-                    onPreviousClick = { viewModel.playPreviousTrack() },
-                    onSeek = { viewModel.seekTo(it) },
-                    isResolvingTrack = isResolvingTrack,
+                    onPlayPauseClick = {
+                        if (!isCurrentRealmActive) {
+                            val targetRealm = if (isOfflineRealm == true) PlayerViewModel.PlayerRealm.OFFLINE else PlayerViewModel.PlayerRealm.ONLINE
+                            viewModel.switchToRealmAndPlay(targetRealm, track = track)
+                        } else {
+                            viewModel.togglePlayPause()
+                        }
+                    },
+                    onNextClick = {
+                        if (!isCurrentRealmActive) {
+                            val targetRealm = if (isOfflineRealm == true) PlayerViewModel.PlayerRealm.OFFLINE else PlayerViewModel.PlayerRealm.ONLINE
+                            viewModel.switchToRealmAndPlay(targetRealm, track = null)
+                        } else {
+                            viewModel.playNextTrack()
+                        }
+                    },
+                    onPreviousClick = {
+                        if (!isCurrentRealmActive) {
+                            val targetRealm = if (isOfflineRealm == true) PlayerViewModel.PlayerRealm.OFFLINE else PlayerViewModel.PlayerRealm.ONLINE
+                            viewModel.switchToRealmAndPlay(targetRealm, track = null)
+                        } else {
+                            viewModel.playPreviousTrack()
+                        }
+                    },
+                    onSeek = { seekPos ->
+                        if (isCurrentRealmActive) {
+                            viewModel.seekTo(seekPos)
+                        }
+                    },
+                    isResolvingTrack = if (isCurrentRealmActive) isResolvingTrack else false,
                     playButtonPosition = playButtonPosition,
                     modifier = Modifier.fillMaxWidth()
                 )
