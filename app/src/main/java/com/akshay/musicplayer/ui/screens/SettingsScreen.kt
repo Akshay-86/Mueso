@@ -111,7 +111,6 @@ fun SettingsScreen(
     val skipNonMusicOffTopic by viewModel.skipNonMusicOffTopic.collectAsState()
 
     // Audiophile & Appearance States
-    val losslessStreamingEnabled by viewModel.losslessStreamingEnabled.collectAsState()
     val isStudioMasterClarityEnabled by viewModel.isStudioMasterClarityEnabled.collectAsState()
     val isBitPerfectEnabled by viewModel.isBitPerfectEnabled.collectAsState()
     val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
@@ -564,7 +563,7 @@ fun SettingsScreen(
                             subtitle = "Audio bit rate for offline tracks",
                             icon = Icons.Default.MusicNote,
                             currentValue = downloadQuality,
-                            options = listOf("Lossless (FLAC)", "Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
+                            options = listOf("Highest (320 kbps)", "Standard (256 kbps)", "Medium (128 kbps)"),
                             isDarkMode = isDarkMode,
                             accentColor = accentColor,
                             onSelect = { viewModel.setDownloadQuality(it) }
@@ -1135,16 +1134,6 @@ fun SettingsScreen(
                                 )
                                 HorizontalDivider(color = dividerColor)
                                 SettingsToggleItem(
-                                    title = "Hi-Res Audio (Lossless FLAC)",
-                                    subtitle = if (losslessStreamingEnabled) "Matches tracks against high-resolution lossless catalog • Auto-fallback to YouTube if track unavailable" else "Stream studio quality audio with auto-fallback to YouTube",
-                                    icon = Icons.Default.HighQuality,
-                                    checked = losslessStreamingEnabled,
-                                    isDarkMode = isDarkMode,
-                                    accentColor = accentColor,
-                                    onCheckedChange = { viewModel.setLosslessStreamingEnabled(it) }
-                                )
-                                HorizontalDivider(color = dividerColor)
-                                SettingsToggleItem(
                                     title = "Bit-Perfect Mode",
                                     subtitle = "Bypass all DSP for pure PCM bitstream to external USB DACs",
                                     icon = Icons.Default.Headphones,
@@ -1635,7 +1624,6 @@ private fun SettingsSelectorItem(
                         val isSelected = option.equals(currentValue, ignoreCase = true) ||
                             (option.contains("Classic", ignoreCase = true) && currentValue.contains("Classic", ignoreCase = true)) ||
                             (option.contains("Reels", ignoreCase = true) && currentValue.contains("Reels", ignoreCase = true)) ||
-                            (option.contains("FLAC", ignoreCase = true) && currentValue.contains("FLAC", ignoreCase = true)) ||
                             (option.contains("320") && currentValue.contains("320")) ||
                             (option.contains("256") && currentValue.contains("256")) ||
                             (option.contains("160") && currentValue.contains("160")) ||

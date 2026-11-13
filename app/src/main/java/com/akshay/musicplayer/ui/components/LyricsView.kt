@@ -255,7 +255,7 @@ private fun InlineLyricsGlassCard(
     val listState = rememberLazyListState()
 
     LaunchedEffect(activeIndex) {
-        if (candidateResults == null && lyrics != null && activeIndex in lyrics.lines.indices) {
+        if (candidateResults == null && lyrics != null && activeIndex in lyrics.lines.indices && !listState.isScrollInProgress) {
             listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
         }
     }

@@ -12,10 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -132,8 +130,6 @@ fun WelcomeScreen(
 
     val allPermissionsGranted = isAudioGranted && isNotificationGranted && isBatteryIgnored
 
-    val scrollState = rememberScrollState()
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -144,32 +140,32 @@ fun WelcomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 18.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            // ─── TOP SECTION: Header + UI Style + Permissions ───
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // ─── CENTERED HEADER: Logo & Title ───
+                // ─── CENTERED HEADER: Compact Logo & Title ───
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 2.dp),
+                        .padding(top = 2.dp, bottom = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_logo),
                         contentDescription = "Mueso Logo",
-                        modifier = Modifier.size(54.dp)
+                        modifier = Modifier.size(38.dp)
                     )
 
                     Text(
                         text = "Welcome to Mueso",
                         color = textPrimary,
-                        fontSize = 21.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center
                     )
@@ -177,32 +173,32 @@ fun WelcomeScreen(
                     Text(
                         text = "Quick Setup • Tailor your music experience",
                         color = textSub,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         textAlign = TextAlign.Center
                     )
                 }
 
-                // ─── PLAYER UI STYLE SELECTOR ───
+                // ─── PLAYER UI STYLE SELECTOR (3 options side-by-side in 1 row) ───
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Text(
                         text = "CHOOSE YOUR INTERFACE",
                         color = accentColor,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                        modifier = Modifier.padding(start = 2.dp)
                     )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        UiStyleCard(
+                        UiStyleCardCompact(
                             title = "Reel Swiper",
-                            subtitle = "Full-screen vertical swipe",
+                            subtitle = "Full-screen",
                             icon = Icons.Default.ViewCarousel,
                             isSelected = selectedLayout == "reels",
                             accentColor = accentColor,
@@ -216,9 +212,9 @@ fun WelcomeScreen(
                             }
                         )
 
-                        UiStyleCard(
+                        UiStyleCardCompact(
                             title = "Classic",
-                            subtitle = "Bottom dock mini player",
+                            subtitle = "Bottom mini",
                             icon = Icons.Default.Dashboard,
                             isSelected = selectedLayout == "classic",
                             accentColor = accentColor,
@@ -231,43 +227,43 @@ fun WelcomeScreen(
                                 viewModel.setPlayerLayoutStyle("classic")
                             }
                         )
-                    }
 
-                    UiStyleCard(
-                        title = "Dual Realm (4 Pages)",
-                        subtitle = "Dedicated side-by-side decks for Offline MP3s & Online Streaming",
-                        icon = Icons.Default.Layers,
-                        isSelected = selectedLayout == "dual",
-                        accentColor = accentColor,
-                        cardBg = cardBg,
-                        textPrimary = textPrimary,
-                        textSub = textSub,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            selectedLayout = "dual"
-                            viewModel.setPlayerLayoutStyle("dual")
-                        }
-                    )
+                        UiStyleCardCompact(
+                            title = "Dual Realm",
+                            subtitle = "4-Page swipe",
+                            icon = Icons.Default.Layers,
+                            isSelected = selectedLayout == "dual",
+                            accentColor = accentColor,
+                            cardBg = cardBg,
+                            textPrimary = textPrimary,
+                            textSub = textSub,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                selectedLayout = "dual"
+                                viewModel.setPlayerLayoutStyle("dual")
+                            }
+                        )
+                    }
                 }
 
-                // ─── PERMISSIONS & SETUP ───
+                // ─── PERMISSIONS & SETUP (Clean 1-line cards) ───
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
                         text = "PERMISSIONS & SETUP",
                         color = textSub,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        modifier = Modifier.padding(start = 2.dp, top = 4.dp)
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
                     )
 
                     // Card 1: Music & Audio Access
                     WelcomePermissionCard(
                         title = "Music & Audio Files",
-                        description = "Grants access to discover, read, and index your local MP3s, downloaded tracks, and audio files stored on your device.",
+                        description = "Index local MP3s & device downloads",
                         icon = Icons.Default.MusicNote,
                         isGranted = isAudioGranted,
                         grantedLabel = "Granted",
@@ -285,7 +281,7 @@ fun WelcomeScreen(
                     // Card 2: Notifications & Controls
                     WelcomePermissionCard(
                         title = "Lockscreen Controls",
-                        description = "Enables media playback controls, track progress bar, next/previous buttons, and album artwork on your lockscreen.",
+                        description = "Media playback controls & lockscreen art",
                         icon = Icons.Default.Notifications,
                         isGranted = isNotificationGranted,
                         grantedLabel = "Enabled",
@@ -307,7 +303,7 @@ fun WelcomeScreen(
                     // Card 3: Background Playback (Battery)
                     WelcomePermissionCard(
                         title = "Background Playback",
-                        description = "Prevents Android battery saver from freezing audio or killing the player when your screen turns off or while multitasking.",
+                        description = "Prevents system from stopping audio",
                         icon = Icons.Default.Bolt,
                         isGranted = isBatteryIgnored,
                         grantedLabel = "Allowed",
@@ -327,7 +323,7 @@ fun WelcomeScreen(
                     val driveEmail = googleAccountEmail ?: googleAccount?.email
                     WelcomePermissionCard(
                         title = "Google Drive Backup",
-                        description = if (isDriveConnected && driveEmail != null) "Connected as $driveEmail\nPlaylists & preferences synced safely." else "Optional • Securely syncs your custom playlists, favorites, and player preferences to your private Google Drive account.",
+                        description = if (isDriveConnected && driveEmail != null) "Synced with $driveEmail" else "Sync playlists & preferences (Optional)",
                         icon = Icons.Default.CloudUpload,
                         isGranted = isDriveConnected,
                         grantedLabel = "Synced",
@@ -346,25 +342,25 @@ fun WelcomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // ─── BOTTOM SECTION: "Skip this shyt" ABOVE "Continue to Mueso" ───
+            // ─── BOTTOM SECTION: "Skip Setup" ABOVE "Continue to Mueso" ───
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Noticeable skip button above Continue to Mueso
                 Text(
-                    text = "Skip this shyt",
+                    text = "Skip Setup",
                     color = accentColor,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     textDecoration = TextDecoration.Underline,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .clickable(onClick = onContinue)
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .padding(horizontal = 14.dp, vertical = 2.dp)
                 )
 
                 // Continue button: active ONLY when all permissions are granted!
@@ -379,12 +375,12 @@ fun WelcomeScreen(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp)
+                        .height(44.dp)
                 ) {
                     Text(
                         text = if (allPermissionsGranted) "Continue to Mueso" else "Grant All Permissions to Continue",
                         color = if (allPermissionsGranted) Color.White else textSub.copy(alpha = 0.55f),
-                        fontSize = 14.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -412,15 +408,15 @@ private fun WelcomePermissionCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(11.dp))
             .background(cardBg)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(if (isGranted) successColor.copy(alpha = 0.15f) else accentColor.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center
@@ -429,35 +425,37 @@ private fun WelcomePermissionCard(
                 imageVector = if (isGranted) Icons.Default.Check else icon,
                 contentDescription = null,
                 tint = if (isGranted) successColor else accentColor,
-                modifier = Modifier.size(17.dp)
+                modifier = Modifier.size(15.dp)
             )
         }
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = title,
                     color = textPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (isOptional) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(textSub.copy(alpha = 0.12f))
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .padding(horizontal = 4.dp, vertical = 0.5.dp)
                     ) {
                         Text(
                             text = "Optional",
                             color = textSub,
-                            fontSize = 8.5.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -467,9 +465,9 @@ private fun WelcomePermissionCard(
             Text(
                 text = description,
                 color = textSub,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                maxLines = 3,
+                fontSize = 10.5.sp,
+                lineHeight = 13.sp,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -477,9 +475,9 @@ private fun WelcomePermissionCard(
         if (isGranted) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(7.dp))
                     .background(successColor.copy(alpha = 0.12f))
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -490,12 +488,12 @@ private fun WelcomePermissionCard(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = successColor,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
                     )
                     Text(
                         text = grantedLabel,
                         color = successColor,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -504,14 +502,14 @@ private fun WelcomePermissionCard(
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                modifier = Modifier.height(32.dp)
+                shape = RoundedCornerShape(7.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp)
             ) {
                 Text(
                     text = actionLabel,
                     color = Color.White,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -520,7 +518,7 @@ private fun WelcomePermissionCard(
 }
 
 @Composable
-private fun UiStyleCard(
+private fun UiStyleCardCompact(
     title: String,
     subtitle: String,
     icon: ImageVector,
@@ -536,7 +534,7 @@ private fun UiStyleCard(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(cardBg)
             .then(
                 if (isSelected) {
@@ -544,16 +542,16 @@ private fun UiStyleCard(
                 } else Modifier
             )
             .border(
-                width = if (isSelected) 1.8.dp else 1.dp,
+                width = if (isSelected) 1.6.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -562,7 +560,7 @@ private fun UiStyleCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(26.dp)
                         .clip(CircleShape)
                         .background(
                             if (isSelected) accentColor.copy(alpha = 0.16f)
@@ -574,17 +572,17 @@ private fun UiStyleCard(
                         imageVector = icon,
                         contentDescription = null,
                         tint = if (isSelected) accentColor else textSub,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(16.dp)
                         .clip(CircleShape)
                         .background(if (isSelected) accentColor else Color.Transparent)
                         .border(
-                            width = if (isSelected) 0.dp else 1.5.dp,
+                            width = if (isSelected) 0.dp else 1.2.dp,
                             color = if (isSelected) Color.Transparent else textSub.copy(alpha = 0.4f),
                             shape = CircleShape
                         ),
@@ -595,25 +593,26 @@ private fun UiStyleCard(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Selected",
                             tint = Color.White,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(11.dp)
                         )
                     }
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     text = title,
                     color = if (isSelected) textPrimary else textPrimary.copy(alpha = 0.85f),
-                    fontSize = 13.5.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                    fontSize = 11.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = subtitle,
                     color = textSub,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 2,
+                    fontSize = 9.5.sp,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }

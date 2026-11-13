@@ -43,7 +43,11 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _thumbnailQuality = MutableStateFlow(sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)")
     val thumbnailQuality: StateFlow<String> = _thumbnailQuality.asStateFlow()
 
-    private val _downloadQuality = MutableStateFlow(sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)")
+    private val _downloadQuality = MutableStateFlow(
+        sharedPreferences.getString("download_quality", "Medium (128 kbps)")
+            ?.let { if (it.contains("FLAC", ignoreCase = true)) "Medium (128 kbps)" else it }
+            ?: "Medium (128 kbps)"
+    )
     val downloadQuality: StateFlow<String> = _downloadQuality.asStateFlow()
 
     private val _downloadFolder = MutableStateFlow(sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso")
@@ -82,17 +86,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _skipNonMusicOffTopic = MutableStateFlow(sharedPreferences.getBoolean("skip_non_music_off_topic", true))
     val skipNonMusicOffTopic: StateFlow<Boolean> = _skipNonMusicOffTopic.asStateFlow()
 
-    // Audiophile & Lossless Settings
-    private val _losslessStreamingEnabled = MutableStateFlow(sharedPreferences.getBoolean("lossless_streaming_enabled", false))
-    val losslessStreamingEnabled: StateFlow<Boolean> = _losslessStreamingEnabled.asStateFlow()
-
-    private val _losslessServerUrl = MutableStateFlow(
-        sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
-            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true) || it.contains("qobuz.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
-            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
-    )
-    val losslessServerUrl: StateFlow<String> = _losslessServerUrl.asStateFlow()
-
+    // Audiophile & Audio Engine Settings
     private val _isStudioMasterClarityEnabled = MutableStateFlow(sharedPreferences.getBoolean("studio_master_clarity", false))
     val isStudioMasterClarityEnabled: StateFlow<Boolean> = _isStudioMasterClarityEnabled.asStateFlow()
 
@@ -244,16 +238,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.edit().putBoolean("skip_non_music_off_topic", enabled).apply()
     }
 
-    fun setLosslessStreamingEnabled(enabled: Boolean) {
-        _losslessStreamingEnabled.value = enabled
-        sharedPreferences.edit().putBoolean("lossless_streaming_enabled", enabled).apply()
-    }
-
-    fun setLosslessServerUrl(url: String) {
-        _losslessServerUrl.value = url
-        sharedPreferences.edit().putString("lossless_server_url", url).apply()
-    }
-
     fun setStudioMasterClarityEnabled(enabled: Boolean) {
         _isStudioMasterClarityEnabled.value = enabled
         sharedPreferences.edit().putBoolean("studio_master_clarity", enabled).apply()
@@ -292,7 +276,9 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _highRefreshRate.value = sharedPreferences.getBoolean("high_refresh_rate", false)
         _audioQuality.value = sharedPreferences.getString("audio_quality", "Medium (160 kbps)") ?: "Medium (160 kbps)"
         _thumbnailQuality.value = sharedPreferences.getString("thumbnail_quality", "Medium (480p)") ?: "Medium (480p)"
-        _downloadQuality.value = sharedPreferences.getString("download_quality", "Lossless (FLAC)") ?: "Lossless (FLAC)"
+        _downloadQuality.value = sharedPreferences.getString("download_quality", "Medium (128 kbps)")
+            ?.let { if (it.contains("FLAC", ignoreCase = true)) "Medium (128 kbps)" else it }
+            ?: "Medium (128 kbps)"
         _downloadFolder.value = sharedPreferences.getString("download_folder", "Music/Mueso") ?: "Music/Mueso"
         _enableLyrics.value = sharedPreferences.getBoolean("enable_lyrics", true)
         _embedLyricsInDownload.value = sharedPreferences.getBoolean("embed_lyrics_in_download", true)
@@ -303,10 +289,6 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _skipIntroOutro.value = sharedPreferences.getBoolean("skip_intro_outro", true)
         _skipNonMusicOffTopic.value = sharedPreferences.getBoolean("skip_non_music_off_topic", true)
         _playButtonPosition.value = sharedPreferences.getString("play_button_position", "Left") ?: "Left"
-        _losslessStreamingEnabled.value = sharedPreferences.getBoolean("lossless_streaming_enabled", false)
-        _losslessServerUrl.value = sharedPreferences.getString("lossless_server_url", com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL)
-            ?.let { if (it.contains("clashflac.kanjijewels.com", ignoreCase = true) || it.contains("qobuz.kanjijewels.com", ignoreCase = true)) com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL else it }
-            ?: com.akshay.musicplayer.data.remote.lossless.LosslessMusicRepository.DEFAULT_SERVER_URL
         _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
         _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
         _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)

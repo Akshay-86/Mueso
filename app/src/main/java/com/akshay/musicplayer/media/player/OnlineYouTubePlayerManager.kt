@@ -1,6 +1,10 @@
 package com.akshay.musicplayer.media.player
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -29,9 +33,93 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     private var pendingCueOnly: Boolean = false
     private var isLoadingNewVideo = false
     private var isUserPaused: Boolean = false
-    private var autoResumeRetries: Int = 0
-    private var lastPlayingTimestamp: Long = 0L
-    private val MAX_AUTO_RESUME_RETRIES = 5
+
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private var audioFocusRequest: Any? = null
+    private var hasAudioFocus = false
+    private var resumeOnFocusGain = false
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        mainHandler.post {
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    Log.i(TAG, "Audio focus permanent loss -> pausing")
+                    hasAudioFocus = false
+                    resumeOnFocusGain = false
+                    pause()
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    Log.i(TAG, "Audio focus transient loss -> pausing")
+                    hasAudioFocus = false
+                    if (isPlaying) {
+                        resumeOnFocusGain = true
+                        activePlayer?.pause()
+                        isPlaying = false
+                        onStateChanged?.invoke(false)
+                    }
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    Log.i(TAG, "Audio focus transient loss can duck -> pausing")
+                    hasAudioFocus = false
+                    if (isPlaying) {
+                        resumeOnFocusGain = true
+                        activePlayer?.pause()
+                        isPlaying = false
+                        onStateChanged?.invoke(false)
+                    }
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    Log.i(TAG, "Audio focus GAIN")
+                    hasAudioFocus = true
+                    if (resumeOnFocusGain && !isUserPaused) {
+                        resumeOnFocusGain = false
+                        play()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        if (hasAudioFocus) return true
+        val am = audioManager ?: return false
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(audioAttributes)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener, mainHandler)
+                .build()
+            audioFocusRequest = request
+            am.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+        hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        return hasAudioFocus
+    }
+
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (audioFocusRequest as? AudioFocusRequest)?.let { req ->
+                am.abandonAudioFocusRequest(req)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(audioFocusChangeListener)
+        }
+        hasAudioFocus = false
+        resumeOnFocusGain = false
+    }
 
     var isBuffering: Boolean = false
         private set
@@ -62,7 +150,9 @@ class OnlineYouTubePlayerManager(private val context: Context) {
             if (!isUserPaused && isPlaying && currentVideoId != null) {
                 val posSec = (currentPositionMs / 1000f).coerceAtLeast(0f)
                 Log.i(TAG, "Network restored in OnlineYouTubePlayerManager! Resuming $currentVideoId from ${posSec}s")
-                activePlayer?.play()
+                if (requestAudioFocus()) {
+                    activePlayer?.play()
+                }
             }
         }
     }
@@ -212,14 +302,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                             isLoadingNewVideo = false
                             isPlaying = true
                             isBuffering = false
-                            val now = android.os.SystemClock.elapsedRealtime()
-                            val playDuration = now - lastPlayingTimestamp
-                            // Only reset auto-resume retries if playback was stable (>2s)
-                            // Brief PLAYING→PAUSED flashes (<2s) during screen-off should NOT reset
-                            if (lastPlayingTimestamp == 0L || playDuration > 2000L) {
-                                autoResumeRetries = 0
-                            }
-                            lastPlayingTimestamp = now
                             onStateChanged?.invoke(true)
                         }
                         PlayerConstants.PlayerState.BUFFERING -> {
@@ -229,35 +311,26 @@ class OnlineYouTubePlayerManager(private val context: Context) {
                         PlayerConstants.PlayerState.VIDEO_CUED -> {
                             if (isLoadingNewVideo || (isPlaying && !isUserPaused)) {
                                 Log.d(TAG, "YouTubePlayer VIDEO_CUED -> auto-starting playback for $currentVideoId")
-                                youTubePlayer.play()
+                                if (requestAudioFocus()) {
+                                    youTubePlayer.play()
+                                }
                             }
                         }
                         PlayerConstants.PlayerState.PAUSED -> {
                             if (isLoadingNewVideo) {
                                 Log.d(TAG, "Ignoring transient PAUSED state during video load for $currentVideoId")
-                                youTubePlayer.play()
+                                if (requestAudioFocus()) {
+                                    youTubePlayer.play()
+                                }
                                 return
                             }
                             Log.d(TAG, "YouTubePlayer PAUSED for $currentVideoId (isUserPaused: $isUserPaused)")
-                            if (!isUserPaused) {
-                                autoResumeRetries++
-                                if (autoResumeRetries <= MAX_AUTO_RESUME_RETRIES) {
-                                    Log.d(TAG, "Auto-resuming: PAUSED was not user-initiated (screen off?), retry $autoResumeRetries/$MAX_AUTO_RESUME_RETRIES for $currentVideoId")
-                                    mainHandler.postDelayed({
-                                        if (!isUserPaused && currentVideoId != null) {
-                                            activePlayer?.play()
-                                        }
-                                    }, 200L)
-                                    return
-                                } else {
-                                    Log.w(TAG, "Auto-resume retries exhausted ($MAX_AUTO_RESUME_RETRIES) for $currentVideoId, accepting pause")
-                                }
-                            }
                             isPlaying = false
                             isBuffering = false
                             onStateChanged?.invoke(false)
                         }
                         PlayerConstants.PlayerState.ENDED -> {
+                            abandonAudioFocus()
                             if (isLoadingNewVideo) {
                                 Log.d(TAG, "Ignoring stale ENDED state during video load for $currentVideoId")
                                 return
@@ -348,7 +421,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         currentVideoId = videoId
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
-        autoResumeRetries = 0
         isLoadingNewVideo = false
         isPlaying = false
 
@@ -380,7 +452,6 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         currentVideoId = videoId
         durationMs = 0L
         currentPositionMs = (startSeconds * 1000).toLong()
-        autoResumeRetries = 0
         pendingCueOnly = false
         isLoadingNewVideo = true
         isPlaying = true
@@ -388,6 +459,10 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         isBuffering = false
 
         mainHandler.post {
+            if (!requestAudioFocus()) {
+                Log.w(TAG, "playVideo: failed to acquire audio focus for $videoId")
+                return@post
+            }
             if (!isReady || activePlayer == null) {
                 Log.d(TAG, "Player not ready yet, queuing videoId: $videoId at ${startSeconds}s")
                 pendingVideoId = videoId
@@ -416,6 +491,10 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         isBuffering = false
 
         mainHandler.post {
+            if (!requestAudioFocus()) {
+                Log.w(TAG, "reloadAndPlay: failed to acquire audio focus for $videoId")
+                return@post
+            }
             if (playerView == null || !isReady || activePlayer == null) {
                 Log.d(TAG, "reloadAndPlay: player not ready, initializing fresh for $videoId at ${startSeconds}s")
                 initialize()
@@ -486,15 +565,18 @@ class OnlineYouTubePlayerManager(private val context: Context) {
         isLoadingNewVideo = false
         isUserPaused = false
         mainHandler.post {
-            activePlayer?.play()
-            isPlaying = true
-            onStateChanged?.invoke(true)
+            if (requestAudioFocus()) {
+                activePlayer?.play()
+                isPlaying = true
+                onStateChanged?.invoke(true)
+            }
         }
     }
 
     fun pause() {
         isLoadingNewVideo = false
         isUserPaused = true
+        abandonAudioFocus()
         mainHandler.post {
             activePlayer?.pause()
             isPlaying = false
@@ -518,6 +600,7 @@ class OnlineYouTubePlayerManager(private val context: Context) {
     }
 
     fun release() {
+        abandonAudioFocus()
         com.akshay.musicplayer.data.remote.NetworkMonitor.removeOnNetworkRestoredListener(networkRestoredListener)
         mainHandler.post {
             try {

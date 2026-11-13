@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
@@ -257,10 +258,8 @@ class PlayerViewModel(
     val skipIntroOutro = settingsManager.skipIntroOutro
     val skipNonMusicOffTopic = settingsManager.skipNonMusicOffTopic
 
-    // Audiophile & Lossless Settings
+    // Audiophile & Audio Engine Settings
     val activeAudioFormat = mediaPlayerController.activeAudioFormat()
-    val losslessStreamingEnabled = settingsManager.losslessStreamingEnabled
-    val losslessServerUrl = settingsManager.losslessServerUrl
     val isStudioMasterClarityEnabled = settingsManager.isStudioMasterClarityEnabled
     val isBitPerfectEnabled = settingsManager.isBitPerfectEnabled
     val crossfadeEnabled = settingsManager.crossfadeEnabled
@@ -297,8 +296,6 @@ class PlayerViewModel(
 
     val audioEffectsController = com.akshay.musicplayer.media.player.AudioEffectsController.getInstance(com.akshay.musicplayer.AppContainer.getContext())
 
-    fun setLosslessStreamingEnabled(enabled: Boolean) = settingsManager.setLosslessStreamingEnabled(enabled)
-    fun setLosslessServerUrl(url: String) = settingsManager.setLosslessServerUrl(url)
     fun setStudioMasterClarityEnabled(enabled: Boolean) {
         settingsManager.setStudioMasterClarityEnabled(enabled)
         audioEffectsController.setClarityEnabled(enabled)
@@ -1739,6 +1736,7 @@ class PlayerViewModel(
 
     private var activeSponsorSegments: List<com.akshay.musicplayer.data.remote.SponsorSegment> = emptyList()
     private var activeSponsorTrackId: Long? = null
+    private var activeSponsorJob: Job? = null
     private var isFetchingSponsorSegments = false
     private var lastSkippedSegmentEndMs: Long = -1L
     private var lastSponsorActionTime: Long = 0L
@@ -1751,18 +1749,26 @@ class PlayerViewModel(
         }
 
         if (videoId.isNotBlank() && activeSponsorTrackId != track.id) {
-            activeSponsorTrackId = track.id
+            val trackIdForFetch = track.id
+            activeSponsorTrackId = trackIdForFetch
             activeSponsorSegments = emptyList()
             lastSkippedSegmentEndMs = -1L
             lastSponsorActionTime = 0L
-            if (!isFetchingSponsorSegments) {
+            activeSponsorJob?.cancel()
+            activeSponsorJob = viewModelScope.launch(Dispatchers.IO) {
                 isFetchingSponsorSegments = true
-                viewModelScope.launch(Dispatchers.IO) {
+                try {
                     val segments = onlineRepository.getSponsorSkipSegments(videoId)
                     withContext(Dispatchers.Main) {
-                        activeSponsorSegments = segments
-                        isFetchingSponsorSegments = false
+                        if (activeSponsorTrackId == trackIdForFetch) {
+                            activeSponsorSegments = segments
+                        }
                     }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.w("MUESO_SPONSOR", "Failed to fetch SponsorBlock segments for $videoId", e)
+                } finally {
+                    isFetchingSponsorSegments = false
                 }
             }
         }
@@ -2303,25 +2309,31 @@ class PlayerViewModel(
                                     val refreshedTrack = reResolveTrackStream(track)
                                     if (refreshedTrack.filePath.startsWith("http") && refreshedTrack.filePath != track.filePath) {
                                         withContext(Dispatchers.Main) {
-                                            val list = currentTracks.toMutableList()
-                                            list[currentIdx] = refreshedTrack
-                                            currentTracks = list
-                                            mediaPlayerController.updateTrackInQueue(currentIdx, refreshedTrack)
-                                            if (!_playbackState.value.isPlaying) {
-                                                mediaPlayerController.togglePlayPause()
+                                            val targetIdx = currentTracks.indexOfFirst { it.id == track.id }
+                                            if (targetIdx in currentTracks.indices) {
+                                                val list = currentTracks.toMutableList()
+                                                list[targetIdx] = refreshedTrack
+                                                currentTracks = list
+                                                mediaPlayerController.updateTrackInQueue(targetIdx, refreshedTrack)
+                                                if (!_playbackState.value.isPlaying) {
+                                                    mediaPlayerController.togglePlayPause()
+                                                }
                                             }
                                         }
                                     } else {
                                         withContext(Dispatchers.Main) {
-                                            val videoId = onlineRepository.extractVideoId(track)
-                                            if (videoId.isNotBlank()) {
-                                                Log.w("MUESO_STREAM", "Direct stream re-resolve failed for '${track.title}'. Switching to YouTube Player fallback.")
-                                                val fallbackTrack = track.copy(filePath = "online:$videoId")
-                                                val list = currentTracks.toMutableList()
-                                                list[currentIdx] = fallbackTrack
-                                                currentTracks = list
-                                                mediaPlayerController.updateTrackInQueue(currentIdx, fallbackTrack)
-                                                mediaPlayerController.seekToIndex(currentIdx)
+                                            val targetIdx = currentTracks.indexOfFirst { it.id == track.id }
+                                            if (targetIdx in currentTracks.indices) {
+                                                val videoId = onlineRepository.extractVideoId(track)
+                                                if (videoId.isNotBlank()) {
+                                                    Log.w("MUESO_STREAM", "Direct stream re-resolve failed for '${track.title}'. Switching to YouTube Player fallback.")
+                                                    val fallbackTrack = track.copy(filePath = "online:$videoId")
+                                                    val list = currentTracks.toMutableList()
+                                                    list[targetIdx] = fallbackTrack
+                                                    currentTracks = list
+                                                    mediaPlayerController.updateTrackInQueue(targetIdx, fallbackTrack)
+                                                    mediaPlayerController.seekToIndex(targetIdx)
+                                                }
                                             }
                                         }
                                     }
@@ -2422,18 +2434,23 @@ class PlayerViewModel(
         }
         currentTracks = tracks.toList()
         viewModelScope.launch(Dispatchers.IO) {
-            val mutableTracks = tracks.toMutableList()
-            if (startIndex in mutableTracks.indices) {
-                mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
-            }
+            try {
+                val mutableTracks = tracks.toMutableList()
+                if (startIndex in mutableTracks.indices) {
+                    mutableTracks[startIndex] = resolveTrack(mutableTracks[startIndex])
+                }
 
-            withContext(Dispatchers.Main) {
-                _isResolvingTrack.value = false
-                _resolvingTrackTitle.value = null
-                currentTracks = mutableTracks
-                mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
-                prefetchAndKeepQueueAlive(startIndex)
-                warmNextTrack(startIndex + 1)
+                withContext(Dispatchers.Main) {
+                    currentTracks = mutableTracks
+                    mediaPlayerController.setPlaylistAndPlay(currentTracks, startIndex)
+                    prefetchAndKeepQueueAlive(startIndex)
+                    warmNextTrack(startIndex + 1)
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    _isResolvingTrack.value = false
+                    _resolvingTrackTitle.value = null
+                }
             }
         }
     }
@@ -2463,35 +2480,40 @@ class PlayerViewModel(
         currentTracks = listOf(track)
         Log.d("MUESO_SYNC", "ViewModel playTrack: requested track.id=${track.id}")
         playTrackJob = viewModelScope.launch(Dispatchers.IO) {
-            val resolved = if (isOnlineQueryPlaceholder) resolveTrack(track) else track
+            try {
+                val resolved = if (isOnlineQueryPlaceholder) resolveTrack(track) else track
 
-            withContext(Dispatchers.Main) {
-                if (isOnlineQueryPlaceholder) {
-                    _isResolvingTrack.value = false
-                    _resolvingTrackTitle.value = null
+                withContext(Dispatchers.Main) {
+                    currentTracks = listOf(resolved)
+                    mediaPlayerController.setPlaylistAndPlay(currentTracks, 0)
                 }
-                currentTracks = listOf(resolved)
-                mediaPlayerController.setPlaylistAndPlay(currentTracks, 0)
-            }
 
-            val isOnline = track.filePath.startsWith("online:") || track.filePath.startsWith("http")
-            if (isOnline) {
-                isFetchingMoreQueue = true
-                try {
-                    val recommendations = onlineRepository.getRelatedRecommendations(track)
-                    val existingIds = currentTracks.map { it.id }.toSet()
-                    val uniqueRecs = recommendations.filter { it.id !in existingIds }
-                    if (uniqueRecs.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            currentTracks = currentTracks + uniqueRecs
-                            mediaPlayerController.appendTracksToQueue(uniqueRecs)
-                            warmNextTrack(1)
+                val isOnline = track.filePath.startsWith("online:") || track.filePath.startsWith("http")
+                if (isOnline) {
+                    isFetchingMoreQueue = true
+                    try {
+                        val recommendations = onlineRepository.getRelatedRecommendations(track)
+                        val existingIds = currentTracks.map { it.id }.toSet()
+                        val uniqueRecs = recommendations.filter { it.id !in existingIds }
+                        if (uniqueRecs.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                currentTracks = currentTracks + uniqueRecs
+                                mediaPlayerController.appendTracksToQueue(uniqueRecs)
+                                warmNextTrack(1)
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e("MUESO_QUEUE", "Error fetching radio recommendations in playTrack", e)
+                    } finally {
+                        isFetchingMoreQueue = false
                     }
-                } catch (e: Exception) {
-                    Log.e("MUESO_QUEUE", "Error fetching radio recommendations in playTrack", e)
-                } finally {
-                    isFetchingMoreQueue = false
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    if (isOnlineQueryPlaceholder) {
+                        _isResolvingTrack.value = false
+                        _resolvingTrackTitle.value = null
+                    }
                 }
             }
         }
@@ -2545,21 +2567,26 @@ class PlayerViewModel(
                 activeNextStreamJob?.cancel()
                 lastPrefetchTrackId = track.id
                 activeCurrentStreamJob = viewModelScope.launch(Dispatchers.IO) {
-                    val resolved = resolveTrack(track)
-                    if (lastPrefetchTrackId != track.id) {
-                        Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: stale resolve for '${track.title}', discarding")
-                        return@launch
-                    }
-                    withContext(Dispatchers.Main) {
-                        _isResolvingTrack.value = false
-                        _resolvingTrackTitle.value = null
-                        val list = currentTracks.toMutableList()
-                        if (index in list.indices && list[index].id == track.id) {
-                            list[index] = resolved
-                            currentTracks = list
-                            mediaPlayerController.updateTrackInQueue(index, resolved)
-                            mediaPlayerController.seekToIndex(index)
-                            warmNextTrack(index + 1)
+                    try {
+                        val resolved = resolveTrack(track)
+                        if (lastPrefetchTrackId != track.id) {
+                            Log.d("MUESO_SYNC", "ViewModel playTrackAtIndex: stale resolve for '${track.title}', discarding")
+                            return@launch
+                        }
+                        withContext(Dispatchers.Main) {
+                            val list = currentTracks.toMutableList()
+                            if (index in list.indices && list[index].id == track.id) {
+                                list[index] = resolved
+                                currentTracks = list
+                                mediaPlayerController.updateTrackInQueue(index, resolved)
+                                mediaPlayerController.seekToIndex(index)
+                                warmNextTrack(index + 1)
+                            }
+                        }
+                    } finally {
+                        withContext(NonCancellable + Dispatchers.Main) {
+                            _isResolvingTrack.value = false
+                            _resolvingTrackTitle.value = null
                         }
                     }
                 }

@@ -46,13 +46,8 @@ fun PlayerControls(
     modifier: Modifier = Modifier
 ) {
     var isSeeking by remember { androidx.compose.runtime.mutableStateOf(false) }
-    var sliderPosition by remember { androidx.compose.runtime.mutableFloatStateOf(playbackState.currentPositionMs.toFloat()) }
-
-    androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
-        if (!isSeeking) {
-            sliderPosition = playbackState.currentPositionMs.toFloat()
-        }
-    }
+    var userSeekPosition by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val currentSliderPosition = if (isSeeking) userSeekPosition else playbackState.currentPositionMs.toFloat()
 
     val showLoading = isSeeking || isResolvingTrack || (playbackState.isBuffering && playbackState.isPlaying)
     val accentColor = LocalAccentColor.current
@@ -81,13 +76,13 @@ fun PlayerControls(
 
     val slider: @Composable (Modifier) -> Unit = { sliderModifier ->
         Slider(
-            value = sliderPosition,
+            value = currentSliderPosition,
             onValueChange = {
                 isSeeking = true
-                sliderPosition = it
+                userSeekPosition = it
             },
             onValueChangeFinished = {
-                onSeek(sliderPosition.toLong())
+                onSeek(userSeekPosition.toLong())
                 isSeeking = false
             },
             valueRange = 0f..playbackState.durationMs.toFloat().coerceAtLeast(1f),

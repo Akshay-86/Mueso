@@ -395,11 +395,10 @@ class MusicPlayerService : MediaSessionService() {
         effectsController.attachSession(player.audioSessionId)
 
         fun updateLocks() {
-            val shouldHold = (player.playWhenReady &&
+            val isPlaybackActive = player.playWhenReady &&
                     player.playbackState != Player.STATE_IDLE &&
-                    player.playbackState != Player.STATE_ENDED) ||
-                    MediaSessionBridge.isOnlinePlaying ||
-                    MediaSessionBridge.isTransitioningOrBuffering
+                    player.playbackState != Player.STATE_ENDED
+            val shouldHold = isPlaybackActive || MediaSessionBridge.isTransitioningOrBuffering
 
             if (shouldHold) {
                 acquireLocks()
@@ -427,16 +426,20 @@ class MusicPlayerService : MediaSessionService() {
         })
 
         MediaSessionBridge.onOnlinePlayingChanged = { isOnline ->
-            updateLocks()
-            if (isOnline) {
-                player.repeatMode = Player.REPEAT_MODE_ONE
-            } else {
-                player.repeatMode = Player.REPEAT_MODE_OFF
+            mainHandler.post {
+                updateLocks()
+                if (isOnline) {
+                    player.repeatMode = Player.REPEAT_MODE_ONE
+                } else {
+                    player.repeatMode = Player.REPEAT_MODE_OFF
+                }
             }
         }
 
         MediaSessionBridge.onTransitionStateChanged = { _ ->
-            updateLocks()
+            mainHandler.post {
+                updateLocks()
+            }
         }
 
 
@@ -589,7 +592,7 @@ class MusicPlayerService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || (!player.playWhenReady && !MediaSessionBridge.isOnlinePlaying)) {
+        if (player == null || !player.playWhenReady) {
             isServiceDestroying = true
             stopSelf()
         }

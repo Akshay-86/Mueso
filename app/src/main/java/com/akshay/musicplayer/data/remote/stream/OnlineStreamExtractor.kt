@@ -131,12 +131,12 @@ object OnlineStreamExtractor {
             wv.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
-                allowFileAccess = true
-                allowContentAccess = true
+                allowFileAccess = false
+                allowContentAccess = false
                 @Suppress("DEPRECATION")
-                allowFileAccessFromFileURLs = true
+                allowFileAccessFromFileURLs = false
                 @Suppress("DEPRECATION")
-                allowUniversalAccessFromFileURLs = true
+                allowUniversalAccessFromFileURLs = false
             }
 
             class AndroidBridge {

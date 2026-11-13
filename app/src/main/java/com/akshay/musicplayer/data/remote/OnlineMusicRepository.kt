@@ -473,7 +473,7 @@ class OnlineMusicRepository {
         if (videoId.isBlank()) return@withContext ""
         try {
             val effectiveContext = context ?: try { com.akshay.musicplayer.AppContainer.getContext() } catch (_: Exception) { null }
-            val effectiveQuality = audioQuality ?: effectiveContext?.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)?.getString("audio_quality", "High (320 kbps)")
+            val effectiveQuality = audioQuality ?: effectiveContext?.getSharedPreferences("mueso_prefs", android.content.Context.MODE_PRIVATE)?.getString("audio_quality", "Medium (160 kbps)")
 
             if (forceRefresh) {
                 com.akshay.musicplayer.data.remote.stream.OnlineStreamExtractor.invalidateCache(videoId)
@@ -631,23 +631,6 @@ class OnlineMusicRepository {
             )
             if (success) {
                 Log.d(TAG, "Successfully embedded MP4 metadata (lyrics=${!lyricsText.isNullOrBlank()}) in $filePath for '$finalTitle' by '$finalArtist'")
-                return@withContext true
-            }
-        }
-
-        // 2b. If it's a FLAC file, use our native FlacMetadataEditor
-        if (file.name.endsWith(".flac", ignoreCase = true)) {
-            val success = FlacMetadataEditor.embedMetadata(
-                file = file,
-                title = finalTitle,
-                artist = finalArtist,
-                album = finalAlbum,
-                albumArtist = finalArtist,
-                lyrics = lyricsText,
-                jpegBytes = finalJpegBytes
-            )
-            if (success) {
-                Log.d(TAG, "Successfully embedded FLAC metadata (lyrics=${!lyricsText.isNullOrBlank()}, artwork=${finalJpegBytes != null}) in $filePath for '$finalTitle' by '$finalArtist'")
                 return@withContext true
             }
         }
