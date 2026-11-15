@@ -48,7 +48,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.akshay.musicplayer.ui.theme.LocalAccentColor
 
-private val OrangeAccent: Color
+private val AccentColor: Color
     @Composable get() = LocalAccentColor.current
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -112,7 +112,7 @@ fun YouTubeLoginDialog(
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
-                            color = OrangeAccent,
+                            color = AccentColor,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(8.dp))

@@ -1,5 +1,12 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.roundToInt
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Hearing
@@ -139,10 +147,37 @@ fun EqualizerBottomSheet(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val isChecked = isEqEnabled && !isBitPerfectEnabled
                     Switch(
-                        checked = isEqEnabled && !isBitPerfectEnabled,
+                        checked = isChecked,
                         onCheckedChange = { effectsController.setEqualizerEnabled(it) },
                         enabled = !isBitPerfectEnabled,
+                        thumbContent = {
+                            AnimatedContent(
+                                targetState = isChecked,
+                                transitionSpec = {
+                                    (scaleIn(initialScale = 0.5f, animationSpec = tween(160)) + fadeIn(tween(140)))
+                                        .togetherWith(scaleOut(targetScale = 0.5f, animationSpec = tween(140)) + fadeOut(tween(100)))
+                                },
+                                label = "EqSwitchThumbAnim"
+                            ) { checkedState ->
+                                if (checkedState) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                        tint = accent
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                        tint = Color.DarkGray
+                                    )
+                                }
+                            }
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = accent
@@ -392,10 +427,37 @@ fun EqualizerBottomSheet(
                             }
                         }
 
+                        val isClarityChecked = isClarityEnabled && !isBitPerfectEnabled
                         Switch(
-                            checked = isClarityEnabled && !isBitPerfectEnabled,
+                            checked = isClarityChecked,
                             onCheckedChange = { effectsController.setClarityEnabled(it) },
                             enabled = !isBitPerfectEnabled,
+                            thumbContent = {
+                                AnimatedContent(
+                                    targetState = isClarityChecked,
+                                    transitionSpec = {
+                                        (scaleIn(initialScale = 0.5f, animationSpec = tween(160)) + fadeIn(tween(140)))
+                                            .togetherWith(scaleOut(targetScale = 0.5f, animationSpec = tween(140)) + fadeOut(tween(100)))
+                                    },
+                                    label = "ClaritySwitchThumbAnim"
+                                ) { checkedState ->
+                                    if (checkedState) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(SwitchDefaults.IconSize),
+                                            tint = accent
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(SwitchDefaults.IconSize),
+                                            tint = Color.DarkGray
+                                        )
+                                    }
+                                }
+                            },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = accent

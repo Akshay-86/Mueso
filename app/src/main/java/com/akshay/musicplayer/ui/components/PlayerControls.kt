@@ -1,5 +1,17 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,6 +62,14 @@ fun PlayerControls(
     var userSeekPosition by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var pendingSeekPosition by remember { androidx.compose.runtime.mutableStateOf<Long?>(null) }
 
+    val playInteractionSource = remember { MutableInteractionSource() }
+    val isPlayPressed by playInteractionSource.collectIsPressedAsState()
+    val playButtonScale by animateFloatAsState(
+        targetValue = if (isPlayPressed) 0.88f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+        label = "PlayButtonScale"
+    )
+
     androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
         if (pendingSeekPosition != null && kotlin.math.abs(playbackState.currentPositionMs - pendingSeekPosition!!) <= 1500L) {
             pendingSeekPosition = null
@@ -66,7 +87,13 @@ fun PlayerControls(
     val playButton: @Composable () -> Unit = {
         IconButton(
             onClick = onPlayPauseClick,
-            modifier = Modifier.size(48.dp)
+            interactionSource = playInteractionSource,
+            modifier = Modifier
+                .size(48.dp)
+                .graphicsLayer {
+                    scaleX = playButtonScale
+                    scaleY = playButtonScale
+                }
         ) {
             if (showLoading) {
                 CircularProgressIndicator(
@@ -75,12 +102,21 @@ fun PlayerControls(
                     strokeWidth = 3.dp
                 )
             } else {
-                Icon(
-                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(36.dp),
-                    tint = Color.White
-                )
+                AnimatedContent(
+                    targetState = playbackState.isPlaying,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.65f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(140)))
+                            .togetherWith(scaleOut(targetScale = 0.65f, animationSpec = tween(140, easing = FastOutSlowInEasing)) + fadeOut(tween(100)))
+                    },
+                    label = "PlayPauseAnimatedContent"
+                ) { isPlaying ->
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        modifier = Modifier.size(36.dp),
+                        tint = Color.White
+                    )
+                }
             }
         }
     }

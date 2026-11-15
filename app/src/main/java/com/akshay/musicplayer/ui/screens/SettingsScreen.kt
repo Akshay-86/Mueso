@@ -12,12 +12,17 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -127,9 +132,9 @@ fun SettingsScreen(
     val bgColor = if (isPureBlack) Color(0xFF000000) else if (isDarkMode) Color(0xFF0C0C0E) else Color(0xFFF2F2F7)
     val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF18181A) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.60f) else Color(0xFF6E6E73)
     val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.05f) else if (isDarkMode) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.06f)
-    val cardCorner = 16.dp
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
 
     var isAudioGranted by remember { mutableStateOf(PermissionHelper.isAudioPermissionGranted(context)) }
     var isNotificationGranted by remember { mutableStateOf(PermissionHelper.isNotificationPermissionGranted(context)) }
@@ -911,7 +916,8 @@ fun SettingsScreen(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isUpdateDownloaded) Color(0xFF34C759) else if (updateInfo?.isNewVersionAvailable == true) Color(0xFF34C759) else accentColor
                                 ),
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(cardCorner.coerceAtMost(12.dp)),
+                                modifier = Modifier.defaultMinSize(minHeight = 44.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                             ) {
                                 if (isCheckingUpdate) {
@@ -1299,8 +1305,8 @@ fun SettingsScreen(
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isPreBuildDownloaded) Color(0xFF34C759) else accentColor
                                         ),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                        shape = RoundedCornerShape(cardCorner.coerceAtMost(12.dp)),
+                                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp)
                                     ) {
                                         if (isCheckingPreBuild) {
                                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -1489,12 +1495,17 @@ private fun SettingsToggleItem(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
-    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.60f) else Color(0xFF6E6E73)
 
     val iconTint by animateColorAsState(
-        targetValue = if (checked) accentColor else (if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF8E8E93)),
+        targetValue = if (checked) accentColor else (if (isDarkMode) Color.White.copy(alpha = 0.45f) else Color(0xFF8E8E93)),
         animationSpec = tween(200),
         label = "iconTint"
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (checked) 1.15f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+        label = "iconScale"
     )
 
     Row(
@@ -1510,7 +1521,17 @@ private fun SettingsToggleItem(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    }
+            )
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, color = textSub, fontSize = 11.sp, lineHeight = 15.sp)
@@ -1520,11 +1541,37 @@ private fun SettingsToggleItem(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            thumbContent = {
+                AnimatedContent(
+                    targetState = checked,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.5f, animationSpec = tween(160)) + fadeIn(tween(140)))
+                            .togetherWith(scaleOut(targetScale = 0.5f, animationSpec = tween(140)) + fadeOut(tween(100)))
+                    },
+                    label = "SwitchThumbAnim"
+                ) { isChecked ->
+                    if (isChecked) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(SwitchDefaults.IconSize),
+                            tint = accentColor
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(SwitchDefaults.IconSize),
+                            tint = Color.DarkGray
+                        )
+                    }
+                }
+            },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = accentColor,
-                uncheckedThumbColor = Color.Gray,
-                uncheckedTrackColor = Color.DarkGray
+                uncheckedThumbColor = Color(0xFFE0E0E0),
+                uncheckedTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)
             ),
             modifier = Modifier.graphicsLayer(scaleX = 0.88f, scaleY = 0.88f)
         )

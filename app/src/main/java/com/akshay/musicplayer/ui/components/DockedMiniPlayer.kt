@@ -1,10 +1,22 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -207,10 +220,23 @@ fun DockedMiniPlayer(
                         )
                     }
 
+                    val playInteractionSource = remember { MutableInteractionSource() }
+                    val isPlayPressed by playInteractionSource.collectIsPressedAsState()
+                    val playScale by animateFloatAsState(
+                        targetValue = if (isPlayPressed) 0.88f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                        label = "MiniPlayScale"
+                    )
+
                     IconButton(
                         onClick = onPlayPauseClick,
+                        interactionSource = playInteractionSource,
                         modifier = Modifier
                             .size(38.dp)
+                            .graphicsLayer {
+                                scaleX = playScale
+                                scaleY = playScale
+                            }
                             .clip(CircleShape)
                             .background(accent.copy(alpha = 0.15f))
                     ) {
@@ -221,12 +247,21 @@ fun DockedMiniPlayer(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Icon(
-                                imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                                tint = accent,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            AnimatedContent(
+                                targetState = playbackState.isPlaying,
+                                transitionSpec = {
+                                    (scaleIn(initialScale = 0.65f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(140)))
+                                        .togetherWith(scaleOut(targetScale = 0.65f, animationSpec = tween(140, easing = FastOutSlowInEasing)) + fadeOut(tween(100)))
+                                },
+                                label = "MiniPlayPauseAnim"
+                            ) { isPlaying ->
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    tint = accent,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
 

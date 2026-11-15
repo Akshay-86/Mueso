@@ -2,6 +2,10 @@ package com.akshay.musicplayer.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -27,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +50,7 @@ import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAccount
 
-private val OrangeAccent: Color
+private val AccentColor: Color
     @Composable
     get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
@@ -73,6 +78,7 @@ fun OnlinePlaylistsScreen(
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
 
     // YouTube Music Auth State
     val isYouTubeLoggedIn by viewModel.isYouTubeLoggedIn.collectAsState()
@@ -202,7 +208,7 @@ fun OnlinePlaylistsScreen(
                         onClick = { showCreateChoiceDialog = true },
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(OrangeAccent)
+                            .background(AccentColor)
                             .size(40.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Create Playlist", tint = Color.White)
@@ -224,17 +230,41 @@ fun OnlinePlaylistsScreen(
                 ) {
                     items(moodCategories) { mood ->
                         val isSelected = mood.equals(selectedMoodCategory, ignoreCase = true)
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) AccentColor
+                            else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                            else Color.Black.copy(alpha = 0.05f),
+                            animationSpec = tween(220),
+                            label = "ChipBg"
+                        )
+                        val chipBorderColor by animateColorAsState(
+                            targetValue = if (isSelected) AccentColor
+                            else if (isDarkMode) Color.White.copy(alpha = 0.15f)
+                            else Color.Black.copy(alpha = 0.1f),
+                            animationSpec = tween(220),
+                            label = "ChipBorder"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.White else textColor,
+                            animationSpec = tween(200),
+                            label = "ChipText"
+                        )
+                        val chipScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.04f else 1f,
+                            animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                            label = "ChipScale"
+                        )
                         Box(
                             modifier = Modifier
+                                .graphicsLayer {
+                                    scaleX = chipScale
+                                    scaleY = chipScale
+                                }
                                 .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    if (isSelected) OrangeAccent
-                                    else if (isDarkMode) Color.White.copy(alpha = 0.08f)
-                                    else Color.Black.copy(alpha = 0.05f)
-                                )
+                                .background(chipBg)
                                 .border(
                                     width = 1.dp,
-                                    color = if (isSelected) OrangeAccent else if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.1f),
+                                    color = chipBorderColor,
                                     shape = RoundedCornerShape(20.dp)
                                 )
                                 .clickable {
@@ -245,7 +275,7 @@ fun OnlinePlaylistsScreen(
                         ) {
                             Text(
                                 text = mood,
-                                color = if (isSelected) Color.White else textColor,
+                                color = chipTextColor,
                                 fontSize = 13.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
@@ -265,7 +295,7 @@ fun OnlinePlaylistsScreen(
                         .background(
                             Brush.horizontalGradient(
                                 if (isYouTubeLoggedIn) listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))
-                                else listOf(OrangeAccent, MaterialTheme.colorScheme.secondary)
+                                else listOf(AccentColor, MaterialTheme.colorScheme.secondary)
                             )
                         )
                         .padding(16.dp)
@@ -517,7 +547,7 @@ fun OnlinePlaylistsScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
-                            color = OrangeAccent,
+                            color = AccentColor,
                             modifier = Modifier.size(36.dp),
                             strokeWidth = 3.dp
                         )
@@ -542,7 +572,7 @@ fun OnlinePlaylistsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true) },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
                         ) {
                             Text("Refresh", color = Color.White)
                         }
@@ -586,8 +616,8 @@ fun OnlinePlaylistsScreen(
                                             viewModel.playOnlinePlaylist(trackEntities, 0)
                                             onNavigateToPlayer()
                                         },
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = OrangeAccent.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(cardCorner),
+                                        color = AccentColor.copy(alpha = 0.15f),
                                         modifier = Modifier.padding(start = 8.dp)
                                     ) {
                                         Row(
@@ -598,12 +628,12 @@ fun OnlinePlaylistsScreen(
                                             Icon(
                                                 imageVector = Icons.Default.PlayArrow,
                                                 contentDescription = "Play all",
-                                                tint = OrangeAccent,
+                                                tint = AccentColor,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Text(
                                                 text = "Play all",
-                                                color = OrangeAccent,
+                                                color = AccentColor,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold
                                             )
@@ -711,8 +741,8 @@ fun OnlinePlaylistsScreen(
                                             viewModel.playOnlinePlaylist(trackEntities, 0)
                                             onNavigateToPlayer()
                                         },
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = OrangeAccent.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(cardCorner),
+                                        color = AccentColor.copy(alpha = 0.15f),
                                         modifier = Modifier.padding(start = 8.dp)
                                     ) {
                                         Row(
@@ -723,12 +753,12 @@ fun OnlinePlaylistsScreen(
                                             Icon(
                                                 imageVector = Icons.Default.PlayArrow,
                                                 contentDescription = "Play all",
-                                                tint = OrangeAccent,
+                                                tint = AccentColor,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Text(
                                                 text = "Play all",
-                                                color = OrangeAccent,
+                                                color = AccentColor,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold
                                             )
@@ -1225,7 +1255,7 @@ fun OnlineSongCard(
                 Icon(
                     Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = OrangeAccent,
+                    tint = AccentColor,
                     modifier = Modifier.size(36.dp)
                 )
             }
@@ -1310,7 +1340,7 @@ fun DynamicPlaylistCard(
                 Icon(
                     Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = OrangeAccent,
+                    tint = AccentColor,
                     modifier = Modifier.size(36.dp)
                 )
             }
@@ -1389,22 +1419,27 @@ fun CustomPlaylistCard(
                     .align(Alignment.TopEnd)
                     .padding(4.dp)
             ) {
+                val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
                 IconButton(
                     onClick = { showMenu = true },
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.55f))
                 ) {
                     Icon(
                         Icons.Default.MoreVert,
-                        contentDescription = "Menu",
+                        contentDescription = "Playlist options",
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    shape = RoundedCornerShape(menuCorner)
+                ) {
                     if (!playlist.spotifyUrl.isNullOrBlank() && onSyncSpotify != null) {
                         DropdownMenuItem(
                             text = { Text("Sync with Spotify") },
@@ -1506,7 +1541,7 @@ fun CreateOnlinePlaylistDialog(
             Button(
                 onClick = { if (name.isNotBlank()) onCreate(name.trim(), desc.trim().ifBlank { null }) },
                 enabled = name.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
+                colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
             ) {
                 Text("Create")
             }
@@ -1553,7 +1588,7 @@ fun EditPlaylistDialog(
             Button(
                 onClick = { if (name.isNotBlank()) onConfirm(name.trim(), desc.trim().ifBlank { null }) },
                 enabled = name.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = OrangeAccent)
+                colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
             ) {
                 Text("Save")
             }
@@ -1583,6 +1618,7 @@ fun AccountSwitcherDialog(
     val bg = if (isDarkMode) Color(0xFF1E1E24) else Color.White
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
 
     AlertDialog(
         onDismissRequest = onDismiss,

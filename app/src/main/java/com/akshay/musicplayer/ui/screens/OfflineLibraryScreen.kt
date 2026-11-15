@@ -573,11 +573,12 @@ private fun SortChip(
             )
         }
 
+        val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             offset = DpOffset(0.dp, 4.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(menuCorner),
             containerColor = dropdownBg,
             shadowElevation = 16.dp
         ) {
@@ -767,13 +768,14 @@ fun TrackListItem(
 
         // 3-dot menu
         Box {
+            val itemMenuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
             IconButton(
                 onClick = { showMenu = true },
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     Icons.Default.MoreVert,
-                    contentDescription = "Options",
+                    contentDescription = "Track options",
                     tint = iconTint,
                     modifier = Modifier.size(20.dp)
                 )
@@ -783,7 +785,7 @@ fun TrackListItem(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
                 offset = DpOffset((-8).dp, 0.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(itemMenuCorner),
                 containerColor = dropdownBg,
                 shadowElevation = 16.dp
             ) {

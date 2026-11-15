@@ -4,14 +4,25 @@ package com.akshay.musicplayer.ui.screens
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -373,13 +384,20 @@ fun ClassicPlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val shuffleTint by animateColorAsState(if (isShuffleEnabled) accent else textSecondary, tween(200), label = "ShuffleColor")
+                    val shuffleScale by animateFloatAsState(if (isShuffleEnabled) 1.15f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "ShuffleScale")
+
                     IconButton(
-                        onClick = { viewModel.toggleShuffleMode() }
+                        onClick = { viewModel.toggleShuffleMode() },
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = shuffleScale
+                            scaleY = shuffleScale
+                        }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (isShuffleEnabled) accent else textSecondary,
+                            contentDescription = if (isShuffleEnabled) "Shuffle On" else "Shuffle Off",
+                            tint = shuffleTint,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -394,9 +412,21 @@ fun ClassicPlayerScreen(
                     }
 
                     // Large Hero Play/Pause Button
+                    val heroPlayInteraction = remember { MutableInteractionSource() }
+                    val isHeroPressed by heroPlayInteraction.collectIsPressedAsState()
+                    val heroScale by animateFloatAsState(
+                        targetValue = if (isHeroPressed) 0.90f else 1f,
+                        animationSpec = spring(dampingRatio = 0.45f, stiffness = 400f),
+                        label = "HeroPlayScale"
+                    )
+
                     Box(
                         modifier = Modifier
                             .size(68.dp)
+                            .graphicsLayer {
+                                scaleX = heroScale
+                                scaleY = heroScale
+                            }
                             .shadow(8.dp, CircleShape, spotColor = accent.copy(alpha = 0.55f))
                             .clip(CircleShape)
                             .background(accentGradient),
@@ -404,6 +434,7 @@ fun ClassicPlayerScreen(
                     ) {
                         IconButton(
                             onClick = { viewModel.togglePlayPause() },
+                            interactionSource = heroPlayInteraction,
                             modifier = Modifier.fillMaxSize()
                         ) {
                             if (playbackState.isBuffering && playbackState.isPlaying) {
@@ -413,12 +444,21 @@ fun ClassicPlayerScreen(
                                     strokeWidth = 3.dp
                                 )
                             } else {
-                                Icon(
-                                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = playbackState.isPlaying,
+                                    transitionSpec = {
+                                        (scaleIn(initialScale = 0.65f, animationSpec = tween(180, easing = FastOutSlowInEasing)) + fadeIn(tween(140)))
+                                            .togetherWith(scaleOut(targetScale = 0.65f, animationSpec = tween(140, easing = FastOutSlowInEasing)) + fadeOut(tween(100)))
+                                    },
+                                    label = "HeroPlayPauseAnim"
+                                ) { isPlaying ->
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlaying) "Pause" else "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -434,15 +474,32 @@ fun ClassicPlayerScreen(
 
                     val isRepeatOne = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
                     val isRepeatAll = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
+                    val isRepeatActive = isRepeatOne || isRepeatAll
+                    val repeatTint by animateColorAsState(if (isRepeatActive) accent else textSecondary, tween(200), label = "RepeatColor")
+                    val repeatScale by animateFloatAsState(if (isRepeatActive) 1.12f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "RepeatScale")
+
                     IconButton(
-                        onClick = { viewModel.cycleRepeatMode(context) }
+                        onClick = { viewModel.cycleRepeatMode(context) },
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = repeatScale
+                            scaleY = repeatScale
+                        }
                     ) {
-                        Icon(
-                            imageVector = if (isRepeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                            contentDescription = "Repeat",
-                            tint = if (isRepeatOne || isRepeatAll) accent else textSecondary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        AnimatedContent(
+                            targetState = isRepeatOne,
+                            transitionSpec = {
+                                (scaleIn(initialScale = 0.7f, animationSpec = tween(150)) + fadeIn(tween(150)))
+                                    .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(120)))
+                            },
+                            label = "RepeatOneAnim"
+                        ) { repeatOne ->
+                            Icon(
+                                imageVector = if (repeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                contentDescription = if (repeatOne) "Repeat One" else if (isRepeatAll) "Repeat All" else "Repeat Off",
+                                tint = repeatTint,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
 

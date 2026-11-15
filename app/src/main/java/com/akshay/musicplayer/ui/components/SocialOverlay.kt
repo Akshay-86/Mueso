@@ -1,5 +1,15 @@
 package com.akshay.musicplayer.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,11 +28,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.akshay.musicplayer.domain.models.SocialMetrics
@@ -35,6 +47,17 @@ fun SocialOverlay(
     modifier: Modifier = Modifier
 ) {
     val isLiked = remember { mutableStateOf(false) }
+    val liked = isLiked.value
+    val heartScale by animateFloatAsState(
+        targetValue = if (liked) 1.25f else 1f,
+        animationSpec = spring(dampingRatio = 0.45f, stiffness = 300f),
+        label = "HeartScale"
+    )
+    val heartColor by animateColorAsState(
+        targetValue = if (liked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(200),
+        label = "HeartColor"
+    )
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -45,15 +68,42 @@ fun SocialOverlay(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SocialIconWithLabel(
-                icon = if (isLiked.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                label = metrics?.likeCount ?: "-",
-                color = if (isLiked.value) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                onClick = {
-                    isLiked.value = !isLiked.value
-                    onLikeClick(isLiked.value)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = metrics?.likeCount ?: "-",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+                IconButton(
+                    onClick = {
+                        isLiked.value = !isLiked.value
+                        onLikeClick(isLiked.value)
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = heartScale
+                        scaleY = heartScale
+                    }
+                ) {
+                    AnimatedContent(
+                        targetState = liked,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.7f, animationSpec = tween(180)) + fadeIn(tween(140)))
+                                .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(140)) + fadeOut(tween(100)))
+                        },
+                        label = "LikeHeartAnim"
+                    ) { isNowLiked ->
+                        Icon(
+                            imageVector = if (isNowLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isNowLiked) "Unlike" else "Like",
+                            tint = heartColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
-            )
+            }
 
             SocialIconWithLabel(
                 icon = Icons.Default.ChatBubbleOutline,

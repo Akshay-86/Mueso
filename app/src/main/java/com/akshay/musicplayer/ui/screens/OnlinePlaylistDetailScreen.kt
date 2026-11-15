@@ -103,6 +103,7 @@ fun OnlinePlaylistDetailScreen(
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
     val context = LocalContext.current
     var displayTracks by remember(tracks) { mutableStateOf(tracks) }
     var initialDragIndex by remember { mutableStateOf<Int?>(null) }
@@ -350,7 +351,7 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenu(
                                     expanded = showMenu,
                                     onDismissRequest = { showMenu = false },
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(cardCorner),
                                     containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
                                     shadowElevation = 16.dp
                                 ) {
@@ -616,7 +617,7 @@ fun OnlinePlaylistDetailScreen(
                             DropdownMenu(
                                 expanded = showActionMenu,
                                 onDismissRequest = { showActionMenu = false },
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(cardCorner),
                                 containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
                                 shadowElevation = 16.dp
                             ) {
@@ -765,7 +766,7 @@ fun OnlinePlaylistDetailScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp),
                         colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.15f)),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(cardCorner)
                     ) {
                         Row(
                             modifier = Modifier.padding(14.dp),
@@ -865,8 +866,12 @@ fun OnlinePlaylistDetailScreen(
                         downloadState = downloadStates[track.id],
                         onClick = { onTrackClick(index) },
                         onRemove = { onRemoveTrack?.invoke(track) },
-                        onMoveUp = { onMoveTrack?.invoke(index, index - 1) },
-                        onMoveDown = { onMoveTrack?.invoke(index, index + 1) },
+                        onMoveUp = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
+                            { onMoveTrack.invoke(index, index - 1) }
+                        } else null,
+                        onMoveDown = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
+                            { onMoveTrack.invoke(index, index + 1) }
+                        } else null,
                         onDownload = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
                         onDownloadOptions = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
                         onCancelDownload = { viewModel?.cancelDownload(track.id) },
@@ -1101,8 +1106,8 @@ private fun OnlineTrackListItem(
     downloadState: DownloadProgress? = null,
     onClick: () -> Unit,
     onRemove: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
     onDownload: (() -> Unit)? = null,
     onDownloadOptions: (() -> Unit)? = null,
     onCancelDownload: (() -> Unit)? = null,
@@ -1208,17 +1213,18 @@ private fun OnlineTrackListItem(
 
         // Overflow Options Menu
         Box {
+            val itemCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
             IconButton(onClick = { showMenu = true }) {
                 Icon(
                     Icons.Default.MoreVert,
-                    contentDescription = "Options",
+                    contentDescription = "Track options",
                     tint = textSub
                 )
             }
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(itemCorner),
                 containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF),
                 shadowElevation = 16.dp
             ) {
@@ -1272,37 +1278,37 @@ private fun OnlineTrackListItem(
                     )
                 }
                 if (isCustomUserPlaylist) {
-                    if (index > 1) {
+                    if (onMoveUp != null && index > 1) {
                         DropdownMenuItem(
                             text = {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = null, tint = textColor, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", tint = textColor, modifier = Modifier.size(18.dp))
                                     Text("Move Up", color = textColor)
                                 }
                             },
                             onClick = {
                                 showMenu = false
-                                onMoveUp()
+                                onMoveUp.invoke()
                             }
                         )
                     }
-                    if (index < totalCount) {
+                    if (onMoveDown != null && index < totalCount) {
                         DropdownMenuItem(
                             text = {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = textColor, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", tint = textColor, modifier = Modifier.size(18.dp))
                                     Text("Move Down", color = textColor)
                                 }
                             },
                             onClick = {
                                 showMenu = false
-                                onMoveDown()
+                                onMoveDown.invoke()
                             }
                         )
                     }

@@ -495,6 +495,21 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 )
             }
 
+            // Scrim when search is active - placed behind search dropdown so outside taps dismiss anywhere
+            if (isSearchActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) {
+                            isSearchActive = false
+                            viewModel.setSearchQuery("")
+                        }
+                )
+            }
+
             // Floating search results dropdown
             AnimatedVisibility(
                 visible = isSearchActive && searchQuery.isNotEmpty(),
@@ -533,15 +548,20 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 }
                 val searchBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
 
+                val searchCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .heightIn(max = 440.dp)
-                        .shadow(16.dp, RoundedCornerShape(20.dp), ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.5f))
-                        .border(1.dp, searchBorderColor, RoundedCornerShape(20.dp))
-                        .clip(RoundedCornerShape(20.dp))
+                        .shadow(16.dp, RoundedCornerShape(searchCorner), ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.5f))
+                        .border(1.dp, searchBorderColor, RoundedCornerShape(searchCorner))
+                        .clip(RoundedCornerShape(searchCorner))
                         .background(searchContainerBg)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { /* consume clicks inside search container */ }
                         .padding(12.dp)
                 ) {
                     // Search Category Filter Chips
@@ -890,23 +910,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 }
             }
 
-            // Scrim when search is active
-            if (isSearchActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .padding(top = if (searchQuery.isNotEmpty()) 500.dp else 60.dp)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) {
-                            isSearchActive = false
-                            viewModel.setSearchQuery("")
-                        }
-                )
-            }
-
             // Overlay Playlist Detail
             if (selectedPlaylist != null) {
                 PlaylistDetailScreen(
@@ -1138,29 +1141,36 @@ fun TopNavigationBarWithSearch(
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSettingsClick() }
-                        .padding(4.dp)
+                    modifier = Modifier.padding(start = 8.dp)
                 ) {
-                    if (googleAccount?.photoUrl != null) {
-                        coil.compose.AsyncImage(
-                            model = googleAccount.photoUrl,
-                            contentDescription = "Settings & Profile",
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = if (isPlayerPageNoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
-                            modifier = Modifier.size(36.dp)
-                        )
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .clickable(
+                                onClick = onSettingsClick,
+                                onClickLabel = "Open Settings and Profile"
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (googleAccount?.photoUrl != null) {
+                            coil.compose.AsyncImage(
+                                model = googleAccount.photoUrl,
+                                contentDescription = "Settings and Profile",
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = if (isPlayerPageNoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                     Text(
                         text = "Mueso",
@@ -1250,7 +1260,7 @@ fun TopNavigationBarWithSearch(
             ) {
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                    contentDescription = "Search",
+                    contentDescription = if (isSearchActive) "Close search" else "Search songs",
                     tint = textColor
                 )
             }

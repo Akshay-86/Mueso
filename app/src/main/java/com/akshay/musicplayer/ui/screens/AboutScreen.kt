@@ -41,7 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val AccentOrange: Color
+private val AccentColor: Color
     @Composable
     get() = com.akshay.musicplayer.ui.theme.LocalAccentColor.current
 
@@ -62,6 +62,7 @@ fun AboutScreen(
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
     val dividerColor = if (isPureBlack) Color.White.copy(alpha = 0.06f) else if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
 
     val appVersion = remember {
         val name = BuildConfig.VERSION_NAME
@@ -147,11 +148,11 @@ fun AboutScreen(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = AccentOrange.copy(alpha = 0.15f)
+                            color = AccentColor.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = appVersion,
-                                color = AccentOrange,
+                                color = AccentColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -197,7 +198,7 @@ fun AboutScreen(
             item {
                 Text(
                     text = "Developer & Community",
-                    color = AccentOrange,
+                    color = AccentColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -207,7 +208,7 @@ fun AboutScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -256,7 +257,7 @@ fun AboutScreen(
             item {
                 Text(
                     text = "Build & System Information",
-                    color = AccentOrange,
+                    color = AccentColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -266,7 +267,7 @@ fun AboutScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -289,7 +290,7 @@ fun AboutScreen(
             item {
                 Text(
                     text = "Credits & Inspirations",
-                    color = AccentOrange,
+                    color = AccentColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -299,7 +300,7 @@ fun AboutScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(vertical = 4.dp)
                 ) {
@@ -387,7 +388,7 @@ fun AboutScreen(
             item {
                 Text(
                     text = "License",
-                    color = AccentOrange,
+                    color = AccentColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -397,7 +398,7 @@ fun AboutScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(cardCorner))
                         .background(cardBg)
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -410,10 +411,10 @@ fun AboutScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(AccentOrange.copy(alpha = 0.15f)),
+                                .background(AccentColor.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = AccentColor, modifier = Modifier.size(20.dp))
                         }
                         Column {
                             Text("MIT License", color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -483,10 +484,10 @@ private fun LinkRow(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                .background(AccentOrange.copy(alpha = 0.12f)),
+                    .background(AccentColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(20.dp))
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
