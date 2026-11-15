@@ -12,10 +12,12 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -50,6 +52,8 @@ import androidx.compose.material.icons.filled.AvTimer
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -96,6 +100,7 @@ import com.akshay.musicplayer.ui.components.EqualizerBottomSheet
 import com.akshay.musicplayer.ui.components.LyricsView
 import com.akshay.musicplayer.ui.components.QueueBottomSheet
 import com.akshay.musicplayer.ui.components.SleepTimerBottomSheet
+import com.akshay.musicplayer.ui.components.SleepTimerMode
 import com.akshay.musicplayer.ui.components.SmartArtworkImage
 import com.akshay.musicplayer.ui.components.TrackMenuBottomSheet
 import com.akshay.musicplayer.ui.state.PlaybackState
@@ -151,6 +156,26 @@ fun ClassicPlayerScreen(
     val isPlaylistContext by viewModel.isPlaylistContext.collectAsState()
     val playlistTrackCount by viewModel.playlistTrackCount.collectAsState()
     val activePlaylistInfo by viewModel.currentPlayingPlaylist.collectAsState()
+
+    val activeSleepMode by viewModel.activeSleepMode.collectAsState()
+    val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
+    val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
+
+    val sleepTimerBadgeText = when (activeSleepMode) {
+        SleepTimerMode.TIMER -> {
+            val mins = sleepTimerMinutesLeft ?: 0
+            val h = mins / 60
+            val m = mins % 60
+            when {
+                h > 0 && m > 0 -> "Stops in ${h}h ${m}m"
+                h > 0 -> "Stops in ${h}h"
+                else -> "Stops in ${m}m"
+            }
+        }
+        SleepTimerMode.AFTER_SONG -> "Stops after song"
+        SleepTimerMode.END_OF_PLAYLIST -> "Stops at end of playlist"
+        null -> null
+    }
 
     var showTrackMenuSheet by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
@@ -218,7 +243,22 @@ fun ClassicPlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onCollapseClick) {
+                val collapseInteraction = remember { MutableInteractionSource() }
+                val isCollapsePressed by collapseInteraction.collectIsPressedAsState()
+                val collapseScale by animateFloatAsState(
+                    targetValue = if (isCollapsePressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "CollapseScale"
+                )
+
+                IconButton(
+                    onClick = onCollapseClick,
+                    interactionSource = collapseInteraction,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = collapseScale
+                        scaleY = collapseScale
+                    }
+                ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = "Collapse",
@@ -227,7 +267,12 @@ fun ClassicPlayerScreen(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(horizontal = 8.dp)
+                ) {
                     Text(
                         text = "NOW PLAYING",
                         color = textSecondary,
@@ -245,13 +290,149 @@ fun ClassicPlayerScreen(
                     )
                 }
 
-                IconButton(onClick = { showTrackMenuSheet = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Track Menu",
-                        tint = textPrimary,
-                        modifier = Modifier.size(24.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    val eqTint by animateColorAsState(
+                        targetValue = if (isEqActive) accent else textSecondary,
+                        animationSpec = tween(200),
+                        label = "EqTint"
                     )
+                    val eqScale by animateFloatAsState(
+                        targetValue = if (isEqActive) 1.15f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 380f),
+                        label = "EqScale"
+                    )
+                    val eqRotation by animateFloatAsState(
+                        targetValue = if (isEqActive) 15f else 0f,
+                        animationSpec = spring(dampingRatio = 0.55f, stiffness = 320f),
+                        label = "EqRotation"
+                    )
+                    val eqInteraction = remember { MutableInteractionSource() }
+                    val isEqPressed by eqInteraction.collectIsPressedAsState()
+                    val eqPressScale by animateFloatAsState(
+                        targetValue = if (isEqPressed) 0.85f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                        label = "EqPressScale"
+                    )
+
+                    IconButton(
+                        onClick = { showEqualizerSheet = true },
+                        interactionSource = eqInteraction,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .graphicsLayer {
+                                scaleX = eqScale * eqPressScale
+                                scaleY = eqScale * eqPressScale
+                                rotationZ = eqRotation
+                            }
+                    ) {
+                        AnimatedContent(
+                            targetState = isEqActive,
+                            transitionSpec = {
+                                (scaleIn(initialScale = 0.7f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(140)))
+                                    .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(100)))
+                            },
+                            label = "EqAnim"
+                        ) { active ->
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = if (active) "Equalizer Active" else "Equalizer",
+                                tint = eqTint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    val menuInteraction = remember { MutableInteractionSource() }
+                    val isMenuPressed by menuInteraction.collectIsPressedAsState()
+                    val menuScale by animateFloatAsState(
+                        targetValue = if (isMenuPressed) 0.85f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                        label = "MenuPressScale"
+                    )
+                    IconButton(
+                        onClick = { showTrackMenuSheet = true },
+                        interactionSource = menuInteraction,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .graphicsLayer {
+                                scaleX = menuScale
+                                scaleY = menuScale
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Track Menu",
+                            tint = textPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+
+            // ─── Sleep Timer Countdown Badge ───
+            AnimatedVisibility(
+                visible = activeSleepMode != null && sleepTimerBadgeText != null,
+                enter = fadeIn(tween(250)) + expandVertically(animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f)),
+                exit = fadeOut(tween(200)) + shrinkVertically(animationSpec = tween(200)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val sleepBadgeInteraction = remember { MutableInteractionSource() }
+                    val isSleepBadgePressed by sleepBadgeInteraction.collectIsPressedAsState()
+                    val sleepBadgeScale by animateFloatAsState(
+                        targetValue = if (isSleepBadgePressed) 0.92f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                        label = "SleepBadgeScale"
+                    )
+
+                    Surface(
+                        onClick = { showSleepTimerSheet = true },
+                        interactionSource = sleepBadgeInteraction,
+                        shape = RoundedCornerShape(50),
+                        color = if (isDarkMode) accent.copy(alpha = 0.18f) else accent.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.45f)),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = sleepBadgeScale
+                            scaleY = sleepBadgeScale
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AvTimer,
+                                contentDescription = "Active Sleep Timer",
+                                tint = accent,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            AnimatedContent(
+                                targetState = sleepTimerBadgeText ?: "",
+                                transitionSpec = {
+                                    (fadeIn(tween(140)) + scaleIn(initialScale = 0.85f)).togetherWith(fadeOut(tween(100)) + scaleOut(targetScale = 0.85f))
+                                },
+                                label = "SleepBadgeTextAnim"
+                            ) { badgeText ->
+                                Text(
+                                    text = badgeText,
+                                    color = accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.2.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -366,11 +547,69 @@ fun ClassicPlayerScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    AudioQualityCapsule(
-                        audioFormat = activeAudioFormat
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        var isFavorite by remember(track.id) { mutableStateOf(false) }
+                        val favoriteTint by animateColorAsState(
+                            targetValue = if (isFavorite) Color(0xFFE91E63) else textSecondary,
+                            animationSpec = tween(200),
+                            label = "FavoriteTint"
+                        )
+                        val favoriteScale by animateFloatAsState(
+                            targetValue = if (isFavorite) 1.25f else 1f,
+                            animationSpec = spring(dampingRatio = 0.45f, stiffness = 350f),
+                            label = "FavoriteScale"
+                        )
+                        val favoriteRotation by animateFloatAsState(
+                            targetValue = if (isFavorite) -12f else 0f,
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 300f),
+                            label = "FavoriteRotation"
+                        )
+                        val favInteraction = remember { MutableInteractionSource() }
+                        val isFavPressed by favInteraction.collectIsPressedAsState()
+                        val favPressScale by animateFloatAsState(
+                            targetValue = if (isFavPressed) 0.85f else 1f,
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                            label = "FavPressScale"
+                        )
+
+                        IconButton(
+                            onClick = { isFavorite = !isFavorite },
+                            interactionSource = favInteraction,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .graphicsLayer {
+                                    scaleX = favoriteScale * favPressScale
+                                    scaleY = favoriteScale * favPressScale
+                                    rotationZ = favoriteRotation
+                                }
+                        ) {
+                            AnimatedContent(
+                                targetState = isFavorite,
+                                transitionSpec = {
+                                    (scaleIn(initialScale = 0.6f, animationSpec = spring(dampingRatio = 0.45f, stiffness = 400f)) + fadeIn(tween(150)))
+                                        .togetherWith(scaleOut(targetScale = 0.6f, animationSpec = tween(120)) + fadeOut(tween(100)))
+                                },
+                                label = "FavoriteAnim"
+                            ) { fav ->
+                                Icon(
+                                    imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = if (fav) "Remove from Favorites" else "Add to Favorites",
+                                    tint = favoriteTint,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+
+                        AudioQualityCapsule(
+                            audioFormat = activeAudioFormat,
+                            onClick = { showEqualizerSheet = true }
+                        )
+                    }
                 }
 
                 // Seekbar & Timestamps with Tooltip & Remaining Toggle
@@ -459,27 +698,52 @@ fun ClassicPlayerScreen(
                 ) {
                     val shuffleTint by animateColorAsState(if (isShuffleEnabled) accent else textSecondary, tween(200), label = "ShuffleColor")
                     val shuffleScale by animateFloatAsState(if (isShuffleEnabled) 1.15f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "ShuffleScale")
+                    val shuffleRotation by animateFloatAsState(if (isShuffleEnabled) 180f else 0f, spring(dampingRatio = 0.55f, stiffness = 350f), label = "ShuffleRotation")
+                    val shuffleInteraction = remember { MutableInteractionSource() }
+                    val isShufflePressed by shuffleInteraction.collectIsPressedAsState()
+                    val shufflePressScale by animateFloatAsState(if (isShufflePressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "ShufflePressScale")
 
                     IconButton(
                         onClick = { viewModel.toggleShuffleMode() },
+                        interactionSource = shuffleInteraction,
                         modifier = Modifier
                             .size(48.dp)
                             .graphicsLayer {
-                                scaleX = shuffleScale
-                                scaleY = shuffleScale
+                                scaleX = shuffleScale * shufflePressScale
+                                scaleY = shuffleScale * shufflePressScale
+                                rotationZ = shuffleRotation
                             }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = if (isShuffleEnabled) "Shuffle On" else "Shuffle Off",
-                            tint = shuffleTint,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        AnimatedContent(
+                            targetState = isShuffleEnabled,
+                            transitionSpec = {
+                                (scaleIn(initialScale = 0.7f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(140)))
+                                    .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(100)))
+                            },
+                            label = "ShuffleAnim"
+                        ) { enabled ->
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = if (enabled) "Shuffle On" else "Shuffle Off",
+                                tint = shuffleTint,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
+
+                    val prevInteraction = remember { MutableInteractionSource() }
+                    val isPrevPressed by prevInteraction.collectIsPressedAsState()
+                    val prevScale by animateFloatAsState(if (isPrevPressed) 0.85f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "PrevScale")
 
                     IconButton(
                         onClick = { viewModel.playPreviousTrack() },
-                        modifier = Modifier.size(52.dp)
+                        interactionSource = prevInteraction,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .graphicsLayer {
+                                scaleX = prevScale
+                                scaleY = prevScale
+                            }
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
@@ -541,9 +805,19 @@ fun ClassicPlayerScreen(
                         }
                     }
 
+                    val nextInteraction = remember { MutableInteractionSource() }
+                    val isNextPressed by nextInteraction.collectIsPressedAsState()
+                    val nextScale by animateFloatAsState(if (isNextPressed) 0.85f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "NextScale")
+
                     IconButton(
                         onClick = { viewModel.playNextTrack() },
-                        modifier = Modifier.size(52.dp)
+                        interactionSource = nextInteraction,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .graphicsLayer {
+                                scaleX = nextScale
+                                scaleY = nextScale
+                            }
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
@@ -557,28 +831,46 @@ fun ClassicPlayerScreen(
                     val isRepeatAll = repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
                     val isRepeatActive = isRepeatOne || isRepeatAll
                     val repeatTint by animateColorAsState(if (isRepeatActive) accent else textSecondary, tween(200), label = "RepeatColor")
-                    val repeatScale by animateFloatAsState(if (isRepeatActive) 1.12f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "RepeatScale")
+                    val repeatScale by animateFloatAsState(if (isRepeatActive) 1.15f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "RepeatScale")
+                    val repeatRotation by animateFloatAsState(
+                        targetValue = when (repeatMode) {
+                            androidx.media3.common.Player.REPEAT_MODE_ONE -> 360f
+                            androidx.media3.common.Player.REPEAT_MODE_ALL -> 180f
+                            else -> 0f
+                        },
+                        animationSpec = spring(dampingRatio = 0.6f, stiffness = 350f),
+                        label = "RepeatRotation"
+                    )
+                    val repeatInteraction = remember { MutableInteractionSource() }
+                    val isRepeatPressed by repeatInteraction.collectIsPressedAsState()
+                    val repeatPressScale by animateFloatAsState(if (isRepeatPressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "RepeatPressScale")
 
                     IconButton(
                         onClick = { viewModel.cycleRepeatMode(context) },
+                        interactionSource = repeatInteraction,
                         modifier = Modifier
                             .size(48.dp)
                             .graphicsLayer {
-                                scaleX = repeatScale
-                                scaleY = repeatScale
+                                scaleX = repeatScale * repeatPressScale
+                                scaleY = repeatScale * repeatPressScale
+                                rotationZ = repeatRotation
                             }
                     ) {
                         AnimatedContent(
-                            targetState = isRepeatOne,
+                            targetState = repeatMode,
                             transitionSpec = {
-                                (scaleIn(initialScale = 0.7f, animationSpec = tween(150)) + fadeIn(tween(150)))
-                                    .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(120)))
+                                (scaleIn(initialScale = 0.65f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(140)))
+                                    .togetherWith(scaleOut(targetScale = 0.65f, animationSpec = tween(120)) + fadeOut(tween(100)))
                             },
-                            label = "RepeatOneAnim"
-                        ) { repeatOne ->
+                            label = "RepeatModeAnim"
+                        ) { mode ->
                             Icon(
-                                imageVector = if (repeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                                contentDescription = if (repeatOne) "Repeat One" else if (isRepeatAll) "Repeat All" else "Repeat Off",
+                                imageVector = if (mode == androidx.media3.common.Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                contentDescription = when (mode) {
+                                    androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat One"
+                                    androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat All"
+                                    else -> "Repeat Off"
+                                },
                                 tint = repeatTint,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -606,33 +898,105 @@ fun ClassicPlayerScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Lyrics
+                        val lyricsTint by animateColorAsState(if (isLyricsVisible) accent else textSecondary, tween(200), label = "LyricsTint")
+                        val lyricsScale by animateFloatAsState(if (isLyricsVisible) 1.18f else 1f, spring(dampingRatio = 0.5f, stiffness = 380f), label = "LyricsScale")
+                        val lyricsRotation by animateFloatAsState(if (isLyricsVisible) -12f else 0f, spring(dampingRatio = 0.5f, stiffness = 350f), label = "LyricsRotation")
+                        val lyricsInteraction = remember { MutableInteractionSource() }
+                        val isLyricsPressed by lyricsInteraction.collectIsPressedAsState()
+                        val lyricsPressScale by animateFloatAsState(if (isLyricsPressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "LyricsPress")
+
                         IconButton(
                             onClick = { isLyricsVisible = !isLyricsVisible },
-                            modifier = Modifier.size(44.dp)
+                            interactionSource = lyricsInteraction,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    scaleX = lyricsScale * lyricsPressScale
+                                    scaleY = lyricsScale * lyricsPressScale
+                                    rotationZ = lyricsRotation
+                                }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Lyrics,
-                                contentDescription = "Lyrics",
-                                tint = if (isLyricsVisible) accent else textSecondary,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            AnimatedContent(
+                                targetState = isLyricsVisible,
+                                transitionSpec = {
+                                    (scaleIn(initialScale = 0.7f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(140)))
+                                        .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(100)))
+                                },
+                                label = "LyricsAnim"
+                            ) { active ->
+                                Icon(
+                                    imageVector = Icons.Default.Lyrics,
+                                    contentDescription = "Lyrics",
+                                    tint = lyricsTint,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
+
+                        // Sleep Timer
+                        val isSleepActive = activeSleepMode != null
+                        val sleepTimerTint by animateColorAsState(
+                            targetValue = if (isSleepActive) accent else textSecondary,
+                            animationSpec = tween(200),
+                            label = "SleepTimerTint"
+                        )
+                        val sleepTimerScale by animateFloatAsState(
+                            targetValue = if (isSleepActive) 1.18f else 1f,
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 380f),
+                            label = "SleepTimerScale"
+                        )
+                        val sleepTimerRotation by animateFloatAsState(
+                            targetValue = if (isSleepActive) 22f else 0f,
+                            animationSpec = spring(dampingRatio = 0.55f, stiffness = 320f),
+                            label = "SleepTimerRotation"
+                        )
+                        val sleepInteraction = remember { MutableInteractionSource() }
+                        val isSleepPressed by sleepInteraction.collectIsPressedAsState()
+                        val sleepPressScale by animateFloatAsState(if (isSleepPressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "SleepPress")
 
                         IconButton(
                             onClick = { showSleepTimerSheet = true },
-                            modifier = Modifier.size(44.dp)
+                            interactionSource = sleepInteraction,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    scaleX = sleepTimerScale * sleepPressScale
+                                    scaleY = sleepTimerScale * sleepPressScale
+                                    rotationZ = sleepTimerRotation
+                                }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.AvTimer,
-                                contentDescription = "Sleep Timer",
-                                tint = textSecondary,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            AnimatedContent(
+                                targetState = isSleepActive,
+                                transitionSpec = {
+                                    (scaleIn(initialScale = 0.7f, animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(140)))
+                                        .togetherWith(scaleOut(targetScale = 0.7f, animationSpec = tween(120)) + fadeOut(tween(100)))
+                                },
+                                label = "SleepTimerDockAnim"
+                            ) { active ->
+                                Icon(
+                                    imageVector = Icons.Default.AvTimer,
+                                    contentDescription = "Sleep Timer",
+                                    tint = sleepTimerTint,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
+
+                        // Queue
+                        val queueInteraction = remember { MutableInteractionSource() }
+                        val isQueuePressed by queueInteraction.collectIsPressedAsState()
+                        val queueScale by animateFloatAsState(if (isQueuePressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "QueuePress")
 
                         IconButton(
                             onClick = { showQueueSheet = true },
-                            modifier = Modifier.size(44.dp)
+                            interactionSource = queueInteraction,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    scaleX = queueScale
+                                    scaleY = queueScale
+                                }
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
@@ -642,6 +1006,11 @@ fun ClassicPlayerScreen(
                             )
                         }
 
+                        // Download
+                        val dlInteraction = remember { MutableInteractionSource() }
+                        val isDlPressed by dlInteraction.collectIsPressedAsState()
+                        val dlScale by animateFloatAsState(if (isDlPressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "DlPress")
+
                         IconButton(
                             onClick = {
                                 if (isDownloading) {
@@ -650,7 +1019,13 @@ fun ClassicPlayerScreen(
                                     viewModel.downloadOnlineTrack(context, track)
                                 }
                             },
-                            modifier = Modifier.size(44.dp)
+                            interactionSource = dlInteraction,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    scaleX = dlScale
+                                    scaleY = dlScale
+                                }
                         ) {
                             when {
                                 isDownloading -> {
@@ -691,9 +1066,20 @@ fun ClassicPlayerScreen(
                             }
                         }
 
+                        // Add to Playlist
+                        val addPlInteraction = remember { MutableInteractionSource() }
+                        val isAddPlPressed by addPlInteraction.collectIsPressedAsState()
+                        val addPlScale by animateFloatAsState(if (isAddPlPressed) 0.88f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "AddPlPress")
+
                         IconButton(
                             onClick = { showAddToPlaylistSheet = true },
-                            modifier = Modifier.size(44.dp)
+                            interactionSource = addPlInteraction,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    scaleX = addPlScale
+                                    scaleY = addPlScale
+                                }
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
@@ -778,9 +1164,6 @@ fun ClassicPlayerScreen(
     }
 
     if (showSleepTimerSheet) {
-        val activeSleepMode by viewModel.activeSleepMode.collectAsState()
-        val sleepTimerMinutesLeft by viewModel.sleepTimerMinutesLeft.collectAsState()
-        val sleepAfterSongId by viewModel.sleepAfterSongId.collectAsState()
         SleepTimerBottomSheet(
             tracks = activeQueue,
             currentTrackId = playbackState.currentTrackId,

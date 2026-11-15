@@ -278,7 +278,7 @@ fun AddToPlaylistBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Inline Search Bar
+            // Inline Search Bar with proper 52dp height, centered vertical alignment, and clean padding
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -286,7 +286,8 @@ fun AddToPlaylistBottomSheet(
                     Text(
                         "Search playlists...",
                         color = textSecondary,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        maxLines = 1
                     )
                 },
                 leadingIcon = {
@@ -314,6 +315,10 @@ fun AddToPlaylistBottomSheet(
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
+                textStyle = LocalTextStyle.current.copy(
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = AccentOrange.copy(alpha = 0.5f),
                     unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f),
@@ -324,7 +329,7 @@ fun AddToPlaylistBottomSheet(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(52.dp)
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -339,6 +344,7 @@ fun AddToPlaylistBottomSheet(
             filterOptions.add(Triple("Local", offlinePlaylists.size, Icons.Default.Folder))
 
             LazyRow(
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {

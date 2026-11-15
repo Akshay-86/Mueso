@@ -458,7 +458,7 @@ class InnerTubeClient(
     // ==========================================
     // 3. EXPLORE, HOME & CHARTS PLAYLISTS (/browse)
     // ==========================================
-    suspend fun getHomeFeedShelves(): List<InnerTubeShelf> = withContext(Dispatchers.IO) {
+    suspend fun getHomeFeedResult(): InnerTubeBrowseResult = withContext(Dispatchers.IO) {
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("browseId", "FEmusic_home")
@@ -467,19 +467,21 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
-                val shelves = parseBrowseShelves(json)
-                if (shelves.isNotEmpty()) return@withContext shelves
-                return@withContext getExploreShelves()
+                if (!response.isSuccessful) return@withContext getExploreResult()
+                val json = JSONObject(response.body?.string() ?: return@withContext getExploreResult())
+                val result = parseBrowseResult(json)
+                if (result.shelves.isNotEmpty()) return@withContext result
+                return@withContext getExploreResult()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "getHomeFeedShelves failed, falling back to explore", e)
-            return@withContext getExploreShelves()
+            Log.e(TAG, "getHomeFeedResult failed, falling back to explore", e)
+            return@withContext getExploreResult()
         }
     }
 
-    suspend fun getExploreShelves(): List<InnerTubeShelf> = withContext(Dispatchers.IO) {
+    suspend fun getHomeFeedShelves(): List<InnerTubeShelf> = getHomeFeedResult().shelves
+
+    suspend fun getExploreResult(): InnerTubeBrowseResult = withContext(Dispatchers.IO) {
         val payload = JSONObject().apply {
             put("context", buildContext())
             put("browseId", "FEmusic_explore")
@@ -488,13 +490,35 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
-                return@withContext parseBrowseShelves(json)
+                if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
+                val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
+                return@withContext parseBrowseResult(json)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "getExploreShelves failed", e)
-            return@withContext emptyList()
+            Log.e(TAG, "getExploreResult failed", e)
+            return@withContext InnerTubeBrowseResult(emptyList(), null)
+        }
+    }
+
+    suspend fun getExploreShelves(): List<InnerTubeShelf> = getExploreResult().shelves
+
+    suspend fun getShelvesContinuation(continuationToken: String): InnerTubeBrowseResult = withContext(Dispatchers.IO) {
+        if (continuationToken.isBlank()) return@withContext InnerTubeBrowseResult(emptyList(), null)
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("continuation", continuationToken)
+        }
+
+        try {
+            val request = buildBaseRequest("browse?continuation=$continuationToken", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
+                val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
+                return@withContext parseBrowseResult(json)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getShelvesContinuation failed", e)
+            return@withContext InnerTubeBrowseResult(emptyList(), null)
         }
     }
 
@@ -507,14 +531,51 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
-                return@withContext parseBrowseShelves(json)
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string() ?: "")
+                    val shelves = parseBrowseShelves(json)
+                    val audioShelves = shelves.filterNot { isVideoShelf(it.title, it.subtitle) }
+                        .map { shelf ->
+                            shelf.copy(
+                                playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) },
+                                tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) }
+                            )
+                        }
+                        .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
+
+                    if (audioShelves.isNotEmpty()) {
+                        return@withContext audioShelves
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "getChartsShelves failed", e)
-            return@withContext emptyList()
         }
+
+        // When YouTube Music FEmusic_charts delivers video charts or no audio songs,
+        // supply pure audio song charts: 'Top Global Songs' and 'Trending Audio Hits'
+        val result = mutableListOf<InnerTubeShelf>()
+        val topSongs = searchSongs("Top Global Songs", limit = 25)
+        if (topSongs.isNotEmpty()) {
+            result.add(
+                InnerTubeShelf(
+                    title = "Top Global Songs",
+                    subtitle = "Most played audio tracks worldwide",
+                    tracks = topSongs.filter { !it.itemType.equals("Video", ignoreCase = true) }
+                )
+            )
+        }
+        val trendingSongs = searchSongs("Trending Audio Hits", limit = 25)
+        if (trendingSongs.isNotEmpty()) {
+            result.add(
+                InnerTubeShelf(
+                    title = "Trending Audio Hits",
+                    subtitle = "Popular audio tracks trending now",
+                    tracks = trendingSongs.filter { !it.itemType.equals("Video", ignoreCase = true) }
+                )
+            )
+        }
+        return@withContext result
     }
 
     /**
@@ -549,7 +610,7 @@ class InnerTubeClient(
             }
         }
 
-        (matchingSongs + matchingVideos + alikeSongs + alikeVideos).take(limit)
+        (matchingSongs + alikeSongs + matchingVideos + alikeVideos).take(limit)
     }
 
     private fun isTrackQueryMatch(title: String, artist: String, query: String): Boolean {
@@ -1232,34 +1293,73 @@ class InnerTubeClient(
         return@withContext map
     }
 
-    private fun parseBrowseShelves(json: JSONObject): List<InnerTubeShelf> {
+    private fun extractRunsText(runs: JSONArray?): String? {
+        if (runs == null || runs.length() == 0) return null
+        val sb = StringBuilder()
+        for (i in 0 until runs.length()) {
+            val t = runs.optJSONObject(i)?.optString("text")
+            if (!t.isNullOrEmpty()) sb.append(t)
+        }
+        return sb.toString().trim().takeIf { it.isNotBlank() }
+    }
+
+    fun parseBrowseResult(json: JSONObject): InnerTubeBrowseResult {
         val shelves = mutableListOf<InnerTubeShelf>()
-        val sectionList = json.optJSONObject("contents")
+        val sectionListRenderer = json.optJSONObject("contents")
             ?.optJSONObject("singleColumnBrowseResultsRenderer")
             ?.optJSONArray("tabs")?.optJSONObject(0)
             ?.optJSONObject("tabRenderer")
             ?.optJSONObject("content")
             ?.optJSONObject("sectionListRenderer")
-            ?.optJSONArray("contents") ?: return emptyList()
+
+        val continuationSectionList = json.optJSONObject("continuationContents")
+            ?.optJSONObject("sectionListContinuation")
+            ?: json.optJSONObject("sectionListContinuation")
+
+        val sectionList = sectionListRenderer?.optJSONArray("contents")
+            ?: continuationSectionList?.optJSONArray("contents")
+            ?: json.optJSONObject("continuationContents")?.optJSONObject("musicShelfContinuation")?.optJSONArray("contents")
+            ?: return InnerTubeBrowseResult(emptyList(), null)
+
+        var continuationToken = sectionListRenderer?.optJSONArray("continuations")
+            ?.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
+            ?.takeIf { it.isNotBlank() }
+            ?: continuationSectionList?.optJSONArray("continuations")
+                ?.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
+                ?.takeIf { it.isNotBlank() }
 
         for (i in 0 until sectionList.length()) {
             val sectionObj = sectionList.optJSONObject(i) ?: continue
+
+            // Check if this item is a continuationItemRenderer
+            val continuationItem = sectionObj.optJSONObject("continuationItemRenderer")
+            if (continuationItem != null && continuationToken.isNullOrBlank()) {
+                val endpoint = continuationItem.optJSONObject("continuationEndpoint")
+                val token = endpoint?.optJSONObject("continuationCommand")?.optString("token")
+                    ?: endpoint?.optJSONObject("browseContinuationEndpoint")?.optString("continuation")
+                    ?: endpoint?.optJSONObject("nextContinuationData")?.optString("continuation")
+                    ?: continuationItem.optString("continuation")
+                if (!token.isNullOrBlank()) {
+                    continuationToken = token
+                }
+                continue
+            }
+
             val carousel = sectionObj.optJSONObject("musicCarouselShelfRenderer")
             val musicShelf = sectionObj.optJSONObject("musicShelfRenderer")
             val grid = sectionObj.optJSONObject("gridRenderer") ?: sectionObj.optJSONObject("musicGridRenderer")
 
-            val shelfTitle = carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                ?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                ?: musicShelf?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                ?: grid?.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+            val shelfTitle = extractRunsText(carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: extractRunsText(musicShelf?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
                 ?: "Featured"
 
-            val shelfSubtitle = carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                ?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                ?: carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                ?.optJSONObject("title")?.optJSONArray("runs")?.let { if (it.length() > 1) it.optJSONObject(1)?.optString("text") else null }
-                ?: musicShelf?.optJSONObject("strapline")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+            val shelfSubtitle = extractRunsText(carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("strapline")?.optJSONArray("runs"))
+                ?: extractRunsText(musicShelf?.optJSONObject("strapline")?.optJSONArray("runs"))
                 ?: ""
+
+            // Filter out video-specific shelves (e.g. 'Top music videos', 'New music videos', 'Video charts')
+            if (isVideoShelf(shelfTitle, shelfSubtitle)) continue
 
             val items = carousel?.optJSONArray("contents")
                 ?: musicShelf?.optJSONArray("contents")
@@ -1278,6 +1378,9 @@ class InnerTubeClient(
                     val title = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: continue
                     val subtitle = twoRow.optJSONObject("subtitle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
 
+                    // Filter out video items and video playlists
+                    if (isVideoShelf(title, subtitle)) continue
+
                     val navEndpoint = twoRow.optJSONObject("navigationEndpoint")
                     val browseId = navEndpoint?.optJSONObject("browseEndpoint")?.optString("browseId")
                     val watchEndpoint = navEndpoint?.optJSONObject("watchEndpoint")
@@ -1291,14 +1394,20 @@ class InnerTubeClient(
 
                     // If it's a song item (has videoId and is not explicitly a playlist/album browseId)
                     if (!videoId.isNullOrBlank() && (browseId.isNullOrBlank() || (!browseId.startsWith("VL") && !browseId.startsWith("MPRE") && !browseId.startsWith("UC")))) {
-                        tracksInShelf.add(
-                            InnerTubeTrack(
-                                videoId = videoId,
-                                title = title,
-                                artist = subtitle.ifBlank { "YouTube Music" },
-                                artworkUrl = highResArt
+                        val isVideoItem = subtitle.contains("video", ignoreCase = true) ||
+                                title.contains("Official Music Video", ignoreCase = true) ||
+                                title.contains("Official Video", ignoreCase = true)
+                        if (!isVideoItem) {
+                            tracksInShelf.add(
+                                InnerTubeTrack(
+                                    videoId = videoId,
+                                    title = title,
+                                    artist = subtitle.ifBlank { "YouTube Music" },
+                                    artworkUrl = highResArt,
+                                    itemType = "Song"
+                                )
                             )
-                        )
+                        }
                     } else {
                         val targetId = when {
                             !browseId.isNullOrBlank() -> browseId
@@ -1319,7 +1428,11 @@ class InnerTubeClient(
                     }
                 } else if (responsive != null) {
                     val track = parseResponsiveListItem(responsive)
-                    if (track != null) {
+                    if (track != null &&
+                        !track.itemType.equals("Video", ignoreCase = true) &&
+                        !track.title.contains("Official Music Video", ignoreCase = true) &&
+                        !track.title.contains("Official Video", ignoreCase = true)
+                    ) {
                         tracksInShelf.add(track)
                     }
                 }
@@ -1336,7 +1449,24 @@ class InnerTubeClient(
                 )
             }
         }
-        return shelves
+
+        if (continuationToken.isNullOrBlank()) {
+            continuationToken = extractContinuationTokenFallback(json)
+        }
+
+        return InnerTubeBrowseResult(shelves, continuationToken)
+    }
+
+    private fun extractContinuationTokenFallback(json: JSONObject): String? {
+        val jsonStr = json.toString()
+        val tokenRegex = Regex("\"token\"\\s*:\\s*\"([^\"]+)\"")
+        val continuationRegex = Regex("\"continuation\"\\s*:\\s*\"([^\"]+)\"")
+        return tokenRegex.find(jsonStr)?.groupValues?.getOrNull(1)
+            ?: continuationRegex.find(jsonStr)?.groupValues?.getOrNull(1)
+    }
+
+    fun parseBrowseShelves(json: JSONObject): List<InnerTubeShelf> {
+        return parseBrowseResult(json).shelves
     }
 
     // ==========================================

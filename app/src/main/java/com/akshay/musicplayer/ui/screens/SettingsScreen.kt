@@ -58,6 +58,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.data.backup.GoogleDriveBackupRepository
+import com.akshay.musicplayer.domain.models.SupportedLanguages
+import com.akshay.musicplayer.ui.components.LanguageBadge
+import com.akshay.musicplayer.ui.components.LanguageSelectorBottomSheet
 import com.akshay.musicplayer.ui.theme.LocalAccentColor
 import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.ui.theme.ThemePresets
@@ -128,6 +131,7 @@ fun SettingsScreen(
     var showEqualizerSheet by remember { mutableStateOf(false) }
     var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     var showClearBackupConfirmDialog by remember { mutableStateOf(false) }
+    var showLanguageSheet by remember { mutableStateOf(false) }
 
     val accentColor = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
@@ -277,6 +281,17 @@ fun SettingsScreen(
         )
     }
 
+    if (showLanguageSheet) {
+        LanguageSelectorBottomSheet(
+            selectedLanguage = preferredLanguage,
+            isDarkMode = isDarkMode,
+            onLanguageSelected = { newLang ->
+                viewModel.setPreferredLanguage(newLang)
+            },
+            onDismiss = { showLanguageSheet = false }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -419,6 +434,59 @@ fun SettingsScreen(
                                 viewModel.setLyricsFontSizeOption(key)
                             }
                         )
+                        HorizontalDivider(color = dividerColor)
+                        // Music & Content Language
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showLanguageSheet = true }
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LanguageBadge(
+                                    script = SupportedLanguages.getNativeScript(preferredLanguage),
+                                    size = 32.dp,
+                                    fontSize = 14.sp,
+                                    accentColor = accentColor
+                                )
+                                Column {
+                                    Text(
+                                        text = "Music & Content Language",
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "$preferredLanguage (${SupportedLanguages.getNativeName(preferredLanguage)}) • Curates online library & lyrics",
+                                        color = textSub,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = preferredLanguage,
+                                    color = accentColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = textSub,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1812,11 +1880,16 @@ private fun ThemeModeSelectorItem(
     val pillShape = RoundedCornerShape(8.dp)
 
     val modes = listOf(
-        Triple("dark", "Dark", Icons.Default.DarkMode),
-        Triple("light", "Light", Icons.Default.LightMode)
+        Triple(com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM.id, "System", Icons.Default.BrightnessAuto),
+        Triple(com.akshay.musicplayer.ui.theme.ThemeMode.DARK.id, "Dark", Icons.Default.DarkMode),
+        Triple(com.akshay.musicplayer.ui.theme.ThemeMode.LIGHT.id, "Light", Icons.Default.LightMode)
     )
 
-    val effectiveMode = if (currentMode.equals("light", ignoreCase = true)) "light" else "dark"
+    val effectiveMode = when {
+        currentMode.equals("system", ignoreCase = true) -> "system"
+        currentMode.equals("light", ignoreCase = true) -> "light"
+        else -> "dark"
+    }
 
     Column(
         modifier = Modifier

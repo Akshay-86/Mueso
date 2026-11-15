@@ -57,6 +57,33 @@ data class InnerTubeShelf(
     val tracks: List<InnerTubeTrack> = emptyList()
 )
 
+data class InnerTubeBrowseResult(
+    val shelves: List<InnerTubeShelf> = emptyList(),
+    val continuationToken: String? = null
+)
+
+fun isVideoShelf(title: String, subtitle: String = ""): Boolean {
+    val t = title.trim().lowercase()
+    val s = subtitle.trim().lowercase()
+    val combined = "$t $s"
+    return combined.contains("music video") ||
+            combined.contains("music videos") ||
+            combined.contains("video chart") ||
+            combined.contains("video charts") ||
+            combined.contains("top video") ||
+            combined.contains("top videos") ||
+            combined.contains("new video") ||
+            combined.contains("new videos") ||
+            combined.contains("trending video") ||
+            combined.contains("trending videos") ||
+            combined.contains("popular episode") ||
+            combined.contains("episodes") ||
+            t == "videos" ||
+            t == "music videos" ||
+            t == "video charts" ||
+            (t.contains("video") && !t.contains("audio") && !t.contains("song"))
+}
+
 data class StreamFormat(
     val itag: Int,
     val mimeType: String,

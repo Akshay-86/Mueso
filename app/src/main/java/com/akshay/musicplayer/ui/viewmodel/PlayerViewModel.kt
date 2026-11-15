@@ -29,6 +29,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.akshay.musicplayer.data.remote.OnlineMusicRepository
+import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
+import com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf
 import com.akshay.musicplayer.domain.models.LyricsData
 
 import com.akshay.musicplayer.ui.viewmodel.managers.SettingsManager
@@ -154,17 +156,26 @@ class PlayerViewModel(
     fun refreshYouTubeLibrary() = youtubeAuthManager.refreshLibrary()
     fun toggleYouTubeLike(track: TrackEntity, isLiked: Boolean) = youtubeAuthManager.toggleLikeSong(track, isLiked)
 
-    private val _exploreShelves = kotlinx.coroutines.flow.MutableStateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>>(emptyList())
-    val exploreShelves: kotlinx.coroutines.flow.StateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>> = _exploreShelves
+    private val _exploreShelves = kotlinx.coroutines.flow.MutableStateFlow<List<InnerTubeShelf>>(emptyList())
+    val exploreShelves: kotlinx.coroutines.flow.StateFlow<List<InnerTubeShelf>> = _exploreShelves
 
-    private val _chartsShelves = kotlinx.coroutines.flow.MutableStateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>>(emptyList())
-    val chartsShelves: kotlinx.coroutines.flow.StateFlow<List<com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf>> = _chartsShelves
+    private val _chartsShelves = kotlinx.coroutines.flow.MutableStateFlow<List<InnerTubeShelf>>(emptyList())
+    val chartsShelves: kotlinx.coroutines.flow.StateFlow<List<InnerTubeShelf>> = _chartsShelves
+
+    private val _languagePlaylists = kotlinx.coroutines.flow.MutableStateFlow<List<InnerTubePlaylist>>(emptyList())
+    val languagePlaylists: kotlinx.coroutines.flow.StateFlow<List<InnerTubePlaylist>> = _languagePlaylists
 
     private val _selectedMoodCategory = kotlinx.coroutines.flow.MutableStateFlow<String>("All")
     val selectedMoodCategory: kotlinx.coroutines.flow.StateFlow<String> = _selectedMoodCategory
 
     private val _isExploreLoading = kotlinx.coroutines.flow.MutableStateFlow<Boolean>(false)
     val isExploreLoading: kotlinx.coroutines.flow.StateFlow<Boolean> = _isExploreLoading
+
+    private val _exploreContinuationToken = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val exploreContinuationToken: kotlinx.coroutines.flow.StateFlow<String?> = _exploreContinuationToken
+
+    private val _isLoadingMoreShelves = kotlinx.coroutines.flow.MutableStateFlow<Boolean>(false)
+    val isLoadingMoreShelves: kotlinx.coroutines.flow.StateFlow<Boolean> = _isLoadingMoreShelves
 
     fun selectMoodCategory(mood: String) {
         if (_selectedMoodCategory.value == mood) return
@@ -182,27 +193,63 @@ class PlayerViewModel(
             try {
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
                 Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed, force: $force)")
-                val explore = if (mood == "All") {
-                    if (isAuthed) {
-                        onlineRepository.innerTube.getHomeFeedShelves()
-                    } else {
-                        onlineRepository.fetchExploreShelves()
-                    }
-                } else {
-                    onlineRepository.fetchMoodShelves(mood)
-                }
-                _exploreShelves.value = explore
                 if (mood == "All") {
-                    val charts = onlineRepository.fetchChartsShelves()
+                    val homeFeedResult = onlineRepository.innerTube.getHomeFeedResult()
+                    val cleanShelves = onlineRepository.filterAudioShelves(homeFeedResult.shelves)
+                    _exploreShelves.value = cleanShelves
+                    _exploreContinuationToken.value = homeFeedResult.continuationToken
+                    val charts = onlineRepository.fetchChartsShelves(language = preferredLanguage.value, forceRefresh = force)
                     _chartsShelves.value = charts
+                    Log.d("MUESO_EXPLORE", "Loaded authentic home feed shelves (${cleanShelves.size}), continuation: ${homeFeedResult.continuationToken != null}")
+                    loadLanguagePlaylists(preferredLanguage.value, force = force)
                 } else {
+                    val moodShelves = onlineRepository.fetchMoodShelves(mood)
+                    _exploreShelves.value = moodShelves
+                    _exploreContinuationToken.value = null
                     _chartsShelves.value = emptyList()
+                    Log.d("MUESO_EXPLORE", "Loaded mood shelves (${moodShelves.size}) for $mood")
                 }
-                Log.d("MUESO_EXPLORE", "Loaded explore shelves (${explore.size}): ${explore.map { it.title }}")
             } catch (e: Exception) {
                 Log.e("MUESO_EXPLORE", "Failed to load explore and charts", e)
             } finally {
                 _isExploreLoading.value = false
+            }
+        }
+    }
+
+    fun loadLanguagePlaylists(language: String = preferredLanguage.value, force: Boolean = false) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val lang = language.trim().ifBlank { "English" }
+            try {
+                val playlists = onlineRepository.fetchLanguagePlaylists(lang, forceRefresh = force)
+                _languagePlaylists.value = playlists
+                Log.d("MUESO_LANG", "Loaded ${playlists.size} official language playlists for '$lang'")
+            } catch (e: Exception) {
+                Log.e("MUESO_LANG", "Failed to load language playlists for '$lang'", e)
+            }
+        }
+    }
+
+    fun loadMoreShelves() {
+        val token = _exploreContinuationToken.value ?: return
+        if (_isLoadingMoreShelves.value || _isExploreLoading.value) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _isLoadingMoreShelves.value = true
+            try {
+                val result = onlineRepository.fetchBrowseContinuation(token)
+                if (result.shelves.isNotEmpty()) {
+                    val currentShelves = _exploreShelves.value.toMutableList()
+                    val existingTitles = currentShelves.map { it.title.trim().lowercase() }.toSet()
+                    val newShelves = result.shelves.filterNot { existingTitles.contains(it.title.trim().lowercase()) }
+                    currentShelves.addAll(newShelves)
+                    _exploreShelves.value = currentShelves
+                }
+                _exploreContinuationToken.value = result.continuationToken
+                Log.d("MUESO_EXPLORE", "Loaded more shelves (${result.shelves.size}), nextToken: ${result.continuationToken != null}")
+            } catch (e: Exception) {
+                Log.e("MUESO_EXPLORE", "Failed to load more shelves", e)
+            } finally {
+                _isLoadingMoreShelves.value = false
             }
         }
     }
@@ -268,6 +315,8 @@ class PlayerViewModel(
 
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setThemeMode(mode: String) = settingsManager.setThemeMode(mode)
+    fun setThemeMode(themeMode: com.akshay.musicplayer.ui.theme.ThemeMode) = settingsManager.setThemeMode(themeMode)
+    fun updateSystemTheme(isSystemDark: Boolean) = settingsManager.updateSystemTheme(isSystemDark)
     fun setUsePureBlack(enabled: Boolean) = settingsManager.setUsePureBlack(enabled)
     fun setAccentColorId(id: String) = settingsManager.setAccentColorId(id)
     fun setFontScaleOption(option: String) = settingsManager.setFontScaleOption(option)
@@ -285,6 +334,8 @@ class PlayerViewModel(
     fun setPreferredLanguage(language: String) {
         settingsManager.setPreferredLanguage(language)
         playlistManager.clearCuratedCache()
+        loadLanguagePlaylists(language, force = true)
+        loadExploreAndCharts(force = true)
     }
     fun setPlayButtonPosition(position: String) = settingsManager.setPlayButtonPosition(position)
     fun setEnableSponsorBlock(enabled: Boolean) = settingsManager.setEnableSponsorBlock(enabled)
@@ -1033,9 +1084,16 @@ class PlayerViewModel(
         observePlaybackState()
         observeMediaEvents()
         youtubeAuthManager.onSessionChanged = {
-            loadExploreAndCharts()
+            loadExploreAndCharts(force = true)
+            loadLanguagePlaylists(force = true)
         }
         loadExploreAndCharts()
+        viewModelScope.launch {
+            preferredLanguage.collect { lang ->
+                loadLanguagePlaylists(lang)
+                loadExploreAndCharts(force = true)
+            }
+        }
         NotificationHelper.onPlayDownloadedTrackRequested = { filePath ->
             playLocalTrackByPath(filePath)
         }

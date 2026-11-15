@@ -71,6 +71,7 @@ fun OnlinePlaylistDetailScreen(
     isCustomUserPlaylist: Boolean = false,
     isDarkMode: Boolean = true,
     viewModel: PlayerViewModel? = null,
+    artworkUrl: String? = null,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onShuffleClick: (() -> Unit)? = null,
@@ -502,12 +503,30 @@ fun OnlinePlaylistDetailScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            com.akshay.musicplayer.ui.components.PlaylistCollageArt(
-                                tracks = tracks,
-                                modifier = Modifier.size(160.dp),
-                                cornerRadius = 20.dp,
-                                fallbackGradient = dynamicGradient
-                            )
+                            if (tracks.isNotEmpty()) {
+                                com.akshay.musicplayer.ui.components.PlaylistCollageArt(
+                                    tracks = tracks,
+                                    modifier = Modifier.size(160.dp),
+                                    cornerRadius = 20.dp,
+                                    fallbackGradient = dynamicGradient
+                                )
+                            } else if (!artworkUrl.isNullOrBlank()) {
+                                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                                    artworkUrl = artworkUrl,
+                                    contentDescription = title,
+                                    modifier = Modifier
+                                        .size(160.dp)
+                                        .clip(RoundedCornerShape(20.dp)),
+                                    thumbnailQuality = "Medium (480p)"
+                                )
+                            } else {
+                                com.akshay.musicplayer.ui.components.PlaylistCollageArt(
+                                    tracks = tracks,
+                                    modifier = Modifier.size(160.dp),
+                                    cornerRadius = 20.dp,
+                                    fallbackGradient = dynamicGradient
+                                )
+                            }
 
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,

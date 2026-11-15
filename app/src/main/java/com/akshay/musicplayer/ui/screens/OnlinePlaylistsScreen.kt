@@ -45,7 +45,11 @@ import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
 import com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack
+import com.akshay.musicplayer.data.remote.innertube.isVideoShelf
 import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.domain.models.SupportedLanguages
+import com.akshay.musicplayer.ui.components.LanguageBadge
+import com.akshay.musicplayer.ui.components.LanguageSelectorBottomSheet
 import com.akshay.musicplayer.ui.components.PlaylistCollageArt
 import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
@@ -64,7 +68,8 @@ data class SelectedOnlinePlaylist(
     val description: String? = null,
     val artworkUrl: String? = null,
     val gradientColors: List<Long> = listOf(0xFF8E2DE2, 0xFF4A00E0),
-    val isYouTubeUserPlaylist: Boolean = false
+    val isYouTubeUserPlaylist: Boolean = false,
+    val initialTracks: List<TrackEntity>? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,17 +95,91 @@ fun OnlinePlaylistsScreen(
     val youtubeLikedSongs by viewModel.youtubeLikedSongs.collectAsState()
     val youtubeUserPlaylists by viewModel.youtubeUserPlaylists.collectAsState()
 
-    // Dynamic Explore & Charts Shelves
+    // Dynamic Explore & Charts Shelves & Continuation
     val exploreShelves by viewModel.exploreShelves.collectAsState()
     val chartsShelves by viewModel.chartsShelves.collectAsState()
     val selectedMoodCategory by viewModel.selectedMoodCategory.collectAsState()
     val isExploreLoading by viewModel.isExploreLoading.collectAsState()
+    val exploreContinuationToken by viewModel.exploreContinuationToken.collectAsState()
+    val isLoadingMoreShelves by viewModel.isLoadingMoreShelves.collectAsState()
+
+    // User's Preferred Language for Personalized Playlists
+    val preferredLanguage by viewModel.preferredLanguage.collectAsState()
+    val languagePlaylists by viewModel.languagePlaylists.collectAsState()
+
+    // Filter out and remove any video charts, music video sections, and video song shelves.
+    // Strictly preserve language-specific chart titles (e.g. 'Top Telugu Songs', 'Trending Telugu Audio Hits', 'Viral Telugu 50', 'Telugu Chart Playlists')
+    // and pure audio chart sections without collapsing or filtering them out.
+    val filteredChartsShelves = remember(chartsShelves, preferredLanguage) {
+        chartsShelves
+            .filterNot { shelf ->
+                // Strictly preserve language-specific and audio chart shelves
+                val isExplicitAudioChartShelf = shelf.title.contains("Songs", ignoreCase = true) ||
+                        shelf.title.contains("Hits", ignoreCase = true) ||
+                        shelf.title.contains("Playlists", ignoreCase = true) ||
+                        shelf.title.contains("Viral", ignoreCase = true) ||
+                        shelf.title.contains("Top", ignoreCase = true) ||
+                        shelf.title.contains("Charts", ignoreCase = true) ||
+                        shelf.title.contains(preferredLanguage, ignoreCase = true) ||
+                        shelf.tracks.any { !it.itemType.equals("Video", ignoreCase = true) }
+                if (isExplicitAudioChartShelf) {
+                    false
+                } else {
+                    isVideoShelf(shelf.title, shelf.subtitle)
+                }
+            }
+            .map { shelf ->
+                val mappedTitle = when {
+                    // Strictly preserve authentic language chart titles
+                    shelf.title.contains(preferredLanguage, ignoreCase = true) ||
+                    shelf.title.contains("Songs", ignoreCase = true) ||
+                    shelf.title.contains("Hits", ignoreCase = true) ||
+                    shelf.title.contains("Playlists", ignoreCase = true) ||
+                    shelf.title.contains("Viral", ignoreCase = true) ||
+                    shelf.title.contains("50", ignoreCase = true) ||
+                    shelf.title.contains("100", ignoreCase = true) ||
+                    shelf.title.contains("Charts", ignoreCase = true) -> shelf.title
+
+                    shelf.title.contains("Top Music Videos", ignoreCase = true) || shelf.title.contains("Music Video", ignoreCase = true) -> "Top Song Charts"
+                    shelf.title.contains("Video Charts", ignoreCase = true) -> "Trending Audio Charts"
+                    shelf.title.contains("Trending Videos", ignoreCase = true) -> "Trending Songs"
+                    else -> shelf.title
+                }
+                shelf.copy(
+                    title = mappedTitle,
+                    tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
+                    playlists = shelf.playlists.filterNot { isVideoShelf(it.title) }
+                )
+            }
+            .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
+    }
+
+    val filteredExploreShelves = remember(exploreShelves) {
+        exploreShelves
+            .filterNot { isVideoShelf(it.title, it.subtitle) }
+            .map { shelf ->
+                val mappedTitle = when {
+                    shelf.title.contains("new release", ignoreCase = true) || shelf.title.contains("new album", ignoreCase = true) || shelf.title.contains("albums & singles", ignoreCase = true) -> "New Releases & Albums"
+                    shelf.title.contains("explore", ignoreCase = true) || shelf.title.contains("discover", ignoreCase = true) || shelf.title.contains("mood", ignoreCase = true) || shelf.title.contains("genre", ignoreCase = true) -> "Explore & Discover"
+                    shelf.title.contains("top global", ignoreCase = true) || shelf.title.contains("top song", ignoreCase = true) -> "Top Global Songs"
+                    shelf.title.contains("trending", ignoreCase = true) -> "Trending Audio Hits"
+                    else -> shelf.title
+                }
+                shelf.copy(
+                    title = mappedTitle,
+                    tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
+                    playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) }
+                )
+            }
+            .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
+    }
 
     val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
 
     var showYouTubeLoginDialog by remember { mutableStateOf(false) }
     var loginDialogCleanSession by remember { mutableStateOf(false) }
     var showAccountSwitcherDialog by remember { mutableStateOf(false) }
+    var showLanguageSheet by remember { mutableStateOf(false) }
     var selectedPlaylist by remember { mutableStateOf<SelectedOnlinePlaylist?>(null) }
     var selectedCustomPlaylist by remember { mutableStateOf<OnlinePlaylistEntity?>(null) }
     var showCreateChoiceDialog by remember { mutableStateOf(false) }
@@ -164,7 +243,26 @@ fun OnlinePlaylistsScreen(
         }
     }
 
+    LaunchedEffect(preferredLanguage) {
+        viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
+        viewModel.loadExploreAndCharts(force = true)
+    }
+
     val mainListState = rememberLazyListState()
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = mainListState.layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = mainListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleItemIndex >= totalItems - 2
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore, exploreContinuationToken, isLoadingMoreShelves, isExploreLoading) {
+        if (shouldLoadMore && exploreContinuationToken != null && !isLoadingMoreShelves && !isExploreLoading) {
+            viewModel.loadMoreShelves()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -223,12 +321,52 @@ fun OnlinePlaylistsScreen(
                     "All", "Chill", "Workout", "Energize", "Feel good", "Romance", 
                     "Focus", "Party", "Sad", "Sleep", "Commute", "Gaming",
                     "Pop", "Hip-hop", "Rock", "Indie & alternative", "Dance & electronic", 
-                    "R&B & soul", "K-Pop", "Classical", "Hindi", "Punjabi", "Telugu", "Tamil"
+                    "R&B & soul", "K-Pop", "Classical"
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Dedicated Language Selector Pill (combines all languages into a single interactive selector)
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = AccentColor.copy(alpha = if (isDarkMode) 0.16f else 0.10f),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = AccentColor.copy(alpha = if (isDarkMode) 0.45f else 0.35f)
+                            ),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .clickable { showLanguageSheet = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                LanguageBadge(
+                                    script = SupportedLanguages.getNativeScript(preferredLanguage),
+                                    size = 22.dp,
+                                    fontSize = 11.sp,
+                                    accentColor = AccentColor
+                                )
+                                Text(
+                                    text = preferredLanguage,
+                                    color = textColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Select Language",
+                                    tint = AccentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
                     items(moodCategories) { mood ->
                         val isSelected = mood.equals(selectedMoodCategory, ignoreCase = true)
                         val chipBg by animateColorAsState(
@@ -283,13 +421,22 @@ fun OnlinePlaylistsScreen(
                                     "chill" -> Icons.Default.Spa
                                     "workout" -> Icons.Default.FitnessCenter
                                     "energize" -> Icons.Default.Bolt
-                                    "feel good" -> Icons.Default.SentimentSatisfied
+                                    "feel good" -> Icons.Default.SentimentSatisfiedAlt
                                     "romance" -> Icons.Default.Favorite
                                     "focus" -> Icons.Default.Psychology
                                     "party" -> Icons.Default.Celebration
+                                    "sad" -> Icons.Default.WaterDrop
                                     "sleep" -> Icons.Default.Bedtime
                                     "commute" -> Icons.Default.DirectionsCar
                                     "gaming" -> Icons.Default.SportsEsports
+                                    "pop" -> Icons.Default.Mic
+                                    "hip-hop" -> Icons.Default.Album
+                                    "rock" -> Icons.Default.ElectricBolt
+                                    "indie & alternative" -> Icons.Default.Audiotrack
+                                    "dance & electronic" -> Icons.Default.GraphicEq
+                                    "r&b & soul" -> Icons.Default.Nightlife
+                                    "k-pop" -> Icons.Default.AutoAwesome
+                                    "classical" -> Icons.Default.Piano
                                     else -> Icons.Default.MusicNote
                                 }
                                 Icon(
@@ -563,6 +710,64 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
+            // 4. Dedicated Language Playlists (Based on user's preferredLanguage)
+            if (languagePlaylists.isNotEmpty() && (selectedMoodCategory == "All" || selectedMoodCategory.equals(preferredLanguage, ignoreCase = true))) {
+                item {
+                    Column(modifier = Modifier.padding(top = 16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            LanguageBadge(
+                                script = SupportedLanguages.getNativeScript(preferredLanguage),
+                                size = 32.dp,
+                                fontSize = 14.sp,
+                                accentColor = AccentColor
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "$preferredLanguage Hits & Playlists",
+                                    color = textColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Curated based on your preferred language (${SupportedLanguages.getNativeName(preferredLanguage)})",
+                                    color = textSub,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(languagePlaylists, key = { it.id }) { pl: InnerTubePlaylist ->
+                                DynamicPlaylistCard(
+                                    title = pl.title,
+                                    subtitle = pl.subtitle,
+                                    artworkUrl = pl.artworkUrl,
+                                    isDarkMode = isDarkMode,
+                                    onClick = {
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = pl.id,
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Loading Indicator
             if (isExploreLoading) {
                 item {
@@ -582,7 +787,7 @@ fun OnlinePlaylistsScreen(
             }
 
             // Empty State
-            if (!isExploreLoading && exploreShelves.isEmpty() && chartsShelves.isEmpty()) {
+            if (!isExploreLoading && filteredExploreShelves.isEmpty() && filteredChartsShelves.isEmpty()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -606,9 +811,9 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // 3. Dynamic Charts Shelves (Live from YouTube Music)
-            if (chartsShelves.isNotEmpty()) {
-                chartsShelves.forEach { shelf ->
+            // 3. Pure Audio Song Charts (Live from YouTube Music: 'Top Global Songs', 'Trending Audio Hits')
+            if (filteredChartsShelves.isNotEmpty()) {
+                filteredChartsShelves.forEach { shelf ->
                     if (shelf.tracks.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.padding(top = 16.dp)) {
@@ -636,33 +841,61 @@ fun OnlinePlaylistsScreen(
                                         }
                                     }
 
-                                    Surface(
-                                        onClick = {
-                                            val trackEntities = shelf.tracks.map { it.toTrackEntity() }
-                                            viewModel.playOnlinePlaylist(trackEntities, 0)
-                                            onNavigateToPlayer()
-                                        },
-                                        shape = RoundedCornerShape(cardCorner),
-                                        color = AccentColor.copy(alpha = 0.15f),
-                                        modifier = Modifier.padding(start = 8.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        Surface(
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                                selectedPlaylist = SelectedOnlinePlaylist(
+                                                    id = "shelf_${shelf.title}",
+                                                    title = shelf.title,
+                                                    subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                                    initialTracks = trackEntities
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(cardCorner),
+                                            color = AccentColor.copy(alpha = 0.15f)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PlayArrow,
-                                                contentDescription = "Play all",
-                                                tint = AccentColor,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = "Play all",
-                                                color = AccentColor,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "See all",
+                                                    color = AccentColor,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.ChevronRight,
+                                                    contentDescription = "See all",
+                                                    tint = AccentColor,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                                viewModel.playOnlinePlaylist(trackEntities, 0)
+                                                onNavigateToPlayer()
+                                            },
+                                            shape = CircleShape,
+                                            color = AccentColor,
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = "Play all",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -676,7 +909,7 @@ fun OnlinePlaylistsScreen(
                                             track = track,
                                             isDarkMode = isDarkMode,
                                             onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
                                                 viewModel.playOnlinePlaylist(trackEntities, index)
                                                 onNavigateToPlayer()
                                             }
@@ -731,9 +964,9 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // 4. Dynamic Explore Shelves (Live from YouTube Music)
-            if (exploreShelves.isNotEmpty()) {
-                exploreShelves.forEach { shelf ->
+            // 4. Dynamic Audio Explore Shelves (Live from YouTube Music: 'New Releases & Albums', 'Explore & Discover')
+            if (filteredExploreShelves.isNotEmpty()) {
+                filteredExploreShelves.forEach { shelf ->
                     if (shelf.tracks.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.padding(top = 16.dp)) {
@@ -761,33 +994,61 @@ fun OnlinePlaylistsScreen(
                                         }
                                     }
 
-                                    Surface(
-                                        onClick = {
-                                            val trackEntities = shelf.tracks.map { it.toTrackEntity() }
-                                            viewModel.playOnlinePlaylist(trackEntities, 0)
-                                            onNavigateToPlayer()
-                                        },
-                                        shape = RoundedCornerShape(cardCorner),
-                                        color = AccentColor.copy(alpha = 0.15f),
-                                        modifier = Modifier.padding(start = 8.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        Surface(
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                                selectedPlaylist = SelectedOnlinePlaylist(
+                                                    id = "shelf_${shelf.title}",
+                                                    title = shelf.title,
+                                                    subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                                    initialTracks = trackEntities
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(cardCorner),
+                                            color = AccentColor.copy(alpha = 0.15f)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PlayArrow,
-                                                contentDescription = "Play all",
-                                                tint = AccentColor,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = "Play all",
-                                                color = AccentColor,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "See all",
+                                                    color = AccentColor,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.ChevronRight,
+                                                    contentDescription = "See all",
+                                                    tint = AccentColor,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            onClick = {
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                                viewModel.playOnlinePlaylist(trackEntities, 0)
+                                                onNavigateToPlayer()
+                                            },
+                                            shape = CircleShape,
+                                            color = AccentColor,
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = "Play all",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -801,7 +1062,7 @@ fun OnlinePlaylistsScreen(
                                             track = track,
                                             isDarkMode = isDarkMode,
                                             onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity() }
+                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
                                                 viewModel.playOnlinePlaylist(trackEntities, index)
                                                 onNavigateToPlayer()
                                             }
@@ -852,6 +1113,23 @@ fun OnlinePlaylistsScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            if (isLoadingMoreShelves) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = AccentColor,
+                            modifier = Modifier.size(32.dp),
+                            strokeWidth = 3.dp
+                        )
                     }
                 }
             }
@@ -970,6 +1248,21 @@ fun OnlinePlaylistsScreen(
             )
         }
 
+        // Dedicated Music Language Bottom Sheet
+        if (showLanguageSheet) {
+            LanguageSelectorBottomSheet(
+                selectedLanguage = preferredLanguage,
+                isDarkMode = isDarkMode,
+                onLanguageSelected = { newLang ->
+                    viewModel.setPreferredLanguage(newLang)
+                    viewModel.loadLanguagePlaylists(newLang, force = true)
+                    viewModel.loadExploreAndCharts(force = true)
+                    showLanguageSheet = false
+                },
+                onDismiss = { showLanguageSheet = false }
+            )
+        }
+
         // Overlay for Selected Online Playlist Details
         AnimatedVisibility(
             visible = selectedPlaylist != null,
@@ -982,15 +1275,27 @@ fun OnlinePlaylistsScreen(
                 var isLoadingTracks by remember { mutableStateOf(true) }
 
                 LaunchedEffect(pl.id) {
-                    isLoadingTracks = true
-                    val query = if (pl.id == "LM") "browse:LM" else "browse:${pl.id}"
-                    val fetched = viewModel.getCuratedPlaylistTracks(query)
-                    playlistTracks = fetched
-                    val trueDesc = viewModel.fetchPlaylistDescription(pl.id) ?: viewModel.getPlaylistDescription(pl.id)
-                    if (!trueDesc.isNullOrBlank() && trueDesc != pl.description) {
-                        selectedPlaylist = pl.copy(description = trueDesc)
+                    if (pl.initialTracks != null && pl.initialTracks.isNotEmpty()) {
+                        playlistTracks = pl.initialTracks
+                        isLoadingTracks = false
+                    } else {
+                        isLoadingTracks = true
+                        val query = when {
+                            pl.id.startsWith("query:") -> pl.id.removePrefix("query:")
+                            pl.id.startsWith("browse:") -> pl.id
+                            pl.id == "LM" -> "browse:LM"
+                            else -> "browse:${pl.id}"
+                        }
+                        val fetched = viewModel.getCuratedPlaylistTracks(query)
+                        playlistTracks = fetched
+                        if (pl.id.startsWith("VL") || pl.id.startsWith("MPRE") || pl.id.startsWith("RD") || pl.id == "LM") {
+                            val trueDesc = viewModel.fetchPlaylistDescription(pl.id) ?: viewModel.getPlaylistDescription(pl.id)
+                            if (!trueDesc.isNullOrBlank() && trueDesc != pl.description) {
+                                selectedPlaylist = pl.copy(description = trueDesc)
+                            }
+                        }
+                        isLoadingTracks = false
                     }
-                    isLoadingTracks = false
                 }
 
                 OnlinePlaylistDetailScreen(
@@ -1003,6 +1308,7 @@ fun OnlinePlaylistsScreen(
                     isCustomUserPlaylist = pl.isYouTubeUserPlaylist,
                     isDarkMode = isDarkMode,
                     viewModel = viewModel,
+                    artworkUrl = pl.artworkUrl,
                     onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                     onBackClick = { selectedPlaylist = null },
                     onPlayAllClick = {
@@ -1257,6 +1563,7 @@ fun OnlineSongCard(
     Column(
         modifier = Modifier
             .width(140.dp)
+            .height(205.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
@@ -1290,7 +1597,7 @@ fun OnlineSongCard(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
-                    .size(36.dp)
+                    .size(32.dp)
                     .shadow(6.dp, CircleShape, spotColor = AccentColor)
                     .clip(CircleShape)
                     .background(AccentColor),
@@ -1300,29 +1607,38 @@ fun OnlineSongCard(
                     Icons.Default.PlayArrow,
                     contentDescription = "Play",
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = track.title,
-            color = textPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-            text = track.artist.ifBlank { "YouTube Music" },
-            color = textSec,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text(
+                text = track.title,
+                color = textPrimary,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = track.artist.ifBlank { "YouTube Music" },
+                color = textSec,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -1332,6 +1648,7 @@ fun DynamicPlaylistCard(
     subtitle: String,
     artworkUrl: String?,
     isDarkMode: Boolean,
+    gradientColors: List<Long>? = null,
     onClick: () -> Unit
 ) {
     val isPureBlack = LocalIsPureBlack.current
@@ -1342,7 +1659,8 @@ fun DynamicPlaylistCard(
 
     Column(
         modifier = Modifier
-            .width(150.dp)
+            .width(140.dp)
+            .height(205.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
@@ -1351,9 +1669,17 @@ fun DynamicPlaylistCard(
     ) {
         Box(
             modifier = Modifier
-                .size(130.dp)
+                .size(120.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.2f)),
+                .then(
+                    if (!artworkUrl.isNullOrBlank()) {
+                        Modifier.background(Color.Black.copy(alpha = 0.2f))
+                    } else if (gradientColors != null && gradientColors.size >= 2) {
+                        Modifier.background(Brush.linearGradient(gradientColors.map { Color(it) }))
+                    } else {
+                        Modifier.background(Color.Black.copy(alpha = 0.2f))
+                    }
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (!artworkUrl.isNullOrBlank()) {
@@ -1367,7 +1693,7 @@ fun DynamicPlaylistCard(
                 Icon(
                     Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = AccentColor,
+                    tint = Color.White,
                     modifier = Modifier.size(36.dp)
                 )
             }
@@ -1375,23 +1701,32 @@ fun DynamicPlaylistCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = title,
-            color = textPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        if (subtitle.isNotBlank()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
             Text(
-                text = subtitle,
-                color = textSec,
-                fontSize = 11.sp,
-                maxLines = 1,
+                text = title,
+                color = textPrimary,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            if (subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    color = textSec,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -1422,6 +1757,7 @@ fun CustomPlaylistCard(
     Column(
         modifier = modifier
             .width(150.dp)
+            .height(215.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
@@ -1517,22 +1853,31 @@ fun CustomPlaylistCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = playlist.name,
-            color = textPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-            text = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
-            color = textSec,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text(
+                text = playlist.name,
+                color = textPrimary,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
+                color = textSec,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

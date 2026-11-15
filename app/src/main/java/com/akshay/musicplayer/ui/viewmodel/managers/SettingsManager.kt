@@ -114,6 +114,15 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         sharedPreferences.registerOnSharedPreferenceChangeListener(prefChangeListener)
     }
 
+    private var isSystemInDark: Boolean = true
+
+    fun updateSystemTheme(systemDark: Boolean) {
+        isSystemInDark = systemDark
+        if (com.akshay.musicplayer.ui.theme.ThemeMode.fromId(_themeMode.value) == com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM) {
+            _isDarkMode.value = systemDark
+        }
+    }
+
     fun setDarkMode(enabled: Boolean) {
         _isDarkMode.value = enabled
         sharedPreferences.edit().putBoolean("is_dark_mode", enabled).apply()
@@ -123,11 +132,20 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     }
 
     fun setThemeMode(mode: String) {
-        _themeMode.value = mode
-        sharedPreferences.edit().putString("theme_mode", mode).apply()
-        val isDark = mode != "light"
+        val resolvedMode = com.akshay.musicplayer.ui.theme.ThemeMode.fromId(mode).id
+        _themeMode.value = resolvedMode
+        sharedPreferences.edit().putString("theme_mode", resolvedMode).apply()
+        val isDark = when (com.akshay.musicplayer.ui.theme.ThemeMode.fromId(resolvedMode)) {
+            com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM -> isSystemInDark
+            com.akshay.musicplayer.ui.theme.ThemeMode.DARK -> true
+            com.akshay.musicplayer.ui.theme.ThemeMode.LIGHT -> false
+        }
         _isDarkMode.value = isDark
         sharedPreferences.edit().putBoolean("is_dark_mode", isDark).apply()
+    }
+
+    fun setThemeMode(themeMode: com.akshay.musicplayer.ui.theme.ThemeMode) {
+        setThemeMode(themeMode.id)
     }
 
     fun setUsePureBlack(enabled: Boolean) {
@@ -264,8 +282,14 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     }
 
     fun reloadFromPreferences() {
-        _isDarkMode.value = sharedPreferences.getBoolean("is_dark_mode", true)
-        _themeMode.value = sharedPreferences.getString("theme_mode", "dark") ?: "dark"
+        val loadedMode = sharedPreferences.getString("theme_mode", "dark") ?: "dark"
+        _themeMode.value = loadedMode
+        val resolved = com.akshay.musicplayer.ui.theme.ThemeMode.fromId(loadedMode)
+        _isDarkMode.value = when (resolved) {
+            com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM -> isSystemInDark
+            com.akshay.musicplayer.ui.theme.ThemeMode.DARK -> true
+            com.akshay.musicplayer.ui.theme.ThemeMode.LIGHT -> false
+        }
         _usePureBlack.value = sharedPreferences.getBoolean("use_pure_black", false)
         _accentColorId.value = sharedPreferences.getString("accent_color_id", "sunset_orange") ?: "sunset_orange"
         _fontScaleOption.value = sharedPreferences.getString("font_scale_option", "standard") ?: "standard"

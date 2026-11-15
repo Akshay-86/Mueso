@@ -64,6 +64,9 @@ class MainActivity : ComponentActivity() {
             val highRefreshRate by playerViewModel.highRefreshRate.collectAsState()
 
             val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+            LaunchedEffect(systemInDark, themeMode) {
+                playerViewModel.updateSystemTheme(systemInDark)
+            }
             val isEffectiveDark = when (com.akshay.musicplayer.ui.theme.ThemeMode.fromId(themeMode)) {
                 com.akshay.musicplayer.ui.theme.ThemeMode.SYSTEM -> systemInDark
                 com.akshay.musicplayer.ui.theme.ThemeMode.DARK -> true
