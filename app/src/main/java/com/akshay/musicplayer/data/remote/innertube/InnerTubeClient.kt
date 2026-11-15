@@ -1,7 +1,11 @@
 package com.akshay.musicplayer.data.remote.innertube
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -114,11 +118,13 @@ class InnerTubeClient(
     // 1. SEARCH
     // ==========================================
     suspend fun search(query: String, filter: String? = null): List<InnerTubeTrack> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return@withContext emptyList()
+        ensureActive()
 
         val payload = JSONObject().apply {
             put("context", buildContext())
-            put("query", query)
+            put("query", cleanQuery)
             if (!filter.isNullOrBlank()) {
                 put("params", filter)
             }
@@ -127,6 +133,7 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("search", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Search returned error code: ${response.code}")
                     return@withContext emptyList()
@@ -135,7 +142,8 @@ class InnerTubeClient(
                 return@withContext parseSearchResults(json)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Search failed for query: '$query'", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "Search failed for query: '$cleanQuery'", e)
             return@withContext emptyList()
         }
     }
@@ -467,6 +475,7 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (!response.isSuccessful) return@withContext getExploreResult()
                 val json = JSONObject(response.body?.string() ?: return@withContext getExploreResult())
                 val result = parseBrowseResult(json)
@@ -474,6 +483,7 @@ class InnerTubeClient(
                 return@withContext getExploreResult()
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getHomeFeedResult failed, falling back to explore", e)
             return@withContext getExploreResult()
         }
@@ -490,11 +500,13 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
                 val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
                 return@withContext parseBrowseResult(json)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getExploreResult failed", e)
             return@withContext InnerTubeBrowseResult(emptyList(), null)
         }
@@ -512,11 +524,13 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse?continuation=$continuationToken", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
                 val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
                 return@withContext parseBrowseResult(json)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getShelvesContinuation failed", e)
             return@withContext InnerTubeBrowseResult(emptyList(), null)
         }
@@ -531,6 +545,7 @@ class InnerTubeClient(
         try {
             val request = buildBaseRequest("browse", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (response.isSuccessful) {
                     val json = JSONObject(response.body?.string() ?: "")
                     val shelves = parseBrowseShelves(json)
@@ -549,6 +564,7 @@ class InnerTubeClient(
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getChartsShelves failed", e)
         }
 
@@ -635,25 +651,71 @@ class InnerTubeClient(
     suspend fun searchTracks(query: String): List<InnerTubeTrack> = searchSongs(query)
 
     suspend fun searchPlaylists(query: String, filter: String? = null): List<InnerTubePlaylist> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return@withContext emptyList()
+        ensureActive()
 
         val payload = JSONObject().apply {
             put("context", buildContext())
-            put("query", query)
+            put("query", cleanQuery)
             put("params", filter ?: PLAYLIST_SEARCH_FILTER)
         }
 
         try {
             val request = buildBaseRequest("search", payload)
             httpClient.newCall(request).execute().use { response ->
+                ensureActive()
                 if (!response.isSuccessful) return@withContext emptyList()
                 val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
                 return@withContext parseSearchPlaylists(json)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "searchPlaylists failed for query: '$query'", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "searchPlaylists failed for query: '$cleanQuery'", e)
             return@withContext emptyList()
         }
+    }
+
+    suspend fun searchOfficialCardPlaylist(query: String): InnerTubePlaylist? = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return@withContext null
+        ensureActive()
+
+        val payload = JSONObject().apply {
+            put("context", buildContext())
+            put("query", cleanQuery)
+        }
+
+        try {
+            val request = buildBaseRequest("search", payload)
+            httpClient.newCall(request).execute().use { response ->
+                ensureActive()
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val cardPlaylist = parseMusicCardShelfPlaylist(json)
+                if (cardPlaylist != null) return@withContext cardPlaylist
+
+                // Fallback: search regular items in the same response for an official RDCLAK / YouTube Music playlist
+                val allPlaylists = parseSearchPlaylists(json)
+                return@withContext allPlaylists.firstOrNull { it.isOfficial } ?: allPlaylists.firstOrNull()
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "searchOfficialCardPlaylist failed for query: '$cleanQuery'", e)
+            null
+        }
+    }
+
+    suspend fun searchOfficialCardPlaylists(queries: List<String>): List<InnerTubePlaylist> = coroutineScope {
+        val cleanQueries = queries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val deferreds = cleanQueries.map { query ->
+            async {
+                ensureActive()
+                searchOfficialCardPlaylist(query)
+            }
+        }
+        deferreds.mapNotNull { it.await() }
     }
 
     suspend fun searchAlbums(query: String): List<InnerTubePlaylist> =
@@ -1073,6 +1135,98 @@ class InnerTubeClient(
     }
 
 
+    private fun parseMusicCardShelfPlaylist(json: JSONObject): InnerTubePlaylist? {
+        val contents = json.optJSONObject("contents")
+            ?.optJSONObject("tabbedSearchResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents") ?: return null
+
+        for (i in 0 until contents.length()) {
+            val section = contents.optJSONObject(i) ?: continue
+            val card = section.optJSONObject("musicCardShelfRenderer") ?: continue
+
+            val titleRuns = card.optJSONObject("title")?.optJSONArray("runs") ?: continue
+            val title = titleRuns.optJSONObject(0)?.optString("text")?.trim() ?: continue
+            if (title.isBlank()) continue
+
+            var subtitle = ""
+            var author = ""
+            val subRuns = card.optJSONObject("subtitle")?.optJSONArray("runs")
+            if (subRuns != null) {
+                val parts = mutableListOf<String>()
+                for (k in 0 until subRuns.length()) {
+                    val text = subRuns.optJSONObject(k)?.optString("text", "")?.trim() ?: ""
+                    if (text.isNotBlank() && text != "•" && text != "|") {
+                        parts.add(text)
+                    }
+                }
+                subtitle = parts.joinToString(" • ")
+                if (parts.size >= 2) {
+                    author = parts[1]
+                } else if (parts.size == 1 && !parts[0].equals("Playlist", ignoreCase = true)) {
+                    author = parts[0]
+                }
+            }
+            if (author.isBlank() && subtitle.contains("YouTube Music", ignoreCase = true)) {
+                author = "YouTube Music"
+            }
+
+            var browseId: String? = null
+            for (r in 0 until titleRuns.length()) {
+                val nav = titleRuns.optJSONObject(r)?.optJSONObject("navigationEndpoint")
+                val bId = nav?.optJSONObject("browseEndpoint")?.optString("browseId")
+                if (!bId.isNullOrBlank()) {
+                    browseId = bId
+                    break
+                }
+            }
+            if (browseId.isNullOrBlank()) {
+                browseId = card.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+            }
+
+            var resolvedPlaylistId: String? = null
+            if (!browseId.isNullOrBlank()) {
+                resolvedPlaylistId = if (browseId.startsWith("VL")) browseId.removePrefix("VL") else browseId
+            }
+
+            if (resolvedPlaylistId.isNullOrBlank()) {
+                val buttons = card.optJSONArray("buttons")
+                if (buttons != null) {
+                    for (b in 0 until buttons.length()) {
+                        val btn = buttons.optJSONObject(b)?.optJSONObject("buttonRenderer")
+                        val cmd = btn?.optJSONObject("command") ?: btn?.optJSONObject("navigationEndpoint")
+                        val plId = cmd?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId")
+                        if (!plId.isNullOrBlank()) {
+                            resolvedPlaylistId = plId
+                            break
+                        }
+                    }
+                }
+            }
+
+            if (resolvedPlaylistId.isNullOrBlank()) continue
+            if (resolvedPlaylistId.startsWith("UC") || resolvedPlaylistId.startsWith("FE") || subtitle.startsWith("Artist", ignoreCase = true)) {
+                continue
+            }
+
+            val thumbList = card.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+                ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+            val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+
+            return InnerTubePlaylist(
+                id = resolvedPlaylistId,
+                title = title,
+                subtitle = subtitle.ifBlank { "Playlist • YouTube Music" },
+                artworkUrl = getHighResArtworkUrl(thumbUrl),
+                author = author.ifBlank { "YouTube Music" }
+            )
+        }
+        return null
+    }
+
     private fun parseSearchPlaylists(json: JSONObject): List<InnerTubePlaylist> {
         val playlists = mutableListOf<InnerTubePlaylist>()
         val seenIds = mutableSetOf<String>()
@@ -1087,6 +1241,91 @@ class InnerTubeClient(
 
         for (i in 0 until contents.length()) {
             val section = contents.optJSONObject(i) ?: continue
+
+            // 1. Check musicCardShelfRenderer (Official Hero Card)
+            val card = section.optJSONObject("musicCardShelfRenderer")
+            if (card != null) {
+                val titleRuns = card.optJSONObject("title")?.optJSONArray("runs")
+                val cardTitle = titleRuns?.optJSONObject(0)?.optString("text")?.trim()
+                if (!cardTitle.isNullOrBlank()) {
+                    var subtitle = ""
+                    var author = ""
+                    val subRuns = card.optJSONObject("subtitle")?.optJSONArray("runs")
+                    if (subRuns != null) {
+                        val parts = mutableListOf<String>()
+                        for (k in 0 until subRuns.length()) {
+                            val text = subRuns.optJSONObject(k)?.optString("text", "")?.trim() ?: ""
+                            if (text.isNotBlank() && text != "•" && text != "|") {
+                                parts.add(text)
+                            }
+                        }
+                        subtitle = parts.joinToString(" • ")
+                        if (parts.size >= 2) {
+                            author = parts[1]
+                        } else if (parts.size == 1 && !parts[0].equals("Playlist", ignoreCase = true)) {
+                            author = parts[0]
+                        }
+                    }
+                    if (author.isBlank() && subtitle.contains("YouTube Music", ignoreCase = true)) {
+                        author = "YouTube Music"
+                    }
+
+                    var browseId: String? = null
+                    for (r in 0 until (titleRuns?.length() ?: 0)) {
+                        val nav = titleRuns?.optJSONObject(r)?.optJSONObject("navigationEndpoint")
+                        val bId = nav?.optJSONObject("browseEndpoint")?.optString("browseId")
+                        if (!bId.isNullOrBlank()) {
+                            browseId = bId
+                            break
+                        }
+                    }
+                    if (browseId.isNullOrBlank()) {
+                        browseId = card.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                    }
+
+                    var resolvedPlaylistId: String? = null
+                    if (!browseId.isNullOrBlank()) {
+                        resolvedPlaylistId = if (browseId.startsWith("VL")) browseId.removePrefix("VL") else browseId
+                    }
+                    if (resolvedPlaylistId.isNullOrBlank()) {
+                        val buttons = card.optJSONArray("buttons")
+                        if (buttons != null) {
+                            for (b in 0 until buttons.length()) {
+                                val btn = buttons.optJSONObject(b)?.optJSONObject("buttonRenderer")
+                                val cmd = btn?.optJSONObject("command") ?: btn?.optJSONObject("navigationEndpoint")
+                                val plId = cmd?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId")
+                                if (!plId.isNullOrBlank()) {
+                                    resolvedPlaylistId = plId
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    if (!resolvedPlaylistId.isNullOrBlank() &&
+                        !resolvedPlaylistId.startsWith("UC") &&
+                        !resolvedPlaylistId.startsWith("FE") &&
+                        !subtitle.startsWith("Artist", ignoreCase = true) &&
+                        seenIds.add(resolvedPlaylistId)
+                    ) {
+                        val thumbList = card.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+                            ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                        val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+
+                        playlists.add(
+                            InnerTubePlaylist(
+                                id = resolvedPlaylistId,
+                                title = cardTitle,
+                                subtitle = subtitle.ifBlank { "Playlist • YouTube Music" },
+                                artworkUrl = getHighResArtworkUrl(thumbUrl),
+                                author = author.ifBlank { "YouTube Music" }
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 2. Shelf contents
             val shelf = section.optJSONObject("musicShelfRenderer") ?: continue
             val items = shelf.optJSONArray("contents") ?: continue
 
@@ -1097,26 +1336,12 @@ class InnerTubeClient(
 
                 val col1Runs = flexCols.optJSONObject(0)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
                     ?.optJSONObject("text")?.optJSONArray("runs") ?: continue
-                val title = col1Runs.optJSONObject(0)?.optString("text") ?: continue
-
-                var browseId: String? = null
-                for (r in 0 until col1Runs.length()) {
-                    val nav = col1Runs.optJSONObject(r)?.optJSONObject("navigationEndpoint")
-                    val bId = nav?.optJSONObject("browseEndpoint")?.optString("browseId")
-                    if (!bId.isNullOrBlank()) {
-                        browseId = bId
-                        break
-                    }
-                }
-                if (browseId == null) {
-                    browseId = item.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
-                }
-
-                if (browseId.isNullOrBlank()) continue
-                val playlistId = if (browseId.startsWith("VL")) browseId.removePrefix("VL") else browseId
-                if (!seenIds.add(playlistId)) continue
+                val title = col1Runs.optJSONObject(0)?.optString("text")?.trim() ?: continue
+                if (title.isBlank()) continue
 
                 var subtitle = ""
+                var itemTypeCandidate = ""
+                var author = ""
                 if (flexCols.length() > 1) {
                     val col2Runs = flexCols.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
                         ?.optJSONObject("text")?.optJSONArray("runs")
@@ -1128,9 +1353,78 @@ class InnerTubeClient(
                                 parts.add(text)
                             }
                         }
+                        if (parts.isNotEmpty()) {
+                            itemTypeCandidate = parts[0]
+                        }
                         subtitle = parts.joinToString(" • ")
+                        if (parts.size >= 2) {
+                            author = parts[1]
+                        } else if (parts.size == 1 && !parts[0].equals("Playlist", ignoreCase = true)) {
+                            author = parts[0]
+                        }
                     }
                 }
+                if (author.isBlank() && subtitle.contains("YouTube Music", ignoreCase = true)) {
+                    author = "YouTube Music"
+                }
+
+                // Video and non-playlist clutter filtering
+                if (isVideoShelf(title, subtitle) ||
+                    title.contains("Official Music Video", ignoreCase = true) ||
+                    title.contains("Official Video", ignoreCase = true) ||
+                    title.contains("Video Song", ignoreCase = true) ||
+                    title.contains("Full Video", ignoreCase = true) ||
+                    title.contains("4K Video", ignoreCase = true) ||
+                    title.contains("Lyric Video", ignoreCase = true) ||
+                    itemTypeCandidate.equals("Video", ignoreCase = true) ||
+                    itemTypeCandidate.equals("Artist", ignoreCase = true) ||
+                    itemTypeCandidate.equals("Channel", ignoreCase = true) ||
+                    itemTypeCandidate.equals("Podcast", ignoreCase = true) ||
+                    itemTypeCandidate.equals("Episode", ignoreCase = true) ||
+                    subtitle.startsWith("Video", ignoreCase = true) ||
+                    subtitle.startsWith("Artist", ignoreCase = true) ||
+                    subtitle.startsWith("Channel", ignoreCase = true)
+                ) {
+                    continue
+                }
+
+                var browseId: String? = null
+                for (r in 0 until col1Runs.length()) {
+                    val nav = col1Runs.optJSONObject(r)?.optJSONObject("navigationEndpoint")
+                    val bId = nav?.optJSONObject("browseEndpoint")?.optString("browseId")
+                    if (!bId.isNullOrBlank()) {
+                        browseId = bId
+                        break
+                    }
+                }
+                if (browseId.isNullOrBlank()) {
+                    browseId = item.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                }
+
+                var resolvedPlaylistId: String? = null
+                if (!browseId.isNullOrBlank()) {
+                    resolvedPlaylistId = if (browseId.startsWith("VL")) browseId.removePrefix("VL") else browseId
+                } else {
+                    val navEndpoint = item.optJSONObject("overlay")
+                        ?.optJSONObject("musicItemThumbnailOverlayRenderer")
+                        ?.optJSONObject("content")
+                        ?.optJSONObject("musicPlayButtonRenderer")
+                        ?.optJSONObject("playNavigationEndpoint")
+                        ?: item.optJSONObject("playNavigationEndpoint")
+                    val plId = navEndpoint?.optJSONObject("watchEndpoint")?.optString("playlistId")
+                    if (!plId.isNullOrBlank()) {
+                        resolvedPlaylistId = plId
+                    }
+                }
+
+                if (resolvedPlaylistId.isNullOrBlank()) continue
+
+                // Exclude channels, artists and non-playlist browse IDs
+                if (resolvedPlaylistId.startsWith("UC") || resolvedPlaylistId.startsWith("FE")) {
+                    continue
+                }
+
+                if (!seenIds.add(resolvedPlaylistId)) continue
 
                 val thumbList = item.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
                     ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
@@ -1138,10 +1432,11 @@ class InnerTubeClient(
 
                 playlists.add(
                     InnerTubePlaylist(
-                        id = playlistId,
+                        id = resolvedPlaylistId,
                         title = title,
                         subtitle = subtitle,
-                        artworkUrl = getHighResArtworkUrl(thumbUrl)
+                        artworkUrl = getHighResArtworkUrl(thumbUrl),
+                        author = author
                     )
                 )
             }

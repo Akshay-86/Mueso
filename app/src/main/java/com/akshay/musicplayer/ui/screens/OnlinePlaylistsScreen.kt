@@ -3,7 +3,12 @@ package com.akshay.musicplayer.ui.screens
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -26,10 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,6 +51,7 @@ import coil.compose.AsyncImage
 import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
+import com.akshay.musicplayer.data.remote.innertube.InnerTubeShelf
 import com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack
 import com.akshay.musicplayer.data.remote.innertube.isVideoShelf
 import com.akshay.musicplayer.domain.models.TrackEntity
@@ -51,6 +59,7 @@ import com.akshay.musicplayer.domain.models.SupportedLanguages
 import com.akshay.musicplayer.ui.components.LanguageBadge
 import com.akshay.musicplayer.ui.components.LanguageSelectorBottomSheet
 import com.akshay.musicplayer.ui.components.PlaylistCollageArt
+import com.akshay.musicplayer.ui.components.SmartArtworkImage
 import com.akshay.musicplayer.ui.components.YouTubeLoginDialog
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
 import com.akshay.musicplayer.ui.viewmodel.managers.YouTubeAccount
@@ -106,6 +115,8 @@ fun OnlinePlaylistsScreen(
     // User's Preferred Language for Personalized Playlists
     val preferredLanguage by viewModel.preferredLanguage.collectAsState()
     val languagePlaylists by viewModel.languagePlaylists.collectAsState()
+    val languagePlaylistShelves by viewModel.languagePlaylistShelves.collectAsState()
+    val isLanguageLoading by viewModel.isLanguageLoading.collectAsState()
 
     // Filter out and remove any video charts, music video sections, and video song shelves.
     // Strictly preserve language-specific chart titles (e.g. 'Top Telugu Songs', 'Trending Telugu Audio Hits', 'Viral Telugu 50', 'Telugu Chart Playlists')
@@ -130,6 +141,10 @@ fun OnlinePlaylistsScreen(
             }
             .map { shelf ->
                 val mappedTitle = when {
+                    shelf.tracks.isNotEmpty() -> "Trending songs for you"
+                    shelf.title.contains("album", ignoreCase = true) || shelf.title.contains("release", ignoreCase = true) -> "Albums for you"
+                    shelf.title.contains("nostalgic", ignoreCase = true) || shelf.title.contains("00s", ignoreCase = true) || shelf.title.contains("10s", ignoreCase = true) -> "Brb, Being Nostalgic!"
+                    shelf.title.contains("featured", ignoreCase = true) -> "Featured playlists for you"
                     // Strictly preserve authentic language chart titles
                     shelf.title.contains(preferredLanguage, ignoreCase = true) ||
                     shelf.title.contains("Songs", ignoreCase = true) ||
@@ -140,13 +155,21 @@ fun OnlinePlaylistsScreen(
                     shelf.title.contains("100", ignoreCase = true) ||
                     shelf.title.contains("Charts", ignoreCase = true) -> shelf.title
 
-                    shelf.title.contains("Top Music Videos", ignoreCase = true) || shelf.title.contains("Music Video", ignoreCase = true) -> "Top Song Charts"
-                    shelf.title.contains("Video Charts", ignoreCase = true) -> "Trending Audio Charts"
-                    shelf.title.contains("Trending Videos", ignoreCase = true) -> "Trending Songs"
+                    shelf.title.contains("Top Music Videos", ignoreCase = true) || shelf.title.contains("Music Video", ignoreCase = true) -> "Trending songs for you"
+                    shelf.title.contains("Video Charts", ignoreCase = true) -> "Trending songs for you"
+                    shelf.title.contains("Trending Videos", ignoreCase = true) -> "Trending songs for you"
                     else -> shelf.title
+                }
+                val mappedSubtitle = when (mappedTitle) {
+                    "Trending songs for you" -> if (shelf.subtitle.isNotBlank() && !shelf.subtitle.contains("song", ignoreCase = true)) shelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
+                    "Albums for you" -> "Albums & soundtracks in $preferredLanguage"
+                    "Brb, Being Nostalgic!" -> "Throwback to the OG eras of music"
+                    "Featured playlists for you" -> "Curated playlists & mixes in $preferredLanguage"
+                    else -> shelf.subtitle
                 }
                 shelf.copy(
                     title = mappedTitle,
+                    subtitle = mappedSubtitle,
                     tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
                     playlists = shelf.playlists.filterNot { isVideoShelf(it.title) }
                 )
@@ -154,19 +177,29 @@ fun OnlinePlaylistsScreen(
             .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
     }
 
-    val filteredExploreShelves = remember(exploreShelves) {
+    val filteredExploreShelves = remember(exploreShelves, preferredLanguage) {
         exploreShelves
             .filterNot { isVideoShelf(it.title, it.subtitle) }
             .map { shelf ->
                 val mappedTitle = when {
-                    shelf.title.contains("new release", ignoreCase = true) || shelf.title.contains("new album", ignoreCase = true) || shelf.title.contains("albums & singles", ignoreCase = true) -> "New Releases & Albums"
+                    shelf.tracks.isNotEmpty() && shelf.title.contains("trending", ignoreCase = true) -> "Trending songs for you"
+                    shelf.title.contains("new release", ignoreCase = true) || shelf.title.contains("new album", ignoreCase = true) || shelf.title.contains("albums & singles", ignoreCase = true) || shelf.title.contains("album", ignoreCase = true) -> "Albums for you"
                     shelf.title.contains("explore", ignoreCase = true) || shelf.title.contains("discover", ignoreCase = true) || shelf.title.contains("mood", ignoreCase = true) || shelf.title.contains("genre", ignoreCase = true) -> "Explore & Discover"
-                    shelf.title.contains("top global", ignoreCase = true) || shelf.title.contains("top song", ignoreCase = true) -> "Top Global Songs"
-                    shelf.title.contains("trending", ignoreCase = true) -> "Trending Audio Hits"
+                    shelf.title.contains("top global", ignoreCase = true) || shelf.title.contains("top song", ignoreCase = true) -> "Trending songs for you"
+                    shelf.title.contains("trending", ignoreCase = true) -> "Trending songs for you"
+                    shelf.title.contains("nostalgic", ignoreCase = true) || shelf.title.contains("00s", ignoreCase = true) || shelf.title.contains("10s", ignoreCase = true) -> "Brb, Being Nostalgic!"
                     else -> shelf.title
+                }
+                val mappedSubtitle = when (mappedTitle) {
+                    "Trending songs for you" -> if (shelf.subtitle.isNotBlank() && !shelf.subtitle.contains("song", ignoreCase = true)) shelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
+                    "Albums for you" -> "Albums & soundtracks in $preferredLanguage"
+                    "Brb, Being Nostalgic!" -> "Throwback to the OG eras of music"
+                    "Featured playlists for you" -> "Curated playlists & mixes in $preferredLanguage"
+                    else -> shelf.subtitle
                 }
                 shelf.copy(
                     title = mappedTitle,
+                    subtitle = mappedSubtitle,
                     tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
                     playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) }
                 )
@@ -237,15 +270,24 @@ fun OnlinePlaylistsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (exploreShelves.isEmpty()) {
-            viewModel.loadExploreAndCharts()
-        }
-    }
+    var lastObservedLanguage by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(preferredLanguage) {
-        viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
-        viewModel.loadExploreAndCharts(force = true)
+        val languageChanged = lastObservedLanguage != null && lastObservedLanguage != preferredLanguage
+        lastObservedLanguage = preferredLanguage
+
+        if (languageChanged) {
+            viewModel.setPreferredLanguage(preferredLanguage)
+            viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
+            viewModel.loadExploreAndCharts(force = true)
+        } else {
+            if (exploreShelves.isEmpty() || chartsShelves.isEmpty()) {
+                viewModel.loadExploreAndCharts(force = false)
+            }
+            if (languagePlaylists.isEmpty() && languagePlaylistShelves.isEmpty()) {
+                viewModel.loadLanguagePlaylists(preferredLanguage, force = false)
+            }
+        }
     }
 
     val mainListState = rememberLazyListState()
@@ -254,14 +296,39 @@ fun OnlinePlaylistsScreen(
         derivedStateOf {
             val totalItems = mainListState.layoutInfo.totalItemsCount
             val lastVisibleItemIndex = mainListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            totalItems > 0 && lastVisibleItemIndex >= totalItems - 2
+            totalItems > 0 &&
+                lastVisibleItemIndex >= totalItems - 2 &&
+                !isLoadingMoreShelves &&
+                !isExploreLoading &&
+                !exploreContinuationToken.isNullOrBlank()
         }
     }
 
     LaunchedEffect(shouldLoadMore, exploreContinuationToken, isLoadingMoreShelves, isExploreLoading) {
-        if (shouldLoadMore && exploreContinuationToken != null && !isLoadingMoreShelves && !isExploreLoading) {
+        if (shouldLoadMore && !exploreContinuationToken.isNullOrBlank() && !isLoadingMoreShelves && !isExploreLoading) {
             viewModel.loadMoreShelves()
         }
+    }
+
+    // Determine the 4 signature YouTube Music shelves
+    val featuredShelf = remember(languagePlaylistShelves) {
+        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Featured", true) || it.title.contains("Hits", true) || it.title.contains("Essentials", true) || it.title.contains("Dance", true)) }
+            ?: languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() }
+    }
+
+    val nostalgicShelf = remember(languagePlaylistShelves) {
+        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Nostalgic", true) || it.title.contains("00s", true) || it.title.contains("10s", true) || it.title.contains("90s", true) || it.title.contains("Decades", true) || it.title.contains("Romance", true) || it.title.contains("Unwind", true)) }
+    }
+
+    val trendingSongShelf = remember(filteredChartsShelves, languagePlaylistShelves, filteredExploreShelves) {
+        filteredChartsShelves.firstOrNull { it.tracks.isNotEmpty() }
+            ?: languagePlaylistShelves.firstOrNull { it.tracks.isNotEmpty() }
+            ?: filteredExploreShelves.firstOrNull { it.tracks.isNotEmpty() }
+    }
+
+    val albumsShelf = remember(languagePlaylistShelves, filteredExploreShelves) {
+        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Album", true) || it.title.contains("Release", true) || it.title.contains("Soundtrack", true)) }
+            ?: filteredExploreShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Album", true) || it.title.contains("Release", true)) }
     }
 
     Box(
@@ -710,50 +777,248 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // 4. Dedicated Language Playlists (Based on user's preferredLanguage)
-            if (languagePlaylists.isNotEmpty() && (selectedMoodCategory == "All" || selectedMoodCategory.equals(preferredLanguage, ignoreCase = true))) {
-                item {
-                    Column(modifier = Modifier.padding(top = 16.dp)) {
-                        Row(
+            // 4. Dedicated Authentic YouTube Music Shelves
+            if (selectedMoodCategory == "All" || selectedMoodCategory.equals(preferredLanguage, ignoreCase = true)) {
+                val hasAnyLanguageContent = featuredShelf != null ||
+                    languagePlaylists.isNotEmpty() ||
+                    nostalgicShelf != null ||
+                    trendingSongShelf != null ||
+                    albumsShelf != null ||
+                    languagePlaylistShelves.isNotEmpty()
+
+                val showLanguageSkeleton = isLanguageLoading || (hasAnyLanguageContent.not() && isLanguageLoading)
+
+                if (showLanguageSkeleton) {
+                    item(key = "language_skeleton_section") {
+                        val shimmerBrush = rememberShimmerBrush(isDarkMode = isDarkMode)
+                        LanguageSkeletonSection(
+                            isDarkMode = isDarkMode,
+                            shimmerBrush = shimmerBrush
+                        )
+                    }
+                } else if (!hasAnyLanguageContent && !isLanguageLoading) {
+                    item(key = "language_offline_error_banner") {
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            LanguageBadge(
-                                script = SupportedLanguages.getNativeScript(preferredLanguage),
-                                size = 32.dp,
-                                fontSize = 14.sp,
-                                accentColor = AccentColor
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isDarkMode) Color(0xFF1E1E1E) else Color(0xFFF3F4F6)
                             )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "$preferredLanguage Hits & Playlists",
-                                    color = textColor,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Curated based on your preferred language (${SupportedLanguages.getNativeName(preferredLanguage)})",
-                                    color = textSub,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Couldn't load $preferredLanguage music",
+                                        color = textColor,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Check connection & retry",
+                                        color = textSub,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
+                                        viewModel.loadExploreAndCharts(force = true)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Retry", color = Color.White, fontSize = 13.sp)
+                                }
                             }
                         }
+                    }
+                } else {
+                    val renderedShelfKeys = mutableSetOf<String>().apply {
+                        featuredShelf?.let { add("pl_${it.title}") }
+                        nostalgicShelf?.let { add("pl_${it.title}") }
+                        trendingSongShelf?.let { add("tr_${it.title}") }
+                        albumsShelf?.let { add("pl_${it.title}") }
+                    }
 
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(languagePlaylists, key = { it.id }) { pl: InnerTubePlaylist ->
-                                DynamicPlaylistCard(
+                // Shelf 1: "Featured playlists for you" (with subtitle: "Curated playlists & mixes in $preferredLanguage")
+                if (featuredShelf != null && featuredShelf.playlists.isNotEmpty()) {
+                    item {
+                        OnlinePlaylistShelf(
+                            title = "Featured playlists for you",
+                            subtitle = "Curated playlists & mixes in $preferredLanguage",
+                            playlists = featuredShelf.playlists,
+                            isDarkMode = isDarkMode,
+                            textColor = textColor,
+                            textSub = textSub,
+                            badgeScript = SupportedLanguages.getNativeScript(preferredLanguage),
+                            onPlaylistClick = { pl ->
+                                selectedPlaylist = SelectedOnlinePlaylist(
+                                    id = pl.id,
                                     title = pl.title,
                                     subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl,
+                                    artworkUrl = pl.artworkUrl
+                                )
+                            }
+                        )
+                    }
+                } else if (languagePlaylists.isNotEmpty()) {
+                    item {
+                        OnlinePlaylistShelf(
+                            title = "Featured playlists for you",
+                            subtitle = "Curated playlists & mixes in $preferredLanguage",
+                            playlists = languagePlaylists,
+                            isDarkMode = isDarkMode,
+                            textColor = textColor,
+                            textSub = textSub,
+                            badgeScript = SupportedLanguages.getNativeScript(preferredLanguage),
+                            onPlaylistClick = { pl ->
+                                selectedPlaylist = SelectedOnlinePlaylist(
+                                    id = pl.id,
+                                    title = pl.title,
+                                    subtitle = pl.subtitle,
+                                    artworkUrl = pl.artworkUrl
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // Shelf 2: "Brb, Being Nostalgic!" (with strapline/subtitle: "Throwback to the OG eras of music")
+                if (nostalgicShelf != null && nostalgicShelf.playlists.isNotEmpty()) {
+                    item {
+                        OnlinePlaylistShelf(
+                            title = "Brb, Being Nostalgic!",
+                            subtitle = "Throwback to the OG eras of music",
+                            playlists = nostalgicShelf.playlists,
+                            isDarkMode = isDarkMode,
+                            textColor = textColor,
+                            textSub = textSub,
+                            onPlaylistClick = { pl ->
+                                selectedPlaylist = SelectedOnlinePlaylist(
+                                    id = pl.id,
+                                    title = pl.title,
+                                    subtitle = pl.subtitle,
+                                    artworkUrl = pl.artworkUrl
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // Shelf 3: "Trending songs for you" (song shelf with compact list rows, Play all, See all)
+                if (trendingSongShelf != null && trendingSongShelf.tracks.isNotEmpty()) {
+                    item {
+                        OnlineSongShelf(
+                            shelf = trendingSongShelf.copy(
+                                title = "Trending songs for you",
+                                subtitle = if (trendingSongShelf.subtitle.isNotBlank() && !trendingSongShelf.subtitle.contains("song", true)) trendingSongShelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
+                            ),
+                            isDarkMode = isDarkMode,
+                            textColor = textColor,
+                            textSub = textSub,
+                            onSeeAll = {
+                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                selectedPlaylist = SelectedOnlinePlaylist(
+                                    id = "shelf_${trendingSongShelf.title}",
+                                    title = "Trending songs for you",
+                                    subtitle = "${trendingSongShelf.tracks.size} songs",
+                                    initialTracks = trackEntities
+                                )
+                            },
+                            onPlayAll = {
+                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                viewModel.playOnlinePlaylist(trackEntities, 0)
+                                onNavigateToPlayer()
+                            },
+                            onTrackClick = { globalIndex ->
+                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                onNavigateToPlayer()
+                            }
+                        )
+                    }
+                }
+
+                // Shelf 4: "Albums for you" (albums/soundtracks)
+                if (albumsShelf != null && albumsShelf.playlists.isNotEmpty()) {
+                    item {
+                        OnlinePlaylistShelf(
+                            title = "Albums for you",
+                            subtitle = if (albumsShelf.subtitle.isNotBlank() && !albumsShelf.subtitle.contains("New Releases", true)) albumsShelf.subtitle else "Albums & soundtracks in $preferredLanguage",
+                            playlists = albumsShelf.playlists,
+                            isDarkMode = isDarkMode,
+                            textColor = textColor,
+                            textSub = textSub,
+                            onPlaylistClick = { pl ->
+                                selectedPlaylist = SelectedOnlinePlaylist(
+                                    id = pl.id,
+                                    title = pl.title,
+                                    subtitle = pl.subtitle,
+                                    artworkUrl = pl.artworkUrl
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // 5. Remaining Language Shelves (e.g. Presenting Artists, Community Mixes)
+                languagePlaylistShelves.forEach { shelf ->
+                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
+                    if (!renderedShelfKeys.contains(key)) {
+                        renderedShelfKeys.add(key)
+                        if (shelf.tracks.isNotEmpty()) {
+                            item {
+                                OnlineSongShelf(
+                                    shelf = shelf,
                                     isDarkMode = isDarkMode,
-                                    onClick = {
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onSeeAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = "shelf_${shelf.title}",
+                                            title = shelf.title,
+                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                            initialTracks = trackEntities
+                                        )
+                                    },
+                                    onPlayAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, 0)
+                                        onNavigateToPlayer()
+                                    },
+                                    onTrackClick = { globalIndex ->
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                        onNavigateToPlayer()
+                                    }
+                                )
+                            }
+                        } else if (shelf.playlists.isNotEmpty()) {
+                            item {
+                                val displayTitle = when {
+                                    shelf.title.contains("Presenting", true) || shelf.title.contains("Artist", true) -> "Presenting Artists in $preferredLanguage"
+                                    shelf.title.contains("Forgotten", true) || shelf.title.contains("Community", true) || shelf.title.contains("Mix", true) -> "Community Mixes & Forgotten Faves"
+                                    else -> shelf.title
+                                }
+                                OnlinePlaylistShelf(
+                                    title = displayTitle,
+                                    subtitle = shelf.subtitle,
+                                    playlists = shelf.playlists,
+                                    isDarkMode = isDarkMode,
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onPlaylistClick = { pl ->
                                         selectedPlaylist = SelectedOnlinePlaylist(
                                             id = pl.id,
                                             title = pl.title,
@@ -766,10 +1031,226 @@ fun OnlinePlaylistsScreen(
                         }
                     }
                 }
+
+                // 6. Remaining Charts Shelves
+                filteredChartsShelves.forEach { shelf ->
+                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
+                    if (!renderedShelfKeys.contains(key)) {
+                        renderedShelfKeys.add(key)
+                        if (shelf.tracks.isNotEmpty()) {
+                            item {
+                                OnlineSongShelf(
+                                    shelf = shelf,
+                                    isDarkMode = isDarkMode,
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onSeeAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = "shelf_${shelf.title}",
+                                            title = shelf.title,
+                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                            initialTracks = trackEntities
+                                        )
+                                    },
+                                    onPlayAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, 0)
+                                        onNavigateToPlayer()
+                                    },
+                                    onTrackClick = { globalIndex ->
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                        onNavigateToPlayer()
+                                    }
+                                )
+                            }
+                        } else if (shelf.playlists.isNotEmpty()) {
+                            item {
+                                OnlinePlaylistShelf(
+                                    title = shelf.title,
+                                    subtitle = shelf.subtitle,
+                                    playlists = shelf.playlists,
+                                    isDarkMode = isDarkMode,
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onPlaylistClick = { pl ->
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = pl.id,
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 7. Remaining Explore Shelves
+                filteredExploreShelves.forEach { shelf ->
+                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
+                    if (!renderedShelfKeys.contains(key)) {
+                        renderedShelfKeys.add(key)
+                        if (shelf.tracks.isNotEmpty()) {
+                            item {
+                                OnlineSongShelf(
+                                    shelf = shelf,
+                                    isDarkMode = isDarkMode,
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onSeeAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = "shelf_${shelf.title}",
+                                            title = shelf.title,
+                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                            initialTracks = trackEntities
+                                        )
+                                    },
+                                    onPlayAll = {
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, 0)
+                                        onNavigateToPlayer()
+                                    },
+                                    onTrackClick = { globalIndex ->
+                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                        onNavigateToPlayer()
+                                    }
+                                )
+                            }
+                        } else if (shelf.playlists.isNotEmpty()) {
+                            item {
+                                OnlinePlaylistShelf(
+                                    title = shelf.title,
+                                    subtitle = shelf.subtitle,
+                                    playlists = shelf.playlists,
+                                    isDarkMode = isDarkMode,
+                                    textColor = textColor,
+                                    textSub = textSub,
+                                    onPlaylistClick = { pl ->
+                                        selectedPlaylist = SelectedOnlinePlaylist(
+                                            id = pl.id,
+                                            title = pl.title,
+                                            subtitle = pl.subtitle,
+                                            artworkUrl = pl.artworkUrl
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                }
+            } else {
+                // When a specific mood filter is selected:
+                filteredChartsShelves.forEach { shelf ->
+                    if (shelf.tracks.isNotEmpty()) {
+                        item {
+                            OnlineSongShelf(
+                                shelf = shelf,
+                                isDarkMode = isDarkMode,
+                                textColor = textColor,
+                                textSub = textSub,
+                                onSeeAll = {
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    selectedPlaylist = SelectedOnlinePlaylist(
+                                        id = "shelf_${shelf.title}",
+                                        title = shelf.title,
+                                        subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                        initialTracks = trackEntities
+                                    )
+                                },
+                                onPlayAll = {
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    viewModel.playOnlinePlaylist(trackEntities, 0)
+                                    onNavigateToPlayer()
+                                },
+                                onTrackClick = { globalIndex ->
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                    onNavigateToPlayer()
+                                }
+                            )
+                        }
+                    } else if (shelf.playlists.isNotEmpty()) {
+                        item {
+                            OnlinePlaylistShelf(
+                                title = shelf.title,
+                                subtitle = shelf.subtitle,
+                                playlists = shelf.playlists,
+                                isDarkMode = isDarkMode,
+                                textColor = textColor,
+                                textSub = textSub,
+                                onPlaylistClick = { pl ->
+                                    selectedPlaylist = SelectedOnlinePlaylist(
+                                        id = pl.id,
+                                        title = pl.title,
+                                        subtitle = pl.subtitle,
+                                        artworkUrl = pl.artworkUrl
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
+                filteredExploreShelves.forEach { shelf ->
+                    if (shelf.tracks.isNotEmpty()) {
+                        item {
+                            OnlineSongShelf(
+                                shelf = shelf,
+                                isDarkMode = isDarkMode,
+                                textColor = textColor,
+                                textSub = textSub,
+                                onSeeAll = {
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    selectedPlaylist = SelectedOnlinePlaylist(
+                                        id = "shelf_${shelf.title}",
+                                        title = shelf.title,
+                                        subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
+                                        initialTracks = trackEntities
+                                    )
+                                },
+                                onPlayAll = {
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    viewModel.playOnlinePlaylist(trackEntities, 0)
+                                    onNavigateToPlayer()
+                                },
+                                onTrackClick = { globalIndex ->
+                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
+                                    viewModel.playOnlinePlaylist(trackEntities, globalIndex)
+                                    onNavigateToPlayer()
+                                }
+                            )
+                        }
+                    } else if (shelf.playlists.isNotEmpty()) {
+                        item {
+                            OnlinePlaylistShelf(
+                                title = shelf.title,
+                                subtitle = shelf.subtitle,
+                                playlists = shelf.playlists,
+                                isDarkMode = isDarkMode,
+                                textColor = textColor,
+                                textSub = textSub,
+                                onPlaylistClick = { pl ->
+                                    selectedPlaylist = SelectedOnlinePlaylist(
+                                        id = pl.id,
+                                        title = pl.title,
+                                        subtitle = pl.subtitle,
+                                        artworkUrl = pl.artworkUrl
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
             }
 
             // Loading Indicator
-            if (isExploreLoading) {
+            if (isExploreLoading && !isLanguageLoading) {
                 item {
                     Box(
                         modifier = Modifier
@@ -787,7 +1268,7 @@ fun OnlinePlaylistsScreen(
             }
 
             // Empty State
-            if (!isExploreLoading && filteredExploreShelves.isEmpty() && filteredChartsShelves.isEmpty()) {
+            if (!isExploreLoading && !isLanguageLoading && filteredExploreShelves.isEmpty() && filteredChartsShelves.isEmpty() && languagePlaylistShelves.isEmpty() && languagePlaylists.isEmpty()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -796,322 +1277,19 @@ fun OnlinePlaylistsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = if (selectedMoodCategory == "All") "No content available right now" else "No content found for \"$selectedMoodCategory\"",
+                            text = if (selectedMoodCategory == "All") "No content available. Check your internet connection." else "No content found for \"$selectedMoodCategory\"",
                             color = textSub,
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true) },
+                            onClick = {
+                                viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true)
+                                viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
                         ) {
-                            Text("Refresh", color = Color.White)
-                        }
-                    }
-                }
-            }
-
-            // 3. Pure Audio Song Charts (Live from YouTube Music: 'Top Global Songs', 'Trending Audio Hits')
-            if (filteredChartsShelves.isNotEmpty()) {
-                filteredChartsShelves.forEach { shelf ->
-                    if (shelf.tracks.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = shelf.title,
-                                            color = textColor,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (shelf.subtitle.isNotBlank()) {
-                                            Text(
-                                                text = shelf.subtitle,
-                                                color = textSub,
-                                                fontSize = 12.sp,
-                                                modifier = Modifier.padding(top = 2.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Surface(
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                selectedPlaylist = SelectedOnlinePlaylist(
-                                                    id = "shelf_${shelf.title}",
-                                                    title = shelf.title,
-                                                    subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                                    initialTracks = trackEntities
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(cardCorner),
-                                            color = AccentColor.copy(alpha = 0.15f)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text(
-                                                    text = "See all",
-                                                    color = AccentColor,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Icon(
-                                                    imageVector = Icons.Default.ChevronRight,
-                                                    contentDescription = "See all",
-                                                    tint = AccentColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Surface(
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                viewModel.playOnlinePlaylist(trackEntities, 0)
-                                                onNavigateToPlayer()
-                                            },
-                                            shape = CircleShape,
-                                            color = AccentColor,
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlayArrow,
-                                                    contentDescription = "Play all",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    itemsIndexed(shelf.tracks) { index, track ->
-                                        OnlineSongCard(
-                                            track = track,
-                                            isDarkMode = isDarkMode,
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                viewModel.playOnlinePlaylist(trackEntities, index)
-                                                onNavigateToPlayer()
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else if (shelf.playlists.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp)) {
-                                Text(
-                                    text = shelf.title,
-                                    color = textColor,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                                )
-                                if (shelf.subtitle.isNotBlank()) {
-                                    Text(
-                                        text = shelf.subtitle,
-                                        color = textSub,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(shelf.playlists) { pl: InnerTubePlaylist ->
-                                        DynamicPlaylistCard(
-                                            title = pl.title,
-                                            subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl,
-                                            isDarkMode = isDarkMode,
-                                            onClick = {
-                                                selectedPlaylist = SelectedOnlinePlaylist(
-                                                    id = pl.id,
-                                                    title = pl.title,
-                                                    subtitle = pl.subtitle,
-                                                    artworkUrl = pl.artworkUrl
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 4. Dynamic Audio Explore Shelves (Live from YouTube Music: 'New Releases & Albums', 'Explore & Discover')
-            if (filteredExploreShelves.isNotEmpty()) {
-                filteredExploreShelves.forEach { shelf ->
-                    if (shelf.tracks.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = shelf.title,
-                                            color = textColor,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (shelf.subtitle.isNotBlank()) {
-                                            Text(
-                                                text = shelf.subtitle,
-                                                color = textSub,
-                                                fontSize = 12.sp,
-                                                modifier = Modifier.padding(top = 2.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Surface(
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                selectedPlaylist = SelectedOnlinePlaylist(
-                                                    id = "shelf_${shelf.title}",
-                                                    title = shelf.title,
-                                                    subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                                    initialTracks = trackEntities
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(cardCorner),
-                                            color = AccentColor.copy(alpha = 0.15f)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text(
-                                                    text = "See all",
-                                                    color = AccentColor,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Icon(
-                                                    imageVector = Icons.Default.ChevronRight,
-                                                    contentDescription = "See all",
-                                                    tint = AccentColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Surface(
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                viewModel.playOnlinePlaylist(trackEntities, 0)
-                                                onNavigateToPlayer()
-                                            },
-                                            shape = CircleShape,
-                                            color = AccentColor,
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlayArrow,
-                                                    contentDescription = "Play all",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    itemsIndexed(shelf.tracks) { index, track ->
-                                        OnlineSongCard(
-                                            track = track,
-                                            isDarkMode = isDarkMode,
-                                            onClick = {
-                                                val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                                viewModel.playOnlinePlaylist(trackEntities, index)
-                                                onNavigateToPlayer()
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else if (shelf.playlists.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp)) {
-                                Text(
-                                    text = shelf.title,
-                                    color = textColor,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                                )
-                                if (shelf.subtitle.isNotBlank()) {
-                                    Text(
-                                        text = shelf.subtitle,
-                                        color = textSub,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(shelf.playlists) { pl: InnerTubePlaylist ->
-                                        DynamicPlaylistCard(
-                                            title = pl.title,
-                                            subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl,
-                                            isDarkMode = isDarkMode,
-                                            onClick = {
-                                                selectedPlaylist = SelectedOnlinePlaylist(
-                                                    id = pl.id,
-                                                    title = pl.title,
-                                                    subtitle = pl.subtitle,
-                                                    artworkUrl = pl.artworkUrl
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
+                            Text("Retry", color = Color.White)
                         }
                     }
                 }
@@ -1549,32 +1727,235 @@ fun OnlinePlaylistsScreen(
 }
 
 @Composable
-fun OnlineSongCard(
+fun OnlinePlaylistShelf(
+    title: String,
+    subtitle: String,
+    playlists: List<InnerTubePlaylist>,
+    isDarkMode: Boolean,
+    textColor: Color,
+    textSub: Color,
+    badgeScript: String? = null,
+    onPlaylistClick: (InnerTubePlaylist) -> Unit
+) {
+    if (playlists.isEmpty()) return
+
+    Column(modifier = Modifier.padding(top = 18.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!badgeScript.isNullOrBlank()) {
+                    LanguageBadge(
+                        script = badgeScript,
+                        size = 32.dp,
+                        fontSize = 14.sp,
+                        accentColor = AccentColor
+                    )
+                }
+                Column {
+                    Text(
+                        text = title,
+                        color = textColor,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            text = subtitle,
+                            color = textSub,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(playlists, key = { it.id }) { pl ->
+                DynamicPlaylistCard(
+                    title = pl.title,
+                    subtitle = pl.subtitle,
+                    artworkUrl = pl.artworkUrl,
+                    isDarkMode = isDarkMode,
+                    onClick = { onPlaylistClick(pl) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OnlineSongShelf(
+    shelf: InnerTubeShelf,
+    isDarkMode: Boolean,
+    textColor: Color,
+    textSub: Color,
+    onSeeAll: () -> Unit,
+    onPlayAll: () -> Unit,
+    onTrackClick: (Int) -> Unit
+) {
+    Column(modifier = Modifier.padding(top = 18.dp)) {
+        // Section Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = shelf.title,
+                    color = textColor,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (shelf.subtitle.isNotBlank()) {
+                    Text(
+                        text = shelf.subtitle,
+                        color = textSub,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // "Play all" Pill
+                Surface(
+                    onClick = onPlayAll,
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.06f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDarkMode) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.12f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Play all",
+                            tint = textColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Play all",
+                            color = textColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // "See all" Button
+                Surface(
+                    onClick = onSeeAll,
+                    shape = RoundedCornerShape(20.dp),
+                    color = AccentColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, AccentColor.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "See all",
+                            color = AccentColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "See all",
+                            tint = AccentColor,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Multi-row chunks of songs in LazyRow (4 songs per column chunk)
+        val songChunks = remember(shelf.tracks) { shelf.tracks.chunked(4) }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            itemsIndexed(songChunks) { chunkIndex, chunk ->
+                Column(
+                    modifier = Modifier
+                        .fillParentMaxWidth(0.85f)
+                        .widthIn(max = 350.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    chunk.forEachIndexed { itemIndex, track ->
+                        val globalIndex = chunkIndex * 4 + itemIndex
+                        CompactSongRowItem(
+                            track = track,
+                            isDarkMode = isDarkMode,
+                            onClick = { onTrackClick(globalIndex) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CompactSongRowItem(
     track: InnerTubeTrack,
     isDarkMode: Boolean,
     onClick: () -> Unit
 ) {
-    val isPureBlack = LocalIsPureBlack.current
-    val cardBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1C1C1E)) else Color(0xFFFFFFFF)
-    val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
-    Column(
+    Row(
         modifier = Modifier
-            .width(140.dp)
-            .height(205.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp)
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // 48x48dp rounded cover art thumbnail
         Box(
             modifier = Modifier
-                .size(120.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.2f)),
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)),
             contentAlignment = Alignment.Center
         ) {
             if (!track.artworkUrl.isNullOrBlank()) {
@@ -1582,64 +1963,75 @@ fun OnlineSongCard(
                     artworkUrl = track.artworkUrl,
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
-                    thumbnailQuality = "Medium (480p)"
+                    thumbnailQuality = "Low (240p)"
                 )
             } else {
                 Icon(
                     Icons.Default.MusicNote,
                     contentDescription = null,
                     tint = AccentColor,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .size(32.dp)
-                    .shadow(6.dp, CircleShape, spotColor = AccentColor)
-                    .clip(CircleShape)
-                    .background(AccentColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
+        // Song title and artist/album
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            verticalArrangement = Arrangement.Top
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = track.title,
                 color = textPrimary,
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
+            val subtitle = remember(track.artist, track.album) {
+                val artist = track.artist.ifBlank { "YouTube Music" }
+                val album = track.album?.ifBlank { null }
+                if (album != null && !album.equals("YouTube Music", ignoreCase = true) && !album.equals("Music Video", ignoreCase = true)) {
+                    "$artist • $album"
+                } else {
+                    artist
+                }
+            }
             Text(
-                text = track.artist.ifBlank { "YouTube Music" },
+                text = subtitle,
                 color = textSec,
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play",
+                tint = textSec.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
+}
+
+@Composable
+fun OnlineSongCard(
+    track: InnerTubeTrack,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    CompactSongRowItem(track = track, isDarkMode = isDarkMode, onClick = onClick)
 }
 
 @Composable
@@ -1659,17 +2051,17 @@ fun DynamicPlaylistCard(
 
     Column(
         modifier = Modifier
-            .width(140.dp)
-            .height(205.dp)
+            .width(176.dp)
+            .height(242.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp)
+            .padding(8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(120.dp)
+                .size(160.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .then(
                     if (!artworkUrl.isNullOrBlank()) {
@@ -1694,7 +2086,7 @@ fun DynamicPlaylistCard(
                     Icons.Default.MusicNote,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
@@ -1704,7 +2096,7 @@ fun DynamicPlaylistCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             verticalArrangement = Arrangement.Top
         ) {
             Text(
@@ -1756,17 +2148,17 @@ fun CustomPlaylistCard(
 
     Column(
         modifier = modifier
-            .width(150.dp)
-            .height(215.dp)
+            .width(176.dp)
+            .height(242.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp)
+            .padding(8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(130.dp)
+                .size(160.dp)
                 .clip(RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
@@ -2145,4 +2537,266 @@ fun AccountSwitcherDialog(
         containerColor = bg,
         shape = RoundedCornerShape(24.dp)
     )
+}
+
+@Composable
+fun rememberShimmerBrush(isDarkMode: Boolean): Brush {
+    val isPureBlack = LocalIsPureBlack.current
+    val shimmerColors = if (isDarkMode) {
+        if (isPureBlack) {
+            listOf(
+                Color(0xFF101010),
+                Color(0xFF262626),
+                Color(0xFF101010)
+            )
+        } else {
+            listOf(
+                Color(0xFF242426),
+                Color(0xFF3C3C40),
+                Color(0xFF242426)
+            )
+        }
+    } else {
+        listOf(
+            Color(0xFFE5E5EA),
+            Color(0xFFF2F2F7),
+            Color(0xFFE5E5EA)
+        )
+    }
+
+    val transition = rememberInfiniteTransition(label = "ShimmerTransition")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1300f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShimmerTranslation"
+    )
+
+    return Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset(translateAnim - 500f, translateAnim - 500f),
+        end = Offset(translateAnim, translateAnim)
+    )
+}
+
+@Composable
+fun ShimmerShelfHeader(
+    shimmerBrush: Brush,
+    hasPillPlaceholder: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f, fill = false)) {
+            // Title placeholder bar
+            Box(
+                modifier = Modifier
+                    .width(190.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(shimmerBrush)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            // Subtitle placeholder bar
+            Box(
+                modifier = Modifier
+                    .width(130.dp)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(shimmerBrush)
+            )
+        }
+        if (hasPillPlaceholder) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(76.dp)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(shimmerBrush)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(68.dp)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(shimmerBrush)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ShimmerCardSkeletonItem(
+    isDarkMode: Boolean,
+    shimmerBrush: Brush
+) {
+    val isPureBlack = LocalIsPureBlack.current
+    val cardBg = if (isDarkMode) (if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF1C1C1E)) else Color(0xFFFFFFFF)
+    val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
+
+    Column(
+        modifier = Modifier
+            .width(176.dp)
+            .height(242.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
+            .padding(8.dp)
+    ) {
+        // 160x160dp square rounded box
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(shimmerBrush)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        // 2 lines of text skeleton below
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(shimmerBrush)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.55f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(shimmerBrush)
+        )
+    }
+}
+
+@Composable
+fun CompactSongRowSkeletonItem(
+    shimmerBrush: Brush
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 48x48dp rounded thumbnail skeleton
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(shimmerBrush)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Title text bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.68f)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(shimmerBrush)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            // Artist/album text bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.42f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(shimmerBrush)
+            )
+        }
+    }
+}
+
+@Composable
+fun LanguageSkeletonSection(
+    isDarkMode: Boolean,
+    shimmerBrush: Brush,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Shimmer shelf 1 ("Featured playlists for you" placeholder):
+        // - Title & subtitle shimmer placeholder bars
+        // - Horizontal row (LazyRow) of 4 card skeleton items (160x160dp square rounded box + 2 lines of text skeleton below)
+        Column(modifier = Modifier.padding(top = 18.dp)) {
+            ShimmerShelfHeader(shimmerBrush = shimmerBrush)
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                userScrollEnabled = false
+            ) {
+                items(4) {
+                    ShimmerCardSkeletonItem(isDarkMode = isDarkMode, shimmerBrush = shimmerBrush)
+                }
+            }
+        }
+
+        // Shimmer shelf 2 ("Trending songs for you" placeholder):
+        // - Title & subtitle shimmer placeholder bars
+        // - 4 compact song skeleton rows (48x48dp rounded thumbnail skeleton + 2 title/artist text bars)
+        Column(modifier = Modifier.padding(top = 18.dp)) {
+            ShimmerShelfHeader(shimmerBrush = shimmerBrush, hasPillPlaceholder = true)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                repeat(4) {
+                    CompactSongRowSkeletonItem(shimmerBrush = shimmerBrush)
+                }
+            }
+        }
+
+        // Shimmer shelf 3 ("Brb, Being Nostalgic!" placeholder):
+        // - Title & subtitle shimmer placeholder bars
+        // - Horizontal row of 4 card skeleton items (160x160dp)
+        Column(modifier = Modifier.padding(top = 18.dp)) {
+            ShimmerShelfHeader(shimmerBrush = shimmerBrush)
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                userScrollEnabled = false
+            ) {
+                items(4) {
+                    ShimmerCardSkeletonItem(isDarkMode = isDarkMode, shimmerBrush = shimmerBrush)
+                }
+            }
+        }
+
+        // Shimmer shelf 4 ("Albums for you" placeholder):
+        // - Title & subtitle shimmer placeholder bars
+        // - Horizontal row of 4 card skeleton items (160x160dp)
+        Column(modifier = Modifier.padding(top = 18.dp)) {
+            ShimmerShelfHeader(shimmerBrush = shimmerBrush)
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                userScrollEnabled = false
+            ) {
+                items(4) {
+                    ShimmerCardSkeletonItem(isDarkMode = isDarkMode, shimmerBrush = shimmerBrush)
+                }
+            }
+        }
+    }
 }

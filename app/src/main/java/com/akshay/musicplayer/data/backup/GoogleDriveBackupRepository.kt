@@ -77,7 +77,7 @@ class GoogleDriveBackupRepository(private val context: Context) {
                     context.startActivity(intent)
                 }
             } catch (ex: Exception) {
-                ex.printStackTrace()
+                android.util.Log.w("MUESO_AUTH", "Failed to launch consent intent: ${ex.message}")
             }
             throw Exception("Google account authorization pending. Please check consent dialog.")
         } catch (e: com.google.android.gms.auth.GoogleAuthException) {
@@ -85,10 +85,13 @@ class GoogleDriveBackupRepository(private val context: Context) {
             if (e.message?.contains("UnregisteredOnApiConsole", ignoreCase = true) == true) {
                 throw Exception("Google Drive API Client configuration required for package com.akshay.musicplayer.")
             }
-            throw e
+            throw Exception("Google authentication error: ${e.message ?: "Auth failed"}")
+        } catch (e: java.io.IOException) {
+            android.util.Log.e("MUESO_AUTH", "Network error during GoogleAuthUtil.getToken: ${e.message}", e)
+            throw Exception("Network error connecting to Google services: ${e.message}")
         } catch (e: Exception) {
             android.util.Log.e("MUESO_AUTH", "GoogleAuthUtil.getToken failed for $email: ${e.message}", e)
-            throw e
+            throw Exception("Google authorization failed: ${e.message}")
         }
     }
 
@@ -107,6 +110,7 @@ class GoogleDriveBackupRepository(private val context: Context) {
     }
 
     suspend fun deleteBackupFile(accessToken: String, fileId: String): Boolean = withContext(Dispatchers.IO) {
+        if (accessToken.isBlank() || fileId.isBlank()) return@withContext false
         try {
             val url = "https://www.googleapis.com/drive/v3/files/$fileId"
             val request = Request.Builder()
@@ -114,13 +118,19 @@ class GoogleDriveBackupRepository(private val context: Context) {
                 .addHeader("Authorization", "Bearer $accessToken")
                 .delete()
                 .build()
-            httpClient.newCall(request).execute().use { it.isSuccessful }
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 401) {
+                    invalidateToken(accessToken)
+                }
+                response.isSuccessful || response.code == 404
+            }
         } catch (e: Exception) {
             false
         }
     }
 
     suspend fun findBackupFile(accessToken: String): DriveBackupInfo? = withContext(Dispatchers.IO) {
+        if (accessToken.isBlank()) return@withContext null
         try {
             val url = "https://www.googleapis.com/drive/v3/files".toHttpUrl().newBuilder()
                 .addQueryParameter("spaces", "appDataFolder")
@@ -135,16 +145,29 @@ class GoogleDriveBackupRepository(private val context: Context) {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
+                if (response.code == 401) {
+                    invalidateToken(accessToken)
+                    android.util.Log.w("MUESO_AUTH", "findBackupFile: token expired (401), invalidated token")
+                    return@withContext null
+                }
+                if (!response.isSuccessful) {
+                    android.util.Log.w("MUESO_AUTH", "findBackupFile: non-successful response code ${response.code}")
+                    return@withContext null
+                }
                 val bodyStr = response.body?.string() ?: return@withContext null
-                val json = JSONObject(bodyStr)
+                val json = try {
+                    JSONObject(bodyStr)
+                } catch (e: Exception) {
+                    android.util.Log.e("MUESO_AUTH", "findBackupFile: failed to parse JSON response", e)
+                    return@withContext null
+                }
                 val files = json.optJSONArray("files") ?: return@withContext null
                 if (files.length() == 0) return@withContext null
 
                 // Find best backup file: prefer non-empty files
                 var bestIndex = 0
                 for (i in 0 until files.length()) {
-                    val f = files.getJSONObject(i)
+                    val f = files.optJSONObject(i) ?: continue
                     if (f.optLong("size", 0L) > 0L) {
                         bestIndex = i
                         break
@@ -155,23 +178,25 @@ class GoogleDriveBackupRepository(private val context: Context) {
                 if (files.length() > 1) {
                     for (i in 0 until files.length()) {
                         if (i != bestIndex) {
-                            val staleId = files.getJSONObject(i).optString("id")
-                            if (staleId.isNotEmpty()) {
+                            val staleId = files.optJSONObject(i)?.optString("id")
+                            if (!staleId.isNullOrEmpty()) {
                                 deleteBackupFile(accessToken, staleId)
                             }
                         }
                     }
                 }
 
-                val fileObj = files.getJSONObject(bestIndex)
+                val fileObj = files.optJSONObject(bestIndex) ?: return@withContext null
+                val fileId = fileObj.optString("id")
+                if (fileId.isBlank()) return@withContext null
                 DriveBackupInfo(
-                    fileId = fileObj.getString("id"),
+                    fileId = fileId,
                     modifiedTime = fileObj.optString("modifiedTime", ""),
                     sizeBytes = fileObj.optLong("size", 0L)
                 )
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.w("MUESO_AUTH", "findBackupFile exception: ${e.message}")
             null
         }
     }
@@ -179,70 +204,85 @@ class GoogleDriveBackupRepository(private val context: Context) {
     suspend fun uploadBackup(email: String, data: MuesoBackupData): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             var token = getAccessToken(email) ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
-            val existingFile = findBackupFile(token)
+            var existingFile = findBackupFile(token)
 
             val jsonContent = backupAdapter.toJson(data)
             val jsonRequestBody = jsonContent.toRequestBody("application/json; charset=utf-8".toMediaType())
 
-            if (existingFile != null) {
-                // Update existing file in appDataFolder
-                val updateUrl = "https://www.googleapis.com/upload/drive/v3/files/${existingFile.fileId}?uploadType=media"
-                val request = Request.Builder()
-                    .url(updateUrl)
-                    .addHeader("Authorization", "Bearer $token")
-                    .patch(jsonRequestBody)
-                    .build()
+            suspend fun doUpload(currentToken: String, file: DriveBackupInfo?): Pair<Int, Boolean> {
+                return if (file != null) {
+                    val updateUrl = "https://www.googleapis.com/upload/drive/v3/files/${file.fileId}?uploadType=media"
+                    val request = Request.Builder()
+                        .url(updateUrl)
+                        .addHeader("Authorization", "Bearer $currentToken")
+                        .patch(jsonRequestBody)
+                        .build()
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.code == 401) {
-                        invalidateToken(token)
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.code == 401) {
+                            invalidateToken(currentToken)
+                            Pair(401, false)
+                        } else if (response.isSuccessful) {
+                            Pair(response.code, true)
+                        } else {
+                            val errorBody = response.body?.string() ?: ""
+                            android.util.Log.e("MUESO_AUTH", "Upload PATCH failed: code=${response.code}, body=$errorBody")
+                            Pair(response.code, false)
+                        }
                     }
-                    if (response.isSuccessful) {
-                        Result.success(true)
-                    } else {
-                        val errorBody = response.body?.string() ?: ""
-                        android.util.Log.e("MUESO_AUTH", "Upload PATCH failed: code=${response.code}, body=$errorBody")
-                        Result.failure(Exception("Upload failed with code ${response.code}: $errorBody"))
-                    }
-                }
-            } else {
-                // Create new file metadata and content atomically in appDataFolder using Drive multipart upload
-                val metadataJson = JSONObject().apply {
-                    put("name", "mueso_backup.json")
-                    put("parents", org.json.JSONArray().put("appDataFolder"))
-                }.toString()
+                } else {
+                    val metadataJson = JSONObject().apply {
+                        put("name", "mueso_backup.json")
+                        put("parents", org.json.JSONArray().put("appDataFolder"))
+                    }.toString()
 
-                val multipartBody = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addPart(
-                        metadataJson.toRequestBody("application/json; charset=utf-8".toMediaType())
-                    )
-                    .addPart(
-                        jsonRequestBody
-                    )
-                    .build()
+                    val multipartBody = MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addPart(metadataJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .addPart(jsonRequestBody)
+                        .build()
 
-                val createMultipartRequest = Request.Builder()
-                    .url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
-                    .addHeader("Authorization", "Bearer $token")
-                    .post(multipartBody)
-                    .build()
+                    val createMultipartRequest = Request.Builder()
+                        .url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+                        .addHeader("Authorization", "Bearer $currentToken")
+                        .post(multipartBody)
+                        .build()
 
-                httpClient.newCall(createMultipartRequest).execute().use { response ->
-                    if (response.code == 401) {
-                        invalidateToken(token)
-                    }
-                    if (response.isSuccessful) {
-                        Result.success(true)
-                    } else {
-                        val errorBody = response.body?.string() ?: ""
-                        android.util.Log.e("MUESO_AUTH", "Upload CREATE MULTIPART failed: code=${response.code}, body=$errorBody")
-                        Result.failure(Exception("Create backup failed with code ${response.code}: $errorBody"))
+                    httpClient.newCall(createMultipartRequest).execute().use { response ->
+                        if (response.code == 401) {
+                            invalidateToken(currentToken)
+                            Pair(401, false)
+                        } else if (response.isSuccessful) {
+                            Pair(response.code, true)
+                        } else {
+                            val errorBody = response.body?.string() ?: ""
+                            android.util.Log.e("MUESO_AUTH", "Upload CREATE MULTIPART failed: code=${response.code}, body=$errorBody")
+                            Pair(response.code, false)
+                        }
                     }
                 }
             }
+
+            var (code, success) = doUpload(token, existingFile)
+            if (code == 401) {
+                // Token expired - try once with fresh token
+                val freshToken = try { getAccessToken(email) } catch (e: Exception) { null }
+                if (!freshToken.isNullOrBlank() && freshToken != token) {
+                    token = freshToken
+                    existingFile = findBackupFile(token)
+                    val retry = doUpload(token, existingFile)
+                    code = retry.first
+                    success = retry.second
+                }
+            }
+
+            if (success) {
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Upload backup failed with HTTP code $code"))
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("MUESO_AUTH", "uploadBackup exception: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -253,36 +293,68 @@ class GoogleDriveBackupRepository(private val context: Context) {
 
     suspend fun downloadBackup(email: String): Result<MuesoBackupData> = withContext(Dispatchers.IO) {
         try {
-            val token = getAccessToken(email) ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
-            val existingFile = findBackupFile(token) ?: return@withContext Result.failure(Exception("No backup file found in Google Drive"))
-
-            val downloadUrl = "https://www.googleapis.com/drive/v3/files/${existingFile.fileId}?alt=media"
-            val request = Request.Builder()
-                .url(downloadUrl)
-                .addHeader("Authorization", "Bearer $token")
-                .get()
-                .build()
-
-            httpClient.newCall(request).execute().use { response ->
-                if (response.code == 401) {
-                    invalidateToken(token)
+            var token = getAccessToken(email) ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
+            var existingFile = findBackupFile(token)
+            if (existingFile == null) {
+                val freshToken = try { getAccessToken(email) } catch (e: Exception) { null }
+                if (!freshToken.isNullOrBlank() && freshToken != token) {
+                    token = freshToken
+                    existingFile = findBackupFile(token)
                 }
-                if (!response.isSuccessful) {
-                    android.util.Log.e("MUESO_BACKUP", "Download file failed: HTTP ${response.code}")
-                    return@withContext Result.failure(Exception("Download failed with code ${response.code}"))
-                }
-                val jsonStr = response.body?.string() ?: return@withContext Result.failure(Exception("Empty backup file body"))
-                if (jsonStr.isBlank()) {
-                    return@withContext Result.failure(Exception("Empty backup file body"))
-                }
-                android.util.Log.d("MUESO_BACKUP", "Downloaded JSON string from Drive (${jsonStr.length} bytes): $jsonStr")
-                val parsed = backupAdapter.fromJson(jsonStr)
-                    ?: return@withContext Result.failure(Exception("Failed to parse backup JSON"))
-                android.util.Log.d("MUESO_BACKUP", "Successfully parsed backup object: $parsed")
-                Result.success(parsed)
             }
+            if (existingFile == null) {
+                return@withContext Result.failure(Exception("No backup file found in Google Drive"))
+            }
+
+            suspend fun doDownload(currentToken: String, fileId: String): Triple<Int, Boolean, String?> {
+                val downloadUrl = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media"
+                val request = Request.Builder()
+                    .url(downloadUrl)
+                    .addHeader("Authorization", "Bearer $currentToken")
+                    .get()
+                    .build()
+
+                return httpClient.newCall(request).execute().use { response ->
+                    if (response.code == 401) {
+                        invalidateToken(currentToken)
+                        Triple(401, false, null)
+                    } else if (!response.isSuccessful) {
+                        android.util.Log.e("MUESO_BACKUP", "Download file failed: HTTP ${response.code}")
+                        Triple(response.code, false, null)
+                    } else {
+                        val jsonStr = response.body?.string()
+                        Triple(200, true, jsonStr)
+                    }
+                }
+            }
+
+            var (code, success, jsonStr) = doDownload(token, existingFile.fileId)
+            if (code == 401) {
+                val freshToken = try { getAccessToken(email) } catch (e: Exception) { null }
+                if (!freshToken.isNullOrBlank() && freshToken != token) {
+                    token = freshToken
+                    val retry = doDownload(token, existingFile.fileId)
+                    code = retry.first
+                    success = retry.second
+                    jsonStr = retry.third
+                }
+            }
+
+            if (!success || jsonStr.isNullOrBlank()) {
+                return@withContext Result.failure(Exception("Download failed with code $code"))
+            }
+
+            android.util.Log.d("MUESO_BACKUP", "Downloaded JSON string from Drive (${jsonStr.length} bytes)")
+            val parsed = try {
+                backupAdapter.fromJson(jsonStr)
+            } catch (e: Exception) {
+                android.util.Log.e("MUESO_BACKUP", "Failed to parse backup JSON: ${e.message}", e)
+                null
+            } ?: return@withContext Result.failure(Exception("Failed to parse backup JSON"))
+
+            Result.success(parsed)
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("MUESO_BACKUP", "downloadBackup exception: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -293,33 +365,52 @@ class GoogleDriveBackupRepository(private val context: Context) {
 
     suspend fun deleteBackup(email: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAccessToken(email)
+            var token = getAccessToken(email)
                 ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
-            val existingFile = findBackupFile(token)
+            var existingFile = findBackupFile(token)
+            if (existingFile == null) {
+                val freshToken = try { getAccessToken(email) } catch (e: Exception) { null }
+                if (!freshToken.isNullOrBlank() && freshToken != token) {
+                    token = freshToken
+                    existingFile = findBackupFile(token)
+                }
+            }
             if (existingFile == null) {
                 return@withContext Result.success(true)
             }
-            val url = "https://www.googleapis.com/drive/v3/files/${existingFile.fileId}"
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Authorization", "Bearer $token")
-                .delete()
-                .build()
 
-            httpClient.newCall(request).execute().use { response ->
-                if (response.code == 401) {
-                    invalidateToken(token)
-                }
-                if (response.code == 200 || response.code == 204 || response.code == 404) {
-                    Result.success(true)
-                } else {
-                    val errorBody = response.body?.string() ?: ""
-                    android.util.Log.e("MUESO_AUTH", "Delete backup failed: code=${response.code}, body=$errorBody")
-                    Result.failure(Exception("Delete backup failed with code ${response.code}: $errorBody"))
+            suspend fun doDelete(currentToken: String, fileId: String): Int {
+                val url = "https://www.googleapis.com/drive/v3/files/$fileId"
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer $currentToken")
+                    .delete()
+                    .build()
+
+                return httpClient.newCall(request).execute().use { response ->
+                    if (response.code == 401) {
+                        invalidateToken(currentToken)
+                    }
+                    response.code
                 }
             }
+
+            var code = doDelete(token, existingFile.fileId)
+            if (code == 401) {
+                val freshToken = try { getAccessToken(email) } catch (e: Exception) { null }
+                if (!freshToken.isNullOrBlank() && freshToken != token) {
+                    token = freshToken
+                    code = doDelete(token, existingFile.fileId)
+                }
+            }
+
+            if (code == 200 || code == 204 || code == 404) {
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Delete backup failed with code $code"))
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("MUESO_AUTH", "deleteBackup exception: ${e.message}", e)
             Result.failure(e)
         }
     }

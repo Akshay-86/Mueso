@@ -47,8 +47,14 @@ data class InnerTubePlaylist(
     val title: String,
     val subtitle: String = "",
     val artworkUrl: String? = null,
-    val trackCount: Int = 0
-)
+    val trackCount: Int = 0,
+    val author: String = ""
+) {
+    val isOfficial: Boolean
+        get() = author.contains("YouTube Music", ignoreCase = true) ||
+                id.contains("RDCLAK", ignoreCase = true) ||
+                subtitle.contains("YouTube Music", ignoreCase = true)
+}
 
 data class InnerTubeShelf(
     val title: String,

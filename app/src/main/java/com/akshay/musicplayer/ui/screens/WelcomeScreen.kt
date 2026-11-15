@@ -13,7 +13,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -145,7 +147,10 @@ fun WelcomeScreen(
         ) {
             // ─── TOP SECTION: Header + UI Style + Permissions ───
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // ─── CENTERED HEADER: Compact Logo & Title ───
@@ -165,7 +170,7 @@ fun WelcomeScreen(
                     Text(
                         text = "Welcome to Mueso",
                         color = textPrimary,
-                        fontSize = 19.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center
                     )
@@ -173,7 +178,7 @@ fun WelcomeScreen(
                     Text(
                         text = "Quick Setup • Tailor your music experience",
                         color = textSub,
-                        fontSize = 11.5.sp,
+                        fontSize = 14.sp,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -186,7 +191,7 @@ fun WelcomeScreen(
                     Text(
                         text = "CHOOSE YOUR INTERFACE",
                         color = accentColor,
-                        fontSize = 10.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
                         modifier = Modifier.padding(start = 2.dp)
@@ -254,7 +259,7 @@ fun WelcomeScreen(
                     Text(
                         text = "PERMISSIONS & SETUP",
                         color = textSub,
-                        fontSize = 10.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
                         modifier = Modifier.padding(start = 2.dp, top = 2.dp)
@@ -375,12 +380,12 @@ fun WelcomeScreen(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(48.dp)
                 ) {
                     Text(
                         text = if (allPermissionsGranted) "Continue to Mueso" else "Grant All Permissions to Continue",
                         color = if (allPermissionsGranted) Color.White else textSub.copy(alpha = 0.55f),
-                        fontSize = 13.5.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -440,7 +445,7 @@ private fun WelcomePermissionCard(
                 Text(
                     text = title,
                     color = textPrimary,
-                    fontSize = 12.5.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -465,8 +470,8 @@ private fun WelcomePermissionCard(
             Text(
                 text = description,
                 color = textSub,
-                fontSize = 10.5.sp,
-                lineHeight = 13.sp,
+                fontSize = 12.5.sp,
+                lineHeight = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -603,7 +608,7 @@ private fun UiStyleCardCompact(
                 Text(
                     text = title,
                     color = if (isSelected) textPrimary else textPrimary.copy(alpha = 0.85f),
-                    fontSize = 11.5.sp,
+                    fontSize = 15.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -611,7 +616,7 @@ private fun UiStyleCardCompact(
                 Text(
                     text = subtitle,
                     color = textSub,
-                    fontSize = 9.5.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

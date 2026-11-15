@@ -11,9 +11,11 @@ import com.akshay.musicplayer.domain.models.LrclibSearchResultItem
 import com.akshay.musicplayer.domain.models.LyricsData
 import com.akshay.musicplayer.domain.models.SupportedLanguages
 import com.akshay.musicplayer.domain.models.TrackEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -344,9 +346,83 @@ class OnlineMusicRepository {
     // ==========================================
     // 1B. AUTHENTIC LANGUAGE PLAYLISTS & DISK CACHE
     // ==========================================
-    private val languagePlaylistsMemoryCache = java.util.concurrent.ConcurrentHashMap<String, List<InnerTubePlaylist>>()
+    private val languageShelvesMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InnerTubeShelf>>>()
+    private val languagePlaylistsMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InnerTubePlaylist>>>()
+    private val LANGUAGE_PLAYLISTS_CACHE_TTL_MS = 15 * 60 * 1000L // 15 minutes TTL
     private val chartsMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InnerTubeShelf>>>()
     private val CHARTS_CACHE_TTL_MS = 10 * 60 * 1000L
+
+    private data class RegionalLanguageInfo(
+        val industry: String,
+        val spotlightArtists: List<String>
+    )
+
+    private fun getRegionalLanguageInfo(languageName: String): RegionalLanguageInfo {
+        return when (languageName.lowercase()) {
+            "telugu" -> RegionalLanguageInfo(
+                industry = "Tollywood",
+                spotlightArtists = listOf("Anirudh Telugu", "Sid Sriram", "DSP", "Devi Sri Prasad", "Thaman", "SPB", "Anurag Kulkarni", "Ram Miriyala")
+            )
+            "hindi" -> RegionalLanguageInfo(
+                industry = "Bollywood",
+                spotlightArtists = listOf("Arijit Singh", "Shreya Ghoshal", "Pritam", "Neha Kakkar", "Atif Aslam", "Sachin-Jigar")
+            )
+            "tamil" -> RegionalLanguageInfo(
+                industry = "Kollywood",
+                spotlightArtists = listOf("Anirudh", "AR Rahman", "Yuvan Shankar Raja", "Harris Jayaraj", "Sid Sriram Tamil", "Dhanush")
+            )
+            "punjabi" -> RegionalLanguageInfo(
+                industry = "Punjabi",
+                spotlightArtists = listOf("Diljit Dosanjh", "AP Dhillon", "Sidhu Moosewala", "Karan Aujla", "B Praak")
+            )
+            "malayalam" -> RegionalLanguageInfo(
+                industry = "Mollywood",
+                spotlightArtists = listOf("Sushin Shyam", "KS Harisankar", "Job Kurian", "Hesham Abdul Wahab", "Vineeth Sreenivasan")
+            )
+            "kannada" -> RegionalLanguageInfo(
+                industry = "Sandalwood",
+                spotlightArtists = listOf("Sanjith Hegde", "Charan Raj", "Ravi Basrur", "Vijay Prakash", "Arjun Janya")
+            )
+            "bengali" -> RegionalLanguageInfo(
+                industry = "Bengali",
+                spotlightArtists = listOf("Anupam Roy", "Shreya Ghoshal Bengali", "Arijit Singh Bengali", "Jeet Gannguli")
+            )
+            "marathi" -> RegionalLanguageInfo(
+                industry = "Marathi",
+                spotlightArtists = listOf("Ajay-Atul", "Swapnil Bandodkar", "Avadhoot Gupte", "Adarsh Shinde")
+            )
+            "gujarati" -> RegionalLanguageInfo(
+                industry = "Gujarati",
+                spotlightArtists = listOf("Sachin-Jigar", "Jigardan Gadhvi", "Kinjal Dave", "Aditya Gadhvi")
+            )
+            "bhojpuri" -> RegionalLanguageInfo(
+                industry = "Bhojpuri",
+                spotlightArtists = listOf("Pawan Singh", "Khesari Lal Yadav", "Shilpi Raj")
+            )
+            "korean" -> RegionalLanguageInfo(
+                industry = "K-Pop",
+                spotlightArtists = listOf("BTS", "BLACKPINK", "NewJeans", "Stray Kids", "TWICE")
+            )
+            "spanish" -> RegionalLanguageInfo(
+                industry = "Latin",
+                spotlightArtists = listOf("Bad Bunny", "Rosalía", "J Balvin", "Shakira")
+            )
+            "english" -> RegionalLanguageInfo(
+                industry = "Pop",
+                spotlightArtists = listOf("Taylor Swift", "The Weeknd", "Drake", "Eminem", "Billie Eilish")
+            )
+            else -> {
+                val supported = SupportedLanguages.getLanguageByName(languageName)
+                val artists = if (supported.sampleArtists.isNotBlank()) {
+                    supported.sampleArtists.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                } else listOf(languageName)
+                RegionalLanguageInfo(
+                    industry = supported.name,
+                    spotlightArtists = artists
+                )
+            }
+        }
+    }
 
     private fun getLanguageCacheFile(language: String): File? {
         val context = try { com.akshay.musicplayer.AppContainer.getContext() } catch (_: Exception) { null } ?: return null
@@ -356,6 +432,26 @@ class OnlineMusicRepository {
         }
         val safeLang = language.lowercase().replace(Regex("[^a-z0-9]"), "_")
         return File(cacheDir, "lang_${safeLang}.json")
+    }
+
+    private fun getLanguageShelvesCacheFile(language: String): File? {
+        val context = try { com.akshay.musicplayer.AppContainer.getContext() } catch (_: Exception) { null } ?: return null
+        val cacheDir = File(context.cacheDir, "language_playlists_cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        val safeLang = language.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        return File(cacheDir, "shelves_${safeLang}.json")
+    }
+
+    private fun getChartsCacheFile(language: String): File? {
+        val context = try { com.akshay.musicplayer.AppContainer.getContext() } catch (_: Exception) { null } ?: return null
+        val cacheDir = File(context.cacheDir, "language_playlists_cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        val safeLang = language.lowercase().replace(Regex("[^a-z0-9]"), "_")
+        return File(cacheDir, "charts_${safeLang}.json")
     }
 
     private fun readLanguagePlaylistsFromDisk(language: String): List<InnerTubePlaylist> {
@@ -388,6 +484,127 @@ class OnlineMusicRepository {
         }
     }
 
+    private fun saveShelvesToDiskFile(file: File?, shelves: List<InnerTubeShelf>, description: String) {
+        try {
+            if (file == null) return
+            val root = JSONObject()
+            root.put("timestamp", System.currentTimeMillis())
+            val shelvesArr = JSONArray()
+            for (shelf in shelves) {
+                val shelfObj = JSONObject()
+                shelfObj.put("title", shelf.title)
+                shelfObj.put("subtitle", shelf.subtitle)
+                val plArr = JSONArray()
+                for (pl in shelf.playlists) {
+                    val obj = JSONObject()
+                    obj.put("id", pl.id)
+                    obj.put("title", pl.title)
+                    obj.put("subtitle", pl.subtitle)
+                    obj.put("artworkUrl", pl.artworkUrl ?: "")
+                    obj.put("trackCount", pl.trackCount)
+                    obj.put("author", pl.author)
+                    plArr.put(obj)
+                }
+                shelfObj.put("playlists", plArr)
+
+                val trkArr = JSONArray()
+                for (t in shelf.tracks) {
+                    val obj = JSONObject()
+                    obj.put("videoId", t.videoId)
+                    obj.put("title", t.title)
+                    obj.put("artist", t.artist)
+                    obj.put("album", t.album ?: "")
+                    obj.put("durationSec", t.durationSec)
+                    obj.put("artworkUrl", t.artworkUrl ?: "")
+                    trkArr.put(obj)
+                }
+                shelfObj.put("tracks", trkArr)
+
+                shelvesArr.put(shelfObj)
+            }
+            root.put("shelves", shelvesArr)
+            file.writeText(root.toString())
+            Log.d(TAG, "Saved ${shelves.size} shelves ($description) to disk cache at ${file.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed saving $description disk cache", e)
+        }
+    }
+
+    private fun readShelvesFromDiskFile(file: File?, allowExpired: Boolean = false, description: String): List<InnerTubeShelf> {
+        return try {
+            if (file == null || !file.exists()) return emptyList()
+            val text = file.readText()
+            if (text.isBlank()) return emptyList()
+            val root = JSONObject(text)
+            val timestamp = root.optLong("timestamp", 0L)
+            val isValid = (System.currentTimeMillis() - timestamp) < 86_400_000L // 24 hours
+            if (!isValid && !allowExpired) return emptyList()
+            val shelvesArr = root.optJSONArray("shelves") ?: return emptyList()
+            val result = mutableListOf<InnerTubeShelf>()
+            for (i in 0 until shelvesArr.length()) {
+                val shelfObj = shelvesArr.optJSONObject(i) ?: continue
+                val title = shelfObj.optString("title")
+                val subtitle = shelfObj.optString("subtitle")
+                val playlists = parsePlaylistsJsonArray(shelfObj.optJSONArray("playlists"))
+                val tracks = parseTracksJsonArray(shelfObj.optJSONArray("tracks"))
+                if (title.isNotBlank() && (playlists.isNotEmpty() || tracks.isNotEmpty())) {
+                    result.add(
+                        InnerTubeShelf(
+                            title = title,
+                            subtitle = subtitle,
+                            playlists = playlists,
+                            tracks = tracks
+                        )
+                    )
+                }
+            }
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed reading $description disk cache", e)
+            emptyList()
+        }
+    }
+
+    private fun saveLanguageShelvesToDisk(language: String, shelves: List<InnerTubeShelf>) {
+        saveShelvesToDiskFile(getLanguageShelvesCacheFile(language), shelves, "language shelves for $language")
+    }
+
+    private fun readLanguageShelvesFromDisk(language: String, allowExpired: Boolean = false): List<InnerTubeShelf> {
+        return readShelvesFromDiskFile(getLanguageShelvesCacheFile(language), allowExpired, "language shelves for $language")
+    }
+
+    private fun saveChartsShelvesToDisk(language: String, shelves: List<InnerTubeShelf>) {
+        saveShelvesToDiskFile(getChartsCacheFile(language), shelves, "charts shelves for $language")
+    }
+
+    private fun readChartsShelvesFromDisk(language: String, allowExpired: Boolean = false): List<InnerTubeShelf> {
+        return readShelvesFromDiskFile(getChartsCacheFile(language), allowExpired, "charts shelves for $language")
+    }
+
+    private fun parseTracksJsonArray(arr: JSONArray?): List<com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack> {
+        if (arr == null) return emptyList()
+        val list = mutableListOf<com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val videoId = obj.optString("videoId")
+            val title = obj.optString("title")
+            val artist = obj.optString("artist")
+            if (videoId.isNotBlank() && title.isNotBlank()) {
+                list.add(
+                    com.akshay.musicplayer.data.remote.innertube.InnerTubeTrack(
+                        videoId = videoId,
+                        title = title,
+                        artist = artist,
+                        album = obj.optString("album").takeIf { it.isNotBlank() },
+                        durationSec = obj.optInt("durationSec", 0),
+                        artworkUrl = obj.optString("artworkUrl").takeIf { it.isNotBlank() }
+                    )
+                )
+            }
+        }
+        return list
+    }
+
     private fun parsePlaylistsJsonArray(arr: JSONArray?): List<InnerTubePlaylist> {
         if (arr == null) return emptyList()
         val list = mutableListOf<InnerTubePlaylist>()
@@ -402,7 +619,8 @@ class OnlineMusicRepository {
                         title = title,
                         subtitle = obj.optString("subtitle", ""),
                         artworkUrl = obj.optString("artworkUrl").takeIf { it.isNotBlank() },
-                        trackCount = obj.optInt("trackCount", 0)
+                        trackCount = obj.optInt("trackCount", 0),
+                        author = obj.optString("author", "")
                     )
                 )
             }
@@ -424,6 +642,7 @@ class OnlineMusicRepository {
                 obj.put("subtitle", pl.subtitle)
                 obj.put("artworkUrl", pl.artworkUrl ?: "")
                 obj.put("trackCount", pl.trackCount)
+                obj.put("author", pl.author)
                 arr.put(obj)
             }
             root.put("playlists", arr)
@@ -434,41 +653,401 @@ class OnlineMusicRepository {
         }
     }
 
-    suspend fun fetchLanguagePlaylists(language: String, forceRefresh: Boolean = false): List<InnerTubePlaylist> = withContext(Dispatchers.IO) {
-        val lang = language.trim().ifBlank { "English" }
-        val cacheKey = lang.lowercase()
+    private fun blendPlaylistsRatio(
+        official: List<InnerTubePlaylist>,
+        community: List<InnerTubePlaylist>,
+        targetSize: Int = 14
+    ): List<InnerTubePlaylist> {
+        val cleanOfficial = official.distinctBy { it.id }.filter {
+            it.isOfficial ||
+            it.id.contains("RDCLAK", ignoreCase = true) ||
+            it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+            it.author.contains("YouTube Music", ignoreCase = true)
+        }
+        val cleanCommunity = community.distinctBy { it.id }.filterNot {
+            it.isOfficial ||
+            it.id.contains("RDCLAK", ignoreCase = true) ||
+            it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+            it.author.contains("YouTube Music", ignoreCase = true)
+        }
 
-        // 1. Check in-memory cache
-        if (!forceRefresh) {
-            languagePlaylistsMemoryCache[cacheKey]?.let { cached ->
-                if (cached.isNotEmpty()) return@withContext cached
+        val officialTarget = ((targetSize * 0.70f).toInt()).coerceAtLeast(1)
+        val communityTarget = (targetSize - officialTarget).coerceAtLeast(1)
+
+        val selectedOfficial = cleanOfficial.take(officialTarget)
+        val selectedCommunity = cleanCommunity.take(communityTarget)
+
+        val result = mutableListOf<InnerTubePlaylist>()
+        var oIdx = 0
+        var cIdx = 0
+
+        while (oIdx < selectedOfficial.size || cIdx < selectedCommunity.size) {
+            repeat(2) {
+                if (oIdx < selectedOfficial.size) {
+                    result.add(selectedOfficial[oIdx++])
+                }
             }
-            // 2. Check disk cache
-            val diskCached = readLanguagePlaylistsFromDisk(lang)
+            if (cIdx < selectedCommunity.size) {
+                result.add(selectedCommunity[cIdx++])
+            }
+        }
+        while (oIdx < selectedOfficial.size) result.add(selectedOfficial[oIdx++])
+        while (cIdx < selectedCommunity.size) result.add(selectedCommunity[cIdx++])
+
+        if (result.isEmpty()) {
+            return (cleanOfficial + cleanCommunity).take(targetSize)
+        }
+        return result.distinctBy { it.id }
+    }
+
+    suspend fun fetchLanguagePlaylistShelves(language: String, forceRefresh: Boolean = false): List<InnerTubeShelf> = withContext(Dispatchers.IO) {
+        val cleanLang = SupportedLanguages.getLanguageByName(language).name
+        val cacheKey = cleanLang.lowercase()
+
+        // 1. In-memory cache check
+        if (!forceRefresh) {
+            val memCached = languageShelvesMemoryCache[cacheKey]
+            if (memCached != null && (System.currentTimeMillis() - memCached.first) < LANGUAGE_PLAYLISTS_CACHE_TTL_MS && memCached.second.isNotEmpty()) {
+                return@withContext memCached.second
+            }
+            // 2. Disk cache check
+            val diskCached = readLanguageShelvesFromDisk(cleanLang, allowExpired = false)
             if (diskCached.isNotEmpty()) {
-                languagePlaylistsMemoryCache[cacheKey] = diskCached
+                languageShelvesMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), diskCached)
                 return@withContext diskCached
             }
         }
 
-        // 3. Fetch authentic official YouTube Music playlists
+        val regional = getRegionalLanguageInfo(cleanLang)
+        val industry = regional.industry
+        val artists = regional.spotlightArtists
+
+        // Parallel query executor
+        suspend fun fetchPlaylistsForQueries(vararg queries: String): List<InnerTubePlaylist> = coroutineScope {
+            val validQueries = queries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            val deferreds = validQueries.map { q ->
+                async {
+                    ensureActive()
+                    runCatching {
+                        innerTube.searchPlaylists(q)
+                    }.getOrDefault(emptyList())
+                }
+            }
+            val combined = deferreds.flatMap { it.await() }
+            combined.filterNot { isVideoShelf(it.title, it.subtitle) }.distinctBy { it.id }
+        }
+
         try {
-            val query = "$lang Hits"
-            val results = innerTube.searchPlaylists(query)
-            val valid = results.filterNot { isVideoShelf(it.title, it.subtitle) }
-            if (valid.isNotEmpty()) {
-                languagePlaylistsMemoryCache[cacheKey] = valid
-                saveLanguagePlaylistsToDisk(lang, valid)
-                return@withContext valid
+            val shelves = coroutineScope {
+                // Shelf 1: "Featured playlists for you"
+                val featuredOfficialQueries = mutableListOf<String>()
+                if (!industry.equals(cleanLang, ignoreCase = true)) {
+                    featuredOfficialQueries.add("$industry Dance Essentials")
+                    featuredOfficialQueries.add("$industry Hitlist")
+                    featuredOfficialQueries.add("$industry Party")
+                    featuredOfficialQueries.add("$industry Hits")
+                }
+                featuredOfficialQueries.add("$cleanLang Dance Essentials")
+                featuredOfficialQueries.add("$cleanLang Hitlist")
+                featuredOfficialQueries.add("$cleanLang Hits")
+                featuredOfficialQueries.add("$cleanLang Essentials")
+                artists.take(4).forEach { artist ->
+                    val trimmed = artist.trim()
+                    if (trimmed.isNotBlank()) {
+                        featuredOfficialQueries.add("Presenting $trimmed")
+                    }
+                }
+                featuredOfficialQueries.add("Presenting $cleanLang")
+
+                val featuredCommunityQueries = if (!industry.equals(cleanLang, ignoreCase = true)) {
+                    listOf(
+                        "$industry Dance Essentials",
+                        "$cleanLang Hits",
+                        "$cleanLang Best Songs",
+                        "Top Weekly Songs $cleanLang",
+                        "$cleanLang Melody Hits",
+                        "$industry Party"
+                    )
+                } else {
+                    listOf(
+                        "$cleanLang Dance Essentials",
+                        "$cleanLang Hits",
+                        "$cleanLang Best Songs",
+                        "Top Weekly Songs $cleanLang",
+                        "$cleanLang Melody Hits",
+                        "$cleanLang Party"
+                    )
+                }
+
+                val cleanFeaturedOfficialQueries = featuredOfficialQueries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                val cleanFeaturedCommunityQueries = featuredCommunityQueries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+                val featuredOfficialDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        innerTube.searchOfficialCardPlaylists(cleanFeaturedOfficialQueries)
+                    }.getOrDefault(emptyList())
+                }
+                val featuredCommunityDeferred = async {
+                    ensureActive()
+                    fetchPlaylistsForQueries(*cleanFeaturedCommunityQueries.toTypedArray())
+                }
+
+                // Shelf 2: "Trending songs for you"
+                val trendingSongsDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        val tracks = innerTube.searchSongs("Top 50 $cleanLang Songs", limit = 20)
+                        ensureActive()
+                        if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Top $cleanLang Songs", limit = 20)
+                    }.getOrDefault(emptyList()).filterNot {
+                        it.itemType.equals("Video", ignoreCase = true) ||
+                        it.title.contains("Official Music Video", ignoreCase = true) ||
+                        it.title.contains("Official Video", ignoreCase = true)
+                    }
+                }
+
+                // Shelf 3: "Brb, Being Nostalgic!"
+                val nostalgicOfficialQueries = if (!industry.equals(cleanLang, ignoreCase = true)) {
+                    listOf(
+                        "00s Unwind $cleanLang",
+                        "00s $industry Romance",
+                        "00s $cleanLang Romance",
+                        "10s $industry Dance Hits",
+                        "10s $cleanLang Dance Hits",
+                        "00s $industry",
+                        "10s $industry",
+                        "90s $industry",
+                        "00s $industry Dance",
+                        "00s $cleanLang",
+                        "10s $cleanLang",
+                        "90s $cleanLang"
+                    )
+                } else {
+                    listOf(
+                        "00s Unwind $cleanLang",
+                        "00s $cleanLang Romance",
+                        "10s $cleanLang Dance Hits",
+                        "00s $cleanLang Dance",
+                        "00s $cleanLang",
+                        "10s $cleanLang",
+                        "90s $cleanLang"
+                    )
+                }
+
+                val nostalgicCommunityQueries = if (!industry.equals(cleanLang, ignoreCase = true)) {
+                    listOf(
+                        "00s $industry Romance",
+                        "00s $cleanLang",
+                        "10s $cleanLang",
+                        "90s $cleanLang",
+                        "00s $cleanLang Romance",
+                        "00s $cleanLang Melody Hits",
+                        "Forgotten Faves $cleanLang",
+                        "90s $industry Hits"
+                    )
+                } else {
+                    listOf(
+                        "00s $cleanLang Romance",
+                        "00s $cleanLang",
+                        "10s $cleanLang",
+                        "90s $cleanLang",
+                        "00s $cleanLang Melody Hits",
+                        "Forgotten Faves $cleanLang",
+                        "90s $cleanLang Hits"
+                    )
+                }
+
+                val cleanNostalgicOfficialQueries = nostalgicOfficialQueries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                val cleanNostalgicCommunityQueries = nostalgicCommunityQueries.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+                val nostalgicOfficialDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        innerTube.searchOfficialCardPlaylists(cleanNostalgicOfficialQueries)
+                    }.getOrDefault(emptyList())
+                }
+                val nostalgicCommunityDeferred = async {
+                    ensureActive()
+                    fetchPlaylistsForQueries(*cleanNostalgicCommunityQueries.toTypedArray())
+                }
+
+                // Shelf 4: "Albums for you"
+                val albumsDeferred = async {
+                    ensureActive()
+                    val albumQueries = if (!industry.equals(cleanLang, ignoreCase = true)) {
+                        listOf("$cleanLang", "$industry New Releases", "$cleanLang New Releases", "$cleanLang Soundtrack")
+                    } else {
+                        listOf("$cleanLang", "$cleanLang New Releases", "$cleanLang Albums", "$cleanLang Soundtrack")
+                    }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+                    val fetchedAlbums = albumQueries.map { q ->
+                        async {
+                            ensureActive()
+                            runCatching { innerTube.searchAlbums(q) }.getOrDefault(emptyList())
+                        }
+                    }.flatMap { it.await() }
+
+                    ensureActive()
+                    val officialAlbumQueries = listOf(
+                        "New Releases only $cleanLang",
+                        "New Releases $cleanLang",
+                        "$cleanLang New Releases"
+                    ).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+                    val officialAlbumCards = runCatching {
+                        innerTube.searchOfficialCardPlaylists(officialAlbumQueries)
+                    }.getOrDefault(emptyList())
+
+                    (officialAlbumCards + fetchedAlbums)
+                        .distinctBy { it.id }
+                        .filterNot { isVideoShelf(it.title, it.subtitle) }
+                }
+
+                val shelfList = mutableListOf<InnerTubeShelf>()
+                val globalSeenIds = mutableSetOf<String>()
+
+                // 1. "Featured playlists for you" (~70% official RDCLAK, ~30% top community)
+                val rawFeaturedOfficial = featuredOfficialDeferred.await()
+                val rawFeaturedCommunity = featuredCommunityDeferred.await()
+                val allFeaturedOfficial = (rawFeaturedOfficial + rawFeaturedCommunity.filter {
+                    it.isOfficial ||
+                    it.id.contains("RDCLAK", ignoreCase = true) ||
+                    it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+                    it.author.contains("YouTube Music", ignoreCase = true)
+                }).distinctBy { it.id }
+                val allFeaturedCommunity = rawFeaturedCommunity.filterNot {
+                    it.isOfficial ||
+                    it.id.contains("RDCLAK", ignoreCase = true) ||
+                    it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+                    it.author.contains("YouTube Music", ignoreCase = true)
+                }.distinctBy { it.id }
+
+                val blendedFeatured = blendPlaylistsRatio(allFeaturedOfficial, allFeaturedCommunity, targetSize = 14)
+                    .filter { globalSeenIds.add(it.id) }
+                if (blendedFeatured.isNotEmpty()) {
+                    shelfList.add(
+                        InnerTubeShelf(
+                            title = "Featured playlists for you",
+                            subtitle = "Curated playlists & mixes in $cleanLang",
+                            playlists = blendedFeatured
+                        )
+                    )
+                }
+
+                // 2. "Trending songs for you" (song shelf with compact list rows)
+                val trendingTracks = trendingSongsDeferred.await()
+                if (trendingTracks.isNotEmpty()) {
+                    shelfList.add(
+                        InnerTubeShelf(
+                            title = "Trending songs for you",
+                            subtitle = "Top songs in $cleanLang",
+                            tracks = trendingTracks
+                        )
+                    )
+                }
+
+                // 3. "Brb, Being Nostalgic!" (decades 00s/10s/90s with ~70% official RDCLAK, ~30% top community)
+                val rawNostalgicOfficial = nostalgicOfficialDeferred.await()
+                val rawNostalgicCommunity = nostalgicCommunityDeferred.await()
+                val allNostalgicOfficial = (rawNostalgicOfficial + rawNostalgicCommunity.filter {
+                    it.isOfficial ||
+                    it.id.contains("RDCLAK", ignoreCase = true) ||
+                    it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+                    it.author.contains("YouTube Music", ignoreCase = true)
+                }).distinctBy { it.id }
+                val allNostalgicCommunity = rawNostalgicCommunity.filterNot {
+                    it.isOfficial ||
+                    it.id.contains("RDCLAK", ignoreCase = true) ||
+                    it.subtitle.contains("YouTube Music", ignoreCase = true) ||
+                    it.author.contains("YouTube Music", ignoreCase = true)
+                }.distinctBy { it.id }
+
+                val blendedNostalgic = blendPlaylistsRatio(allNostalgicOfficial, allNostalgicCommunity, targetSize = 14)
+                    .filter { globalSeenIds.add(it.id) }
+                if (blendedNostalgic.isNotEmpty()) {
+                    shelfList.add(
+                        InnerTubeShelf(
+                            title = "Brb, Being Nostalgic!",
+                            subtitle = "Throwback to the OG eras of music",
+                            playlists = blendedNostalgic
+                        )
+                    )
+                }
+
+                // 4. "Albums for you" (New releases & albums in <Language>)
+                val albums = albumsDeferred.await().filter { globalSeenIds.add(it.id) }
+                if (albums.isNotEmpty()) {
+                    shelfList.add(
+                        InnerTubeShelf(
+                            title = "Albums for you",
+                            subtitle = "New releases in $cleanLang",
+                            playlists = albums
+                        )
+                    )
+                }
+
+                shelfList
+            }
+
+            if (shelves.isNotEmpty()) {
+                val allPlaylists = shelves.flatMap { it.playlists }.distinctBy { it.id }
+                languageShelvesMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), shelves)
+                languagePlaylistsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), allPlaylists)
+                saveLanguageShelvesToDisk(cleanLang, shelves)
+                saveLanguagePlaylistsToDisk(cleanLang, allPlaylists)
+                return@withContext shelves
             }
         } catch (e: Exception) {
-            Log.e(TAG, "fetchLanguagePlaylists failed for $lang", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "fetchLanguagePlaylistShelves failed for $cleanLang", e)
+        }
+
+        // Stale disk cache fallback on network failure or empty response
+        val fallback = readLanguageShelvesFromDisk(cleanLang, allowExpired = true)
+        if (fallback.isNotEmpty()) {
+            val allPlaylists = fallback.flatMap { it.playlists }.distinctBy { it.id }
+            languageShelvesMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), fallback)
+            languagePlaylistsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), allPlaylists)
+            return@withContext fallback
+        }
+
+        emptyList()
+    }
+
+    suspend fun fetchLanguagePlaylists(language: String, forceRefresh: Boolean = false): List<InnerTubePlaylist> = withContext(Dispatchers.IO) {
+        val cleanLang = SupportedLanguages.getLanguageByName(language).name
+        val cacheKey = cleanLang.lowercase()
+
+        // 1. Check in-memory cache
+        if (!forceRefresh) {
+            val cached = languagePlaylistsMemoryCache[cacheKey]
+            if (cached != null && (System.currentTimeMillis() - cached.first) < LANGUAGE_PLAYLISTS_CACHE_TTL_MS && cached.second.isNotEmpty()) {
+                return@withContext cached.second
+            }
+            // 2. Check disk cache
+            val diskCached = readLanguagePlaylistsFromDisk(cleanLang)
+            if (diskCached.isNotEmpty()) {
+                languagePlaylistsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), diskCached)
+                return@withContext diskCached
+            }
+        }
+
+        // 3. Fetch comprehensive authentic playlist shelves and flatten them
+        val shelves = fetchLanguagePlaylistShelves(cleanLang, forceRefresh = forceRefresh)
+        if (shelves.isNotEmpty()) {
+            val playlists = shelves.flatMap { it.playlists }.distinctBy { it.id }
+            if (playlists.isNotEmpty()) {
+                languagePlaylistsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), playlists)
+                saveLanguagePlaylistsToDisk(cleanLang, playlists)
+                return@withContext playlists
+            }
         }
 
         // 4. Stale disk cache fallback on network failure or empty response
-        val fallback = readExpiredLanguagePlaylistsFromDisk(lang)
+        val fallback = readExpiredLanguagePlaylistsFromDisk(cleanLang)
         if (fallback.isNotEmpty()) {
-            languagePlaylistsMemoryCache[cacheKey] = fallback
+            languagePlaylistsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), fallback)
             return@withContext fallback
         }
 
@@ -514,6 +1093,11 @@ class OnlineMusicRepository {
             if (cached != null && (System.currentTimeMillis() - cached.first) < CHARTS_CACHE_TTL_MS && cached.second.isNotEmpty()) {
                 return@withContext cached.second
             }
+            val diskCached = readChartsShelvesFromDisk(cleanLang, allowExpired = false)
+            if (diskCached.isNotEmpty()) {
+                chartsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), diskCached)
+                return@withContext diskCached
+            }
         }
 
         val result = mutableListOf<InnerTubeShelf>()
@@ -527,165 +1111,199 @@ class OnlineMusicRepository {
             }
         }
 
-        coroutineScope {
-            // 1. Language-specific async fetches
-            val langTopSongsDeferred = async {
-                runCatching {
-                    val tracks = innerTube.searchSongs("Top 50 $cleanLang Songs", limit = 25)
-                    if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Top $cleanLang Songs", limit = 25)
-                }.getOrDefault(emptyList())
-            }
-            val langTrendingDeferred = async {
-                runCatching {
-                    val tracks = innerTube.searchSongs("Trending $cleanLang Audio Hits", limit = 25)
-                    if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Trending $cleanLang Songs", limit = 25)
-                }.getOrDefault(emptyList())
-            }
-            val langViralDeferred = async {
-                runCatching {
-                    val tracks = innerTube.searchSongs("Viral $cleanLang 50", limit = 25)
-                    if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Viral 50 $cleanLang", limit = 25)
-                }.getOrDefault(emptyList())
-            }
-            val langPlaylistsChartsDeferred = async {
-                runCatching { innerTube.searchPlaylists("$cleanLang Charts") }.getOrDefault(emptyList())
-            }
-            val langPlaylistsTop100Deferred = async {
-                runCatching { innerTube.searchPlaylists("Top 100 $cleanLang") }.getOrDefault(emptyList())
-            }
+        try {
+            coroutineScope {
+                // 1. Language-specific async fetches
+                val langTopSongsDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        val tracks = innerTube.searchSongs("Top 50 $cleanLang Songs", limit = 25)
+                        ensureActive()
+                        if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Top $cleanLang Songs", limit = 25)
+                    }.getOrDefault(emptyList())
+                }
+                val langTrendingDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        val tracks = innerTube.searchSongs("Trending $cleanLang Audio Hits", limit = 25)
+                        ensureActive()
+                        if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Trending $cleanLang Songs", limit = 25)
+                    }.getOrDefault(emptyList())
+                }
+                val langViralDeferred = async {
+                    ensureActive()
+                    runCatching {
+                        val tracks = innerTube.searchSongs("Viral $cleanLang 50", limit = 25)
+                        ensureActive()
+                        if (tracks.isNotEmpty()) tracks else innerTube.searchSongs("Viral 50 $cleanLang", limit = 25)
+                    }.getOrDefault(emptyList())
+                }
+                val langPlaylistsChartsDeferred = async {
+                    ensureActive()
+                    runCatching { innerTube.searchPlaylists("$cleanLang Charts") }.getOrDefault(emptyList())
+                }
+                val langPlaylistsTop100Deferred = async {
+                    ensureActive()
+                    runCatching { innerTube.searchPlaylists("Top 100 $cleanLang") }.getOrDefault(emptyList())
+                }
 
-            // 2. National / Global async fetches
-            val topGlobalDeferred = async { runCatching { innerTube.searchSongs("Top Global Songs", limit = 25) }.getOrDefault(emptyList()) }
-            val topIndiaDeferred = async { runCatching { innerTube.searchSongs("Top 50 India", limit = 25) }.getOrDefault(emptyList()) }
-            val chartPlaylistsDeferred = async { runCatching { innerTube.searchPlaylists("Top Charts") }.getOrDefault(emptyList()) }
-            val chartsDeferred = async { runCatching { innerTube.getChartsShelves() }.getOrDefault(emptyList()) }
+                // 2. National / Global async fetches
+                val topGlobalDeferred = async {
+                    ensureActive()
+                    runCatching { innerTube.searchSongs("Top Global Songs", limit = 25) }.getOrDefault(emptyList())
+                }
+                val topIndiaDeferred = async {
+                    ensureActive()
+                    runCatching { innerTube.searchSongs("Top 50 India", limit = 25) }.getOrDefault(emptyList())
+                }
+                val chartPlaylistsDeferred = async {
+                    ensureActive()
+                    runCatching { innerTube.searchPlaylists("Top Charts") }.getOrDefault(emptyList())
+                }
+                val chartsDeferred = async {
+                    ensureActive()
+                    runCatching { innerTube.getChartsShelves() }.getOrDefault(emptyList())
+                }
 
-            // 1. "Top $cleanLang Songs"
-            val langTopTracks = langTopSongsDeferred.await().filterNot {
-                it.itemType.equals("Video", ignoreCase = true) ||
-                it.title.contains("Official Music Video", ignoreCase = true) ||
-                it.title.contains("Official Video", ignoreCase = true)
-            }
-            if (langTopTracks.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Top $cleanLang Songs",
-                        subtitle = "Most played audio hits in $cleanLang",
-                        tracks = langTopTracks
-                    )
-                )
-            }
-
-            // 2. "Trending $cleanLang Audio Hits"
-            val langTrendingTracks = langTrendingDeferred.await().filterNot {
-                it.itemType.equals("Video", ignoreCase = true) ||
-                it.title.contains("Official Music Video", ignoreCase = true) ||
-                it.title.contains("Official Video", ignoreCase = true)
-            }
-            if (langTrendingTracks.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Trending $cleanLang Audio Hits",
-                        subtitle = "Popular audio tracks trending in $cleanLang",
-                        tracks = langTrendingTracks
-                    )
-                )
-            }
-
-            // 3. "Viral $cleanLang 50"
-            val langViralTracks = langViralDeferred.await().filterNot {
-                it.itemType.equals("Video", ignoreCase = true) ||
-                it.title.contains("Official Music Video", ignoreCase = true) ||
-                it.title.contains("Official Video", ignoreCase = true)
-            }
-            if (langViralTracks.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Viral $cleanLang 50",
-                        subtitle = "Viral breakout audio tracks in $cleanLang",
-                        tracks = langViralTracks
-                    )
-                )
-            }
-
-            // 4. "$cleanLang Chart Playlists"
-            val langPlaylists = (langPlaylistsChartsDeferred.await() + langPlaylistsTop100Deferred.await())
-                .distinctBy { it.id }
-                .filterNot { isVideoShelf(it.title, it.subtitle) }
-            if (langPlaylists.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "$cleanLang Chart Playlists",
-                        subtitle = "Curated official chart playlists in $cleanLang",
-                        playlists = langPlaylists
-                    )
-                )
-            }
-
-            // 5. "Top Global Songs"
-            val topGlobalTracks = topGlobalDeferred.await().filterNot {
-                it.itemType.equals("Video", ignoreCase = true) ||
-                it.title.contains("Official Music Video", ignoreCase = true) ||
-                it.title.contains("Official Video", ignoreCase = true)
-            }
-            if (topGlobalTracks.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Top Global Songs",
-                        subtitle = "Most played audio tracks worldwide",
-                        tracks = topGlobalTracks
-                    )
-                )
-            }
-
-            // 6. "Top 50 India"
-            val topIndiaTracks = topIndiaDeferred.await().filterNot {
-                it.itemType.equals("Video", ignoreCase = true) ||
-                it.title.contains("Official Music Video", ignoreCase = true) ||
-                it.title.contains("Official Video", ignoreCase = true)
-            }
-            if (topIndiaTracks.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Top 50 India",
-                        subtitle = "Biggest audio hits trending across India",
-                        tracks = topIndiaTracks
-                    )
-                )
-            }
-
-            // 7. "Top Chart Playlists"
-            val chartPlaylists = chartPlaylistsDeferred.await().filterNot { isVideoShelf(it.title, it.subtitle) }
-            if (chartPlaylists.isNotEmpty()) {
-                addShelfIfNew(
-                    InnerTubeShelf(
-                        title = "Top Chart Playlists",
-                        subtitle = "Official chart rankings & curated hit collections",
-                        playlists = chartPlaylists
-                    )
-                )
-            }
-
-            // 8. Additional clean audio shelves from InnerTube charts browse
-            val rawCharts = chartsDeferred.await()
-            val cleanRawShelves = rawCharts.filterNot { isVideoShelf(it.title, it.subtitle) }
-                .map { shelf ->
-                    shelf.copy(
-                        playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) },
-                        tracks = shelf.tracks.filterNot {
-                            it.itemType.equals("Video", ignoreCase = true) ||
-                            it.title.contains("Official Music Video", ignoreCase = true) ||
-                            it.title.contains("Official Video", ignoreCase = true)
-                        }
+                // 1. "Trending songs for you"
+                val langTopTracks = langTopSongsDeferred.await().filterNot {
+                    it.itemType.equals("Video", ignoreCase = true) ||
+                    it.title.contains("Official Music Video", ignoreCase = true) ||
+                    it.title.contains("Official Video", ignoreCase = true)
+                }
+                if (langTopTracks.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Trending songs for you",
+                            subtitle = "Most played audio hits in $cleanLang",
+                            tracks = langTopTracks
+                        )
                     )
                 }
-                .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
 
-            cleanRawShelves.forEach { addShelfIfNew(it) }
+                // 2. "Trending $cleanLang Audio Hits"
+                val langTrendingTracks = langTrendingDeferred.await().filterNot {
+                    it.itemType.equals("Video", ignoreCase = true) ||
+                    it.title.contains("Official Music Video", ignoreCase = true) ||
+                    it.title.contains("Official Video", ignoreCase = true)
+                }
+                if (langTrendingTracks.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Trending $cleanLang Audio Hits",
+                            subtitle = "Popular audio tracks trending in $cleanLang",
+                            tracks = langTrendingTracks
+                        )
+                    )
+                }
+
+                // 3. "Viral $cleanLang 50"
+                val langViralTracks = langViralDeferred.await().filterNot {
+                    it.itemType.equals("Video", ignoreCase = true) ||
+                    it.title.contains("Official Music Video", ignoreCase = true) ||
+                    it.title.contains("Official Video", ignoreCase = true)
+                }
+                if (langViralTracks.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Viral $cleanLang 50",
+                            subtitle = "Viral breakout audio tracks in $cleanLang",
+                            tracks = langViralTracks
+                        )
+                    )
+                }
+
+                // 4. "$cleanLang Chart Playlists"
+                val langPlaylists = (langPlaylistsChartsDeferred.await() + langPlaylistsTop100Deferred.await())
+                    .distinctBy { it.id }
+                    .filterNot { isVideoShelf(it.title, it.subtitle) }
+                if (langPlaylists.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "$cleanLang Chart Playlists",
+                            subtitle = "Curated official chart playlists in $cleanLang",
+                            playlists = langPlaylists
+                        )
+                    )
+                }
+
+                // 5. "Top Global Songs"
+                val topGlobalTracks = topGlobalDeferred.await().filterNot {
+                    it.itemType.equals("Video", ignoreCase = true) ||
+                    it.title.contains("Official Music Video", ignoreCase = true) ||
+                    it.title.contains("Official Video", ignoreCase = true)
+                }
+                if (topGlobalTracks.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Top Global Songs",
+                            subtitle = "Most played audio tracks worldwide",
+                            tracks = topGlobalTracks
+                        )
+                    )
+                }
+
+                // 6. "Top 50 India"
+                val topIndiaTracks = topIndiaDeferred.await().filterNot {
+                    it.itemType.equals("Video", ignoreCase = true) ||
+                    it.title.contains("Official Music Video", ignoreCase = true) ||
+                    it.title.contains("Official Video", ignoreCase = true)
+                }
+                if (topIndiaTracks.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Top 50 India",
+                            subtitle = "Biggest audio hits trending across India",
+                            tracks = topIndiaTracks
+                        )
+                    )
+                }
+
+                // 7. "Top Chart Playlists"
+                val chartPlaylists = chartPlaylistsDeferred.await().filterNot { isVideoShelf(it.title, it.subtitle) }
+                if (chartPlaylists.isNotEmpty()) {
+                    addShelfIfNew(
+                        InnerTubeShelf(
+                            title = "Top Chart Playlists",
+                            subtitle = "Official chart rankings & curated hit collections",
+                            playlists = chartPlaylists
+                        )
+                    )
+                }
+
+                // 8. Additional clean audio shelves from InnerTube charts browse
+                val rawCharts = chartsDeferred.await()
+                val cleanRawShelves = rawCharts.filterNot { isVideoShelf(it.title, it.subtitle) }
+                    .map { shelf ->
+                        shelf.copy(
+                            playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) },
+                            tracks = shelf.tracks.filterNot {
+                                it.itemType.equals("Video", ignoreCase = true) ||
+                                it.title.contains("Official Music Video", ignoreCase = true) ||
+                                it.title.contains("Official Video", ignoreCase = true)
+                            }
+                        )
+                    }
+                    .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
+
+                cleanRawShelves.forEach { addShelfIfNew(it) }
+            }
+
+            if (result.isNotEmpty()) {
+                chartsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), result)
+                saveChartsShelvesToDisk(cleanLang, result)
+                return@withContext result
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "fetchChartsShelves failed for $cleanLang", e)
         }
 
-        if (result.isNotEmpty()) {
-            chartsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), result)
+        // Stale disk cache fallback on network failure or empty response
+        val fallback = readChartsShelvesFromDisk(cleanLang, allowExpired = true)
+        if (fallback.isNotEmpty()) {
+            chartsMemoryCache[cacheKey] = Pair(System.currentTimeMillis(), fallback)
+            return@withContext fallback
         }
 
         result

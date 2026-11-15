@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -165,6 +166,27 @@ class PlayerViewModel(
     private val _languagePlaylists = kotlinx.coroutines.flow.MutableStateFlow<List<InnerTubePlaylist>>(emptyList())
     val languagePlaylists: kotlinx.coroutines.flow.StateFlow<List<InnerTubePlaylist>> = _languagePlaylists
 
+    private val _languagePlaylistShelves = kotlinx.coroutines.flow.MutableStateFlow<List<InnerTubeShelf>>(emptyList())
+    val languagePlaylistShelves: kotlinx.coroutines.flow.StateFlow<List<InnerTubeShelf>> = _languagePlaylistShelves
+
+    private val _isLanguageLoading = MutableStateFlow(false)
+    val isLanguageLoading: StateFlow<Boolean> = _isLanguageLoading
+
+    private var languagePlaylistsJob: Job? = null
+    private var exploreAndChartsJob: Job? = null
+    private var loadMoreShelvesJob: Job? = null
+    private var lastLanguageLoadRequestTime: Long = 0L
+    private var lastRequestedLanguage: String? = null
+    private var lastExploreLoadRequestTime: Long = 0L
+    private var lastRequestedMood: String? = null
+    private var lastRequestedChartsLang: String? = null
+    private var lastUsedContinuationToken: String? = null
+
+    private var lastLoadedChartsLanguage: String? = null
+    private var lastLoadedMood: String? = null
+    private var lastLoadedLanguagePlaylistsLanguage: String? = null
+    private var prevCollectedLanguage: String? = null
+
     private val _selectedMoodCategory = kotlinx.coroutines.flow.MutableStateFlow<String>("All")
     val selectedMoodCategory: kotlinx.coroutines.flow.StateFlow<String> = _selectedMoodCategory
 
@@ -184,59 +206,146 @@ class PlayerViewModel(
     }
 
     fun loadExploreAndCharts(mood: String = _selectedMoodCategory.value, force: Boolean = false) {
-        if (!force && _exploreShelves.value.isNotEmpty() && _selectedMoodCategory.value == mood) {
-            Log.d("MUESO_EXPLORE", "loadExploreAndCharts skipped (already loaded for $mood)")
+        val currentLang = preferredLanguage.value.trim().ifBlank { "English" }
+        val now = android.os.SystemClock.elapsedRealtime()
+
+        // Guard against duplicate rapid calls for same mood and language while job is in flight
+        if (exploreAndChartsJob?.isActive == true &&
+            mood == lastRequestedMood &&
+            currentLang.equals(lastRequestedChartsLang, ignoreCase = true) &&
+            (now - lastExploreLoadRequestTime < 1500L)) {
+            Log.d("MUESO_EXPLORE", "loadExploreAndCharts duplicate call suppressed for $mood / $currentLang (job already active)")
             return
         }
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+
+        if (!force) {
+            val isSameMood = _selectedMoodCategory.value == mood
+            val isPopulated = if (mood == "All") {
+                _exploreShelves.value.isNotEmpty() &&
+                        _chartsShelves.value.isNotEmpty() &&
+                        lastLoadedMood == "All" &&
+                        lastLoadedChartsLanguage?.equals(currentLang, ignoreCase = true) == true
+            } else {
+                _exploreShelves.value.isNotEmpty() && lastLoadedMood == mood
+            }
+            if (isSameMood && isPopulated) {
+                Log.d("MUESO_EXPLORE", "loadExploreAndCharts skipped (already loaded for $mood and $currentLang)")
+                return
+            }
+        }
+
+        lastRequestedMood = mood
+        lastRequestedChartsLang = currentLang
+        lastExploreLoadRequestTime = now
+
+        exploreAndChartsJob?.cancel()
+        exploreAndChartsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isExploreLoading.value = true
             try {
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
                 Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed, force: $force)")
                 if (mood == "All") {
                     val homeFeedResult = onlineRepository.innerTube.getHomeFeedResult()
+                    ensureActive()
                     val cleanShelves = onlineRepository.filterAudioShelves(homeFeedResult.shelves)
                     _exploreShelves.value = cleanShelves
                     _exploreContinuationToken.value = homeFeedResult.continuationToken
-                    val charts = onlineRepository.fetchChartsShelves(language = preferredLanguage.value, forceRefresh = force)
+                    lastUsedContinuationToken = null
+                    val charts = onlineRepository.fetchChartsShelves(language = currentLang, forceRefresh = force)
+                    ensureActive()
                     _chartsShelves.value = charts
+                    lastLoadedChartsLanguage = currentLang
+                    lastLoadedMood = "All"
                     Log.d("MUESO_EXPLORE", "Loaded authentic home feed shelves (${cleanShelves.size}), continuation: ${homeFeedResult.continuationToken != null}")
-                    loadLanguagePlaylists(preferredLanguage.value, force = force)
+                    // Redundant call to loadLanguagePlaylists removed to prevent duplicate startup / refresh network storm
                 } else {
                     val moodShelves = onlineRepository.fetchMoodShelves(mood)
+                    ensureActive()
                     _exploreShelves.value = moodShelves
                     _exploreContinuationToken.value = null
+                    lastUsedContinuationToken = null
                     _chartsShelves.value = emptyList()
+                    lastLoadedMood = mood
                     Log.d("MUESO_EXPLORE", "Loaded mood shelves (${moodShelves.size}) for $mood")
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("MUESO_EXPLORE", "Failed to load explore and charts", e)
             } finally {
-                _isExploreLoading.value = false
+                if (exploreAndChartsJob == coroutineContext[Job]) {
+                    _isExploreLoading.value = false
+                }
             }
         }
     }
 
     fun loadLanguagePlaylists(language: String = preferredLanguage.value, force: Boolean = false) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val lang = language.trim().ifBlank { "English" }
+        val lang = language.trim().ifBlank { "English" }
+        val isLanguageChanged = !lang.equals(lastLoadedLanguagePlaylistsLanguage, ignoreCase = true)
+        val now = android.os.SystemClock.elapsedRealtime()
+
+        // Guard against duplicate rapid calls for the same language while job is already in flight
+        if (languagePlaylistsJob?.isActive == true &&
+            lang.equals(lastRequestedLanguage, ignoreCase = true) &&
+            (now - lastLanguageLoadRequestTime < 1500L)) {
+            Log.d("MUESO_LANG", "loadLanguagePlaylists duplicate call suppressed for '$lang' (job already active)")
+            return
+        }
+
+        if (!force && !isLanguageChanged && (_languagePlaylists.value.isNotEmpty() || _languagePlaylistShelves.value.isNotEmpty())) {
+            Log.d("MUESO_LANG", "loadLanguagePlaylists skipped (already populated for '$lang')")
+            return
+        }
+
+        lastRequestedLanguage = lang
+        lastLanguageLoadRequestTime = now
+
+        languagePlaylistsJob?.cancel()
+
+        if (force || isLanguageChanged) {
+            _languagePlaylists.value = emptyList()
+            _languagePlaylistShelves.value = emptyList()
+            _isLanguageLoading.value = true
+        } else {
+            _isLanguageLoading.value = true
+        }
+
+        languagePlaylistsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val playlists = onlineRepository.fetchLanguagePlaylists(lang, forceRefresh = force)
+                ensureActive()
+                val shelves = try {
+                    onlineRepository.fetchLanguagePlaylistShelves(lang, forceRefresh = force)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    emptyList()
+                }
+                ensureActive()
                 _languagePlaylists.value = playlists
-                Log.d("MUESO_LANG", "Loaded ${playlists.size} official language playlists for '$lang'")
+                _languagePlaylistShelves.value = shelves
+                lastLoadedLanguagePlaylistsLanguage = lang
+                Log.d("MUESO_LANG", "Loaded ${playlists.size} official language playlists and ${shelves.size} shelves for '$lang'")
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("MUESO_LANG", "Failed to load language playlists for '$lang'", e)
+            } finally {
+                if (languagePlaylistsJob == coroutineContext[Job]) {
+                    _isLanguageLoading.value = false
+                }
             }
         }
     }
 
     fun loadMoreShelves() {
         val token = _exploreContinuationToken.value ?: return
-        if (_isLoadingMoreShelves.value || _isExploreLoading.value) return
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        if (token.isBlank() || token == lastUsedContinuationToken) return
+        if (_isLoadingMoreShelves.value || _isExploreLoading.value || loadMoreShelvesJob?.isActive == true) return
+        lastUsedContinuationToken = token
+        loadMoreShelvesJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isLoadingMoreShelves.value = true
             try {
                 val result = onlineRepository.fetchBrowseContinuation(token)
+                ensureActive()
                 if (result.shelves.isNotEmpty()) {
                     val currentShelves = _exploreShelves.value.toMutableList()
                     val existingTitles = currentShelves.map { it.title.trim().lowercase() }.toSet()
@@ -244,10 +353,12 @@ class PlayerViewModel(
                     currentShelves.addAll(newShelves)
                     _exploreShelves.value = currentShelves
                 }
-                _exploreContinuationToken.value = result.continuationToken
+                _exploreContinuationToken.value = result.continuationToken?.takeIf { it.isNotBlank() }
                 Log.d("MUESO_EXPLORE", "Loaded more shelves (${result.shelves.size}), nextToken: ${result.continuationToken != null}")
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("MUESO_EXPLORE", "Failed to load more shelves", e)
+                _exploreContinuationToken.value = null
             } finally {
                 _isLoadingMoreShelves.value = false
             }
@@ -332,9 +443,21 @@ class PlayerViewModel(
     fun setEnableLyrics(enabled: Boolean) = settingsManager.setEnableLyrics(enabled)
     fun setEmbedLyricsInDownload(enabled: Boolean) = settingsManager.setEmbedLyricsInDownload(enabled)
     fun setPreferredLanguage(language: String) {
-        settingsManager.setPreferredLanguage(language)
+        val trimmed = language.trim()
+        if (trimmed.isBlank()) return
+        if (preferredLanguage.value.equals(trimmed, ignoreCase = true) &&
+            lastLoadedLanguagePlaylistsLanguage?.equals(trimmed, ignoreCase = true) == true &&
+            (_languagePlaylists.value.isNotEmpty() || _languagePlaylistShelves.value.isNotEmpty())) {
+            return
+        }
+        _languagePlaylists.value = emptyList()
+        _languagePlaylistShelves.value = emptyList()
+        _chartsShelves.value = emptyList()
+        _isLanguageLoading.value = true
+        prevCollectedLanguage = trimmed
+        settingsManager.setPreferredLanguage(trimmed)
         playlistManager.clearCuratedCache()
-        loadLanguagePlaylists(language, force = true)
+        loadLanguagePlaylists(trimmed, force = true)
         loadExploreAndCharts(force = true)
     }
     fun setPlayButtonPosition(position: String) = settingsManager.setPlayButtonPosition(position)
@@ -633,6 +756,9 @@ class PlayerViewModel(
 
     fun setSpotifyImportOpen(isOpen: Boolean) {
         _isSpotifyImportOpen.value = isOpen
+        if (!isOpen) {
+            resetSpotifyImport()
+        }
     }
 
     fun fetchSpotifyPlaylist(context: android.content.Context, url: String) = spotifyImportManager.fetchAndMatch(context, url)
@@ -1085,13 +1211,21 @@ class PlayerViewModel(
         observeMediaEvents()
         youtubeAuthManager.onSessionChanged = {
             loadExploreAndCharts(force = true)
-            loadLanguagePlaylists(force = true)
+            loadLanguagePlaylists(preferredLanguage.value, force = true)
         }
-        loadExploreAndCharts()
+        loadExploreAndCharts(force = true)
+        loadLanguagePlaylists(preferredLanguage.value, force = true)
+        prevCollectedLanguage = preferredLanguage.value.trim()
         viewModelScope.launch {
             preferredLanguage.collect { lang ->
-                loadLanguagePlaylists(lang)
-                loadExploreAndCharts(force = true)
+                val current = lang.trim()
+                if (prevCollectedLanguage != null && !prevCollectedLanguage.equals(current, ignoreCase = true)) {
+                    prevCollectedLanguage = current
+                    loadLanguagePlaylists(current, force = true)
+                    loadExploreAndCharts(force = true)
+                } else {
+                    prevCollectedLanguage = current
+                }
             }
         }
         NotificationHelper.onPlayDownloadedTrackRequested = { filePath ->

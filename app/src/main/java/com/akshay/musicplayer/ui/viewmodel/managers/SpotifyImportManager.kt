@@ -11,6 +11,7 @@ import com.akshay.musicplayer.data.remote.SpotifyPlaylistData
 import com.akshay.musicplayer.data.remote.SpotifyTrackInfo
 import com.akshay.musicplayer.domain.models.TrackEntity
 import com.akshay.musicplayer.media.notification.NotificationHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -181,6 +183,10 @@ class SpotifyImportManager(
 
             // Search YT for each track sequentially
             for (i in playlistData.tracks.indices) {
+                if (!isActive) {
+                    Log.d(TAG, "Import matching cancelled")
+                    break
+                }
                 val spotifyTrack = playlistData.tracks[i]
                 val cleanTitle = OnlineMusicRepository.cleanTitleForLyrics(spotifyTrack.title)
                 val primaryArtist = OnlineMusicRepository.getPrimaryArtist(spotifyTrack.artist)
@@ -220,12 +226,20 @@ class SpotifyImportManager(
                     } else {
                         Log.d(TAG, "  ✗ No match found for \"$query\"")
                     }
+                } catch (e: CancellationException) {
+                    Log.d(TAG, "Import matching cancelled during search for \"$query\"")
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "  ✗ Search error for \"$query\"", e)
                     _matchResults.value = _matchResults.value.toMutableList().also { list ->
                         list[i] = list[i].copy(isSearching = false)
                     }
                 }
+            }
+
+            if (!isActive) {
+                Log.d(TAG, "Import matching job is no longer active, aborting completion")
+                return@launch
             }
 
             _matchProgress.value = playlistData.tracks.size
@@ -436,6 +450,10 @@ class SpotifyImportManager(
             _importState.value = SpotifyImportState.MatchingTracks
 
             for (i in newTracks.indices) {
+                if (!isActive) {
+                    Log.d(TAG, "Sync matching cancelled")
+                    break
+                }
                 val spotifyTrack = newTracks[i]
                 val cleanTitle = OnlineMusicRepository.cleanTitleForLyrics(spotifyTrack.title)
                 val primaryArtist = OnlineMusicRepository.getPrimaryArtist(spotifyTrack.artist)
@@ -472,12 +490,20 @@ class SpotifyImportManager(
                     } else {
                         Log.d(TAG, "  ✗ No match found for sync track \"$query\"")
                     }
+                } catch (e: CancellationException) {
+                    Log.d(TAG, "Sync matching cancelled during search for \"$query\"")
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Search error for \"$query\"", e)
                     _matchResults.value = _matchResults.value.toMutableList().also { list ->
                         list[i] = list[i].copy(isSearching = false)
                     }
                 }
+            }
+
+            if (!isActive) {
+                Log.d(TAG, "Sync matching job is no longer active, aborting completion")
+                return@launch
             }
 
             _matchProgress.value = newTracks.size
@@ -589,6 +615,7 @@ class SpotifyImportManager(
 
     fun reset() {
         importJob?.cancel()
+        importJob = null
         lastContext?.let { NotificationHelper.dismissImportNotification(it) }
         _importState.value = SpotifyImportState.Idle
         _spotifyPlaylistData.value = null
