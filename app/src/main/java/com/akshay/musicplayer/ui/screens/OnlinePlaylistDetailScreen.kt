@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet
+import com.akshay.musicplayer.ui.components.EqualizerBarsAnimation
 
 private val BgDark: Color
     @Composable
@@ -110,6 +111,10 @@ fun OnlinePlaylistDetailScreen(
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val itemHeightPx = with(LocalDensity.current) { 68.dp.toPx() }
+
+    val playbackState by viewModel?.playbackState?.collectAsState() ?: remember { mutableStateOf(null) }
+    val currentPlayingId = playbackState?.currentTrackId
+    val isPlaybackPlaying = playbackState?.isPlaying == true
 
     val downloadStates by viewModel?.downloadStates?.collectAsState() ?: remember { mutableStateOf(emptyMap()) }
     val activeDownloads = remember(downloadStates, displayTracks) {
@@ -854,11 +859,13 @@ fun OnlinePlaylistDetailScreen(
             } else {
                 itemsIndexed(filteredTracks, key = { _, trk -> trk.id }) { index, track ->
                     val isDragging = draggedIndex == index
+                    val isPlaying = isPlaybackPlaying && track.id == currentPlayingId
 
                     OnlineTrackListItem(
                         index = index + 1,
                         totalCount = filteredTracks.size,
                         track = track,
+                        isPlaying = isPlaying,
                         isCustomUserPlaylist = isCustomUserPlaylist,
                         isDarkMode = isDarkMode,
                         isDragging = isDragging,
@@ -1099,6 +1106,7 @@ private fun OnlineTrackListItem(
     index: Int,
     totalCount: Int,
     track: TrackEntity,
+    isPlaying: Boolean = false,
     isCustomUserPlaylist: Boolean,
     isDarkMode: Boolean,
     isDragging: Boolean = false,
@@ -1131,14 +1139,27 @@ private fun OnlineTrackListItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Track number
-        Text(
-            text = "$index",
-            color = textSub,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.width(24.dp)
-        )
+        // Track number or animated equalizer visualizer
+        if (isPlaying) {
+            Box(
+                modifier = Modifier.width(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                EqualizerBarsAnimation(
+                    color = AccentOrange,
+                    maxHeight = 14.dp,
+                    barWidth = 2.5.dp
+                )
+            }
+        } else {
+            Text(
+                text = "$index",
+                color = textSub,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.width(24.dp)
+            )
+        }
 
         // Thumbnail artwork
         Box(
@@ -1161,9 +1182,9 @@ private fun OnlineTrackListItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = textColor,
+                color = if (isPlaying) AccentOrange else textColor,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1174,6 +1195,17 @@ private fun OnlineTrackListItem(
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // Duration
+        if (track.duration > 0) {
+            val mins = (track.duration / 1000) / 60
+            val secs = (track.duration / 1000) % 60
+            Text(
+                text = "%d:%02d".format(mins, secs),
+                color = textSub,
+                fontSize = 12.sp
             )
         }
 

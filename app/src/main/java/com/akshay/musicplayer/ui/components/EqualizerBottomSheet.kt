@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +19,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlin.math.roundToInt
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -95,7 +101,22 @@ fun EqualizerBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = sheetBg,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (isDarkMode || isPureBlack) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.20f))
+                )
+            }
+        }
     ) {
         Column(
             modifier = Modifier
@@ -310,6 +331,63 @@ fun EqualizerBottomSheet(
                         letterSpacing = 1.sp
                     )
 
+                    // Real-Time Acoustic Spline Response Curve
+                    if (bandFreqs.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF181824) else Color(0xFFE4E4EE))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val w = size.width
+                                val h = size.height
+                                val points = bandFreqs.mapIndexed { idx, _ ->
+                                    val level = bandLevels.getOrNull(idx) ?: 0
+                                    val totalRange = (maxLevelDb - minLevelDb).coerceAtLeast(1)
+                                    val frac = ((level - minLevelDb).toFloat() / totalRange).coerceIn(0f, 1f)
+                                    val x = if (bandFreqs.size > 1) idx * (w / (bandFreqs.size - 1)) else w / 2f
+                                    val y = h - (frac * h)
+                                    androidx.compose.ui.geometry.Offset(x, y)
+                                }
+
+                                if (points.size >= 2) {
+                                    val strokePath = Path()
+                                    val fillPath = Path()
+                                    strokePath.moveTo(points.first().x, points.first().y)
+                                    fillPath.moveTo(points.first().x, h)
+                                    fillPath.lineTo(points.first().x, points.first().y)
+
+                                    for (i in 0 until points.size - 1) {
+                                        val p0 = points[i]
+                                        val p1 = points[i + 1]
+                                        val cx = (p0.x + p1.x) / 2f
+                                        strokePath.cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                                        fillPath.cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                                    }
+
+                                    fillPath.lineTo(points.last().x, h)
+                                    fillPath.close()
+
+                                    val curveAlpha = if (isEqEnabled && !isBitPerfectEnabled) 0.35f else 0.10f
+                                    drawPath(
+                                        path = fillPath,
+                                        brush = Brush.verticalGradient(
+                                            listOf(accent.copy(alpha = curveAlpha), Color.Transparent)
+                                        )
+                                    )
+                                    drawPath(
+                                        path = strokePath,
+                                        color = if (isEqEnabled && !isBitPerfectEnabled) accent else Color.Gray.copy(alpha = 0.4f),
+                                        style = Stroke(width = 2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Horizontal display with wide, finger-friendly vertical touch faders
                     Row(
                         modifier = Modifier
@@ -492,6 +570,7 @@ private fun EqualizerFaderBar(
         "$freqHz"
     }
 
+    val haptic = LocalHapticFeedback.current
     val totalRange = (maxDb - minDb).coerceAtLeast(1)
     val fraction = ((levelDb - minDb).toFloat() / totalRange).coerceIn(0f, 1f)
 
@@ -532,8 +611,12 @@ private fun EqualizerFaderBar(
                         val availableTravel = (size.height - thumbHeightPx).coerceAtLeast(1f)
                         val touchY = (offset.y - thumbHeightPx / 2f).coerceIn(0f, availableTravel)
                         val frac = 1f - (touchY / availableTravel)
-                        val newLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
-                        onLevelChange(newLevel)
+                        val rawLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
+                        val targetLevel = if (rawLevel in -1..1) 0 else rawLevel
+                        if (targetLevel == 0 && levelDb != 0) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onLevelChange(targetLevel)
                     }
                 }
                 .pointerInput(enabled, minDb, maxDb) {
@@ -544,8 +627,12 @@ private fun EqualizerFaderBar(
                         val availableTravel = (size.height - thumbHeightPx).coerceAtLeast(1f)
                         val touchY = (change.position.y - thumbHeightPx / 2f).coerceIn(0f, availableTravel)
                         val frac = 1f - (touchY / availableTravel)
-                        val newLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
-                        onLevelChange(newLevel)
+                        val rawLevel = (minDb + frac * totalRange).roundToInt().coerceIn(minDb, maxDb)
+                        val targetLevel = if (rawLevel in -1..1) 0 else rawLevel
+                        if (targetLevel == 0 && levelDb != 0) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onLevelChange(targetLevel)
                     }
                 },
             contentAlignment = Alignment.Center

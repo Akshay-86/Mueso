@@ -769,4 +769,52 @@ class BackupManager(
             }
         }
     }
+
+    fun deleteBackup(context: Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val email = _googleAccountEmail.value ?: _googleAccount.value?.email
+        if (email.isNullOrBlank()) {
+            onResult(false, "Not signed in to Google")
+            return
+        }
+        if (_isBackupInProgress.value || _isRestoreInProgress.value) {
+            onResult(false, "Operation already in progress")
+            return
+        }
+        _isBackupInProgress.value = true
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val driveRepo = GoogleDriveBackupRepository(context)
+                val result = driveRepo.deleteBackup(email)
+
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        _lastBackupTimestamp.value = 0L
+                        _lastBackupSizeBytes.value = 0L
+                        _hasUnbackedUpChanges.value = true
+                        sharedPreferences.edit()
+                            .putLong("last_backup_timestamp", 0L)
+                            .putLong("last_backup_size_bytes", 0L)
+                            .putBoolean("has_unbacked_up_changes", true)
+                            .apply()
+                        onResult(true, "Cloud backup deleted successfully")
+                    } else {
+                        onResult(false, result.exceptionOrNull()?.message ?: "Failed to delete backup")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, e.message ?: "Failed to delete backup")
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    _isBackupInProgress.value = false
+                }
+            }
+        }
+    }
+
+    fun deleteBackup(onResult: (Boolean, String) -> Unit) {
+        deleteBackup(com.akshay.musicplayer.AppContainer.getContext(), onResult)
+    }
 }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -42,15 +43,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,6 +95,46 @@ fun DockedMiniPlayer(
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
+    val haptic = LocalHapticFeedback.current
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    val gestureModifier = Modifier.pointerInput(track.id) {
+        detectDragGestures(
+            onDragStart = {
+                dragOffsetX = 0f
+                dragOffsetY = 0f
+            },
+            onDrag = { change, dragAmount ->
+                change.consume()
+                dragOffsetX += dragAmount.x
+                dragOffsetY += dragAmount.y
+            },
+            onDragEnd = {
+                val absX = kotlin.math.abs(dragOffsetX)
+                val absY = kotlin.math.abs(dragOffsetY)
+                if (absX < 20f && absY < 20f) {
+                    onExpandClick()
+                } else if (dragOffsetY < -45f && absY > absX) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onExpandClick()
+                } else if (dragOffsetX > 55f && absX > absY) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPreviousClick()
+                } else if (dragOffsetX < -55f && absX > absY) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onNextClick()
+                }
+                dragOffsetX = 0f
+                dragOffsetY = 0f
+            },
+            onDragCancel = {
+                dragOffsetX = 0f
+                dragOffsetY = 0f
+            }
+        )
+    }
+
     val miniPlayerShape = RoundedCornerShape(22.dp)
     val boxModifier = modifier
         .fillMaxWidth()
@@ -102,7 +148,6 @@ fun DockedMiniPlayer(
         .border(1.dp, borderColor, miniPlayerShape)
         .clip(miniPlayerShape)
         .background(bgColor)
-        .clickable(onClick = onExpandClick)
 
     Box(
         modifier = boxModifier
@@ -126,75 +171,83 @@ fun DockedMiniPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Artwork thumbnail
-                val miniArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
-                    when {
-                        !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
-                        track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
-                            "content://media/external/audio/media/${track.id}"
-                        track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
-                        track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
-                        else -> null
-                    }
-                }
-                SmartArtworkImage(
-                    artworkUrl = miniArtUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    thumbnailQuality = "Medium (480p)",
+                // Artwork thumbnail & Track Info with Swipe Gesture
+                Row(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Track Title, Artist, and Mini Quality Badge
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
+                        .weight(1f)
+                        .then(gestureModifier),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = track.title,
-                        color = textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
+                    // Artwork thumbnail
+                    val miniArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
+                        when {
+                            !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
+                            track.id > 0L && !track.filePath.startsWith("online:") && !track.filePath.startsWith("http") ->
+                                "content://media/external/audio/media/${track.id}"
+                            track.filePath.isNotBlank() && !track.filePath.startsWith("online:") -> track.filePath
+                            track.albumId > 0L -> "content://media/external/audio/albumart/${track.albumId}"
+                            else -> null
+                        }
+                    }
+                    SmartArtworkImage(
+                        artworkUrl = miniArtUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        thumbnailQuality = "Medium (480p)",
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Track Title, Artist, and Mini Quality Badge
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = track.artist,
-                            color = textSecondary,
-                            fontSize = 12.sp,
+                            text = track.title,
+                            color = textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.basicMarquee()
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = track.artist,
+                                color = textSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
 
-                        // Quality badge
-                        if (audioFormat != null) {
-                            val badgeColor = when {
-                                audioFormat.isHiRes -> Color(0xFFFFB300)
-                                audioFormat.isLossless -> Color(0xFF00E5FF)
-                                else -> accent
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(badgeColor.copy(alpha = 0.15f))
-                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    text = if (audioFormat.isLossless) "FLAC" else "HQ",
-                                    color = badgeColor,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            // Quality badge
+                            if (audioFormat != null) {
+                                val badgeColor = when {
+                                    audioFormat.isHiRes -> Color(0xFFFFB300)
+                                    audioFormat.isLossless -> Color(0xFF00E5FF)
+                                    else -> accent
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(badgeColor.copy(alpha = 0.15f))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = if (audioFormat.isLossless) "FLAC" else "HQ",
+                                        color = badgeColor,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -203,20 +256,19 @@ fun DockedMiniPlayer(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // Playback Control Buttons (Previous, Play/Pause, Next)
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     IconButton(
                         onClick = onPreviousClick,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous",
                             tint = textPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
 
@@ -232,7 +284,7 @@ fun DockedMiniPlayer(
                         onClick = onPlayPauseClick,
                         interactionSource = playInteractionSource,
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(44.dp)
                             .graphicsLayer {
                                 scaleX = playScale
                                 scaleY = playScale
@@ -242,7 +294,7 @@ fun DockedMiniPlayer(
                     ) {
                         if (playbackState.isBuffering && playbackState.isPlaying) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(20.dp),
                                 color = accent,
                                 strokeWidth = 2.dp
                             )
@@ -259,7 +311,7 @@ fun DockedMiniPlayer(
                                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (isPlaying) "Pause" else "Play",
                                     tint = accent,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
                         }
@@ -267,13 +319,13 @@ fun DockedMiniPlayer(
 
                     IconButton(
                         onClick = onNextClick,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = textPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

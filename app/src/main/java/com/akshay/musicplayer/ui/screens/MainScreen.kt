@@ -4,6 +4,10 @@ package com.akshay.musicplayer.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -27,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -90,6 +95,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
 
     var showSettingsScreen by remember { mutableStateOf(false) }
     val hasUnbackedUpChanges by viewModel.hasUnbackedUpChanges.collectAsState()
+    val isBackupInProgress by viewModel.isBackupInProgress.collectAsState()
     val googleAccount by viewModel.googleAccount.collectAsState()
 
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
@@ -491,6 +497,8 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         }
                     },
                     googleAccount = googleAccount,
+                    hasUnbackedUpChanges = hasUnbackedUpChanges,
+                    isBackupInProgress = isBackupInProgress,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
             }
@@ -1076,11 +1084,33 @@ fun TopNavigationBarWithSearch(
     onQueryChange: (String) -> Unit,
     onSettingsClick: () -> Unit = {},
     googleAccount: com.google.android.gms.auth.api.signin.GoogleSignInAccount? = null,
+    hasUnbackedUpChanges: Boolean = false,
+    isBackupInProgress: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
     val isPlayerPage = if (isDualMode) (currentPage == 1 || currentPage == 2) else (currentPage == 1)
     val isPlayerPageNoTrackLightMode = isPlayerPage && !isDarkMode && !hasTrackPlaying
+
+    val syncPulseTransition = rememberInfiniteTransition(label = "syncPulse")
+    val syncPulseAlpha by syncPulseTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(750, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "syncPulseAlpha"
+    )
+
+    val syncStatusColor = when {
+        googleAccount == null -> Color.Transparent
+        isBackupInProgress -> AccentOrange
+        hasUnbackedUpChanges -> Color(0xFFFFB300)
+        else -> Color(0xFF4CAF50)
+    }
+
+    val activeHaloColor = if (isBackupInProgress) syncStatusColor.copy(alpha = syncPulseAlpha) else syncStatusColor
 
     val textColor = when {
         isPlayerPageNoTrackLightMode -> Color(0xFF1D1D1F)
@@ -1147,8 +1177,17 @@ fun TopNavigationBarWithSearch(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .size(38.dp)
+                            .then(
+                                if (googleAccount != null) {
+                                    Modifier.border(
+                                        width = 2.dp,
+                                        color = activeHaloColor,
+                                        shape = CircleShape
+                                    )
+                                } else Modifier
+                            )
+                            .clip(CircleShape)
                             .clickable(
                                 onClick = onSettingsClick,
                                 onClickLabel = "Open Settings and Profile"
@@ -1160,15 +1199,15 @@ fun TopNavigationBarWithSearch(
                                 model = googleAccount.photoUrl,
                                 contentDescription = "Settings and Profile",
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .size(32.dp)
+                                    .clip(CircleShape)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Settings",
                                 tint = if (isPlayerPageNoTrackLightMode) Color(0xFF1D1D1F) else AccentOrange,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }

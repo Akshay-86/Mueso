@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshay.musicplayer.domain.models.TrackEntity
+import com.akshay.musicplayer.ui.components.EqualizerBarsAnimation
 import com.akshay.musicplayer.data.db.PlaylistEntity
 import com.akshay.musicplayer.ui.state.PlayerUiState
 import com.akshay.musicplayer.ui.viewmodel.PlayerViewModel
@@ -254,6 +255,7 @@ private fun AllSongsTab(
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val playbackState by viewModel.playbackState.collectAsState()
     var isAudioGranted by remember { mutableStateOf(PermissionHelper.isAudioPermissionGranted(context)) }
     val audioPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -455,8 +457,10 @@ private fun AllSongsTab(
                         contentPadding = PaddingValues(bottom = bottomPadding)
                     ) {
                         itemsIndexed(sortedTracks) { index, track ->
+                            val isPlaying = playbackState.isPlaying && playbackState.currentTrackId == track.id
                             TrackListItem(
                                 track = track,
+                                isPlaying = isPlaying,
                                 isDarkMode = isDarkMode,
                                 onClick = { onTrackClick(sortedTracks, index) },
                                 onAddToPlaylist = { onAddToPlaylist(track) },
@@ -671,6 +675,7 @@ private fun SortChip(
 @Composable
 fun TrackListItem(
     track: TrackEntity,
+    isPlaying: Boolean = false,
     isDarkMode: Boolean = true,
     onClick: () -> Unit,
     onAddToPlaylist: () -> Unit,
@@ -728,15 +733,29 @@ fun TrackListItem(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.50f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EqualizerBarsAnimation(
+                        color = Color.White,
+                        maxHeight = 16.dp,
+                        barWidth = 2.5.dp
+                    )
+                }
+            }
         }
 
         // Track info
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (isPlaying) AccentOrange else MaterialTheme.colorScheme.onBackground,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

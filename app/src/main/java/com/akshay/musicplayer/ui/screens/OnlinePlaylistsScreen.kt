@@ -29,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -270,15 +271,40 @@ fun OnlinePlaylistsScreen(
                                 .clickable {
                                     viewModel.selectMoodCategory(mood)
                                 }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = mood,
-                                color = chipTextColor,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val moodIcon = when (mood.lowercase()) {
+                                    "all" -> Icons.Default.Explore
+                                    "chill" -> Icons.Default.Spa
+                                    "workout" -> Icons.Default.FitnessCenter
+                                    "energize" -> Icons.Default.Bolt
+                                    "feel good" -> Icons.Default.SentimentSatisfied
+                                    "romance" -> Icons.Default.Favorite
+                                    "focus" -> Icons.Default.Psychology
+                                    "party" -> Icons.Default.Celebration
+                                    "sleep" -> Icons.Default.Bedtime
+                                    "commute" -> Icons.Default.DirectionsCar
+                                    "gaming" -> Icons.Default.SportsEsports
+                                    else -> Icons.Default.MusicNote
+                                }
+                                Icon(
+                                    imageVector = moodIcon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color.White else AccentColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = mood,
+                                    color = chipTextColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
@@ -1263,17 +1289,18 @@ fun OnlineSongCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(6.dp)
-                    .size(28.dp)
+                    .padding(8.dp)
+                    .size(36.dp)
+                    .shadow(6.dp, CircleShape, spotColor = AccentColor)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f)),
+                    .background(AccentColor),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.PlayArrow,
                     contentDescription = "Play",
                     tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -1285,7 +1312,7 @@ fun OnlineSongCard(
             color = textPrimary,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
 
@@ -1471,17 +1498,18 @@ fun CustomPlaylistCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .size(28.dp)
+                        .padding(8.dp)
+                        .size(36.dp)
+                        .shadow(6.dp, CircleShape, spotColor = AccentColor)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.65f)),
+                        .background(AccentColor),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -1494,7 +1522,7 @@ fun CustomPlaylistCard(
             color = textPrimary,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
 

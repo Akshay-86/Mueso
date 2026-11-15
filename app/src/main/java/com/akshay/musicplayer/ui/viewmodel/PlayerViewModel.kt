@@ -487,6 +487,8 @@ class PlayerViewModel(
     fun connectAndBackupGoogleAccount(context: android.content.Context, email: String, onResult: (Boolean, String) -> Unit) = backupManager.connectAndBackupGoogleAccount(context, email, onResult)
     fun performDriveBackup(context: android.content.Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) = backupManager.performDriveBackup(context, onResult)
     fun performDriveRestore(context: android.content.Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) = backupManager.performDriveRestore(context, onResult)
+    fun deleteBackup(onResult: (Boolean, String) -> Unit = { _, _ -> }) = backupManager.deleteBackup(onResult)
+    fun deleteBackup(context: android.content.Context, onResult: (Boolean, String) -> Unit = { _, _ -> }) = backupManager.deleteBackup(context, onResult)
     fun signOutGoogle(context: android.content.Context) = backupManager.signOutGoogle(context)
 
     fun getTrackBackgroundBias(track: com.akshay.musicplayer.domain.models.TrackEntity?): Float {

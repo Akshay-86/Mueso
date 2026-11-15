@@ -1,9 +1,22 @@
 package com.akshay.musicplayer.ui.components
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -13,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +85,7 @@ fun AddToPlaylistBottomSheet(
     val offlinePlaylists by viewModel.playlists.collectAsState()
 
     var selectedFilter by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
     var showCreateDialogType by remember { mutableStateOf<String?>(null) } // "online", "local", "youtube"
     var showCreateChoiceDialog by remember { mutableStateOf(false) }
 
@@ -182,55 +199,36 @@ fun AddToPlaylistBottomSheet(
         list
     }
 
+    // Filter items by search query
+    val filteredItems = remember(allItems, searchQuery) {
+        if (searchQuery.isBlank()) allItems
+        else allItems.filter { item ->
+            when (item) {
+                is PlaylistItemWrapper.YouTube -> item.playlist.title.contains(searchQuery, ignoreCase = true)
+                is PlaylistItemWrapper.CustomOnline -> item.playlist.name.contains(searchQuery, ignoreCase = true)
+                is PlaylistItemWrapper.Local -> item.playlist.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = sheetBg,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Spacer(modifier = Modifier.height(12.dp))
                 Box(
                     modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
+                        .size(width = 36.dp, height = 4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(if (isDarkMode) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.2f))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.20f))
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Add to Playlist",
-                    color = textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                if (track != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${track.title} • ${track.artist}",
-                        color = AccentOrange,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                } else if (effectiveTracks.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${effectiveTracks.size} tracks selected",
-                        color = AccentOrange,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
             }
         }
     ) {
@@ -240,96 +238,148 @@ fun AddToPlaylistBottomSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp)
         ) {
-            // Filter Categories
-            val filterOptions = mutableListOf("All")
-            if (isYouTubeLoggedIn) filterOptions.add("YouTube")
-            filterOptions.add("Online")
-            filterOptions.add("Local")
+            // Header Row: Title & Close Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Add to Playlist",
+                    color = textPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = textSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Track info preview capsule
+            if (track != null || effectiveTracks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                TrackPreviewCapsule(
+                    track = track ?: effectiveTracks.firstOrNull(),
+                    trackCount = effectiveTracks.size,
+                    accentColor = AccentOrange,
+                    isDarkMode = isDarkMode,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Inline Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text(
+                        "Search playlists...",
+                        color = textSecondary,
+                        fontSize = 13.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = textSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentOrange.copy(alpha = 0.5f),
+                    unfocusedBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f),
+                    focusedContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f),
+                    unfocusedContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.02f),
+                    focusedTextColor = textPrimary,
+                    unfocusedTextColor = textPrimary
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Category filter chips with animated icons & spring scale feedback
+            val filterOptions = mutableListOf<Triple<String, Int, ImageVector>>()
+            filterOptions.add(Triple("All", allItems.size, Icons.AutoMirrored.Filled.QueueMusic))
+            if (isYouTubeLoggedIn) {
+                filterOptions.add(Triple("YouTube", youtubeUserPlaylists.size, Icons.Default.CloudQueue))
+            }
+            filterOptions.add(Triple("Online", onlinePlaylists.size, Icons.Default.Stream))
+            filterOptions.add(Triple("Local", offlinePlaylists.size, Icons.Default.Folder))
 
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                items(filterOptions) { filter ->
+                items(filterOptions) { (filter, count, icon) ->
                     val isSelected = selectedFilter == filter
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                if (isSelected) AccentOrange
-                                else if (isDarkMode) Color.White.copy(alpha = 0.08f)
-                                else Color.Black.copy(alpha = 0.05f)
-                            )
-                            .clickable { selectedFilter = filter }
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = when (filter) {
-                                "All" -> "All (${allItems.size})"
-                                "YouTube" -> "YouTube Music (${youtubeUserPlaylists.size})"
-                                "Online" -> "Online Playlists (${onlinePlaylists.size})"
-                                "Local" -> "Local Playlists (${offlinePlaylists.size})"
-                                else -> filter
-                            },
-                            color = if (isSelected) Color.White else textPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
+                    CategoryFilterChip(
+                        label = filter,
+                        count = count,
+                        icon = icon,
+                        isSelected = isSelected,
+                        activeColor = AccentOrange,
+                        isDarkMode = isDarkMode,
+                        textPrimary = textPrimary,
+                        onClick = { selectedFilter = filter }
+                    )
                 }
             }
 
-            // Create New Playlist Option Card
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(AccentOrange.copy(alpha = 0.15f))
-                    .clickable {
-                        when (selectedFilter) {
-                            "YouTube" -> showCreateDialogType = "youtube"
-                            "Online" -> showCreateDialogType = "online"
-                            "Local" -> showCreateDialogType = "local"
-                            else -> showCreateChoiceDialog = true
-                        }
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Elevated 'Create New Playlist' Card with Accent Gradient Icon and Spring Interaction
+            CreatePlaylistElevatedCard(
+                selectedFilter = selectedFilter,
+                accentColor = AccentOrange,
+                cardBg = cardBg,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                isDarkMode = isDarkMode,
+                onClick = {
+                    when (selectedFilter) {
+                        "YouTube" -> showCreateDialogType = "youtube"
+                        "Online" -> showCreateDialogType = "online"
+                        "Local" -> showCreateDialogType = "local"
+                        else -> showCreateChoiceDialog = true
                     }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(AccentOrange),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Create New Playlist",
-                        color = textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = when (selectedFilter) {
-                            "YouTube" -> "Create on YouTube Music"
-                            "Online" -> "Create Online Playlist"
-                            "Local" -> "Create Local Device Playlist"
-                            else -> "YouTube, Online, or Device playlist"
-                        },
-                        color = textSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-            }
+            )
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            if (allItems.isEmpty()) {
+            if (filteredItems.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -338,14 +388,15 @@ fun AddToPlaylistBottomSheet(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                            imageVector = if (searchQuery.isNotBlank()) Icons.Default.SearchOff else Icons.AutoMirrored.Filled.PlaylistAdd,
                             contentDescription = null,
                             tint = textSecondary,
                             modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = if (selectedFilter == "YouTube" && !isYouTubeLoggedIn) "Sign in to YouTube Music to view your playlists"
+                            text = if (searchQuery.isNotBlank()) "No playlists matching \"$searchQuery\""
+                            else if (selectedFilter == "YouTube" && !isYouTubeLoggedIn) "Sign in to YouTube Music to view your playlists"
                             else "No playlists found in this category",
                             color = textSecondary,
                             fontSize = 14.sp
@@ -354,7 +405,7 @@ fun AddToPlaylistBottomSheet(
                 }
             } else {
                 Text(
-                    text = "Choose Destination Playlist",
+                    text = if (searchQuery.isNotBlank()) "Search Results (${filteredItems.size})" else "Choose Destination Playlist",
                     color = textSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -365,7 +416,7 @@ fun AddToPlaylistBottomSheet(
                     modifier = Modifier.heightIn(max = 340.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(allItems) { item ->
+                    items(filteredItems) { item ->
                         when (item) {
                             is PlaylistItemWrapper.YouTube -> {
                                 YouTubePlaylistItemRow(
@@ -375,6 +426,7 @@ fun AddToPlaylistBottomSheet(
                                     cardBg = cardBg,
                                     textPrimary = textPrimary,
                                     textSecondary = textSecondary,
+                                    isDarkMode = isDarkMode,
                                     onDismiss = onDismiss
                                 )
                             }
@@ -387,6 +439,7 @@ fun AddToPlaylistBottomSheet(
                                     cardBg = cardBg,
                                     textPrimary = textPrimary,
                                     textSecondary = textSecondary,
+                                    isDarkMode = isDarkMode,
                                     onDismiss = onDismiss
                                 )
                             }
@@ -399,12 +452,338 @@ fun AddToPlaylistBottomSheet(
                                     cardBg = cardBg,
                                     textPrimary = textPrimary,
                                     textSecondary = textSecondary,
+                                    isDarkMode = isDarkMode,
                                     onDismiss = onDismiss
                                 )
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackPreviewCapsule(
+    track: TrackEntity?,
+    trackCount: Int,
+    accentColor: Color,
+    isDarkMode: Boolean,
+    textPrimary: Color,
+    textSecondary: Color
+) {
+    if (track == null && trackCount == 0) return
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isDarkMode) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f),
+        border = BorderStroke(
+            1.dp,
+            if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (trackCount > 1) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(accentColor.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "$trackCount tracks selected",
+                        color = textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Adding multi-track selection",
+                        color = textSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(accentColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Batch",
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else if (track != null) {
+                val artworkUrl = track.artworkUrl ?: if (track.filePath.startsWith("online:")) {
+                    val vid = track.filePath.removePrefix("online:")
+                    if (vid.isNotBlank()) "https://i.ytimg.com/vi/$vid/hqdefault.jpg" else null
+                } else if (track.albumId > 0) {
+                    "content://media/external/audio/albumart/${track.albumId}"
+                } else null
+
+                if (!artworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = artworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(accentColor.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        color = textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = track.artist,
+                        color = textSecondary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(accentColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Track",
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryFilterChip(
+    label: String,
+    count: Int,
+    icon: ImageVector,
+    isSelected: Boolean,
+    activeColor: Color,
+    isDarkMode: Boolean,
+    textPrimary: Color,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.93f else if (isSelected) 1.04f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "ChipScale_$label"
+    )
+
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) Color.White else textPrimary,
+        label = "ChipTextColor_$label"
+    )
+
+    Box(
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (isSelected) activeColor
+                else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                else Color.Black.copy(alpha = 0.05f)
+            )
+            .border(
+                width = 1.dp,
+                color = if (isSelected) activeColor.copy(alpha = 0.6f)
+                else if (isDarkMode) Color.White.copy(alpha = 0.1f)
+                else Color.Black.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val iconScale by animateFloatAsState(
+                targetValue = if (isSelected) 1.15f else 1f,
+                animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                label = "ChipIconScale_$label"
+            )
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) Color.White
+                else if (isDarkMode) Color.White.copy(alpha = 0.7f)
+                else Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .size(15.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    }
+            )
+            Text(
+                text = when (label) {
+                    "All" -> "All ($count)"
+                    "YouTube" -> "YouTube Music ($count)"
+                    "Online" -> "Online ($count)"
+                    "Local" -> "Local ($count)"
+                    else -> "$label ($count)"
+                },
+                color = textColor,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreatePlaylistElevatedCard(
+    selectedFilter: String,
+    accentColor: Color,
+    cardBg: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+        label = "CreatePlaylistCardScale"
+    )
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = RoundedCornerShape(16.dp),
+        color = accentColor.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                accentColor,
+                                accentColor.copy(alpha = 0.75f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Create New Playlist",
+                    color = textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = when (selectedFilter) {
+                        "YouTube" -> "Create on YouTube Music"
+                        "Online" -> "Create Online Playlist with Cloud Sync"
+                        "Local" -> "Create Local Device Playlist"
+                        else -> "YouTube, Online, or Device playlist"
+                    },
+                    color = textSecondary,
+                    fontSize = 11.sp
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                        else Color.Black.copy(alpha = 0.05f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = textSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
@@ -418,6 +797,7 @@ private fun YouTubePlaylistItemRow(
     cardBg: Color,
     textPrimary: Color,
     textSecondary: Color,
+    isDarkMode: Boolean,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -440,12 +820,33 @@ private fun YouTubePlaylistItemRow(
         } else false
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val rowScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "YtRowScale"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .graphicsLayer {
+                scaleX = rowScale
+                scaleY = rowScale
+            }
+            .clip(RoundedCornerShape(14.dp))
             .background(cardBg)
-            .clickable {
+            .border(
+                width = 1.dp,
+                color = if (isAlreadyInYtPlaylist) Color(0xFF34C759).copy(alpha = 0.3f)
+                else (if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
                 if (isAlreadyInYtPlaylist && effectiveTracks.size == 1) {
                     Toast.makeText(context, "Already in \"${ytPlaylist.title}\"", Toast.LENGTH_SHORT).show()
                     onDismiss()
@@ -508,38 +909,69 @@ private fun YouTubePlaylistItemRow(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = if (ytPlaylist.subtitle.isNotBlank()) ytPlaylist.subtitle else "YouTube Music Playlist",
+                    color = textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
                 if (isAlreadyInYtPlaylist) {
                     Text(
-                        text = "(Already added)",
+                        text = "• Already added",
                         color = Color(0xFF34C759),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
-            Text(
-                text = if (ytPlaylist.subtitle.isNotBlank()) ytPlaylist.subtitle else "YouTube Music Playlist",
-                color = textSecondary,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
 
-        if (isAlreadyInYtPlaylist) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Already Added",
-                tint = Color(0xFF34C759),
-                modifier = Modifier.size(20.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.AddCircleOutline,
-                contentDescription = "Add",
-                tint = YouTubeRed,
-                modifier = Modifier.size(20.dp)
-            )
+        AnimatedContent(
+            targetState = isAlreadyInYtPlaylist,
+            transitionSpec = {
+                (scaleIn(spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn())
+                    .togetherWith(scaleOut(targetScale = 0.5f) + fadeOut())
+            },
+            label = "YtCheckmarkAnim"
+        ) { alreadyIn ->
+            if (alreadyIn) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF34C759).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Already Added",
+                        tint = Color(0xFF34C759),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(YouTubeRed.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add",
+                        tint = YouTubeRed,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -552,6 +984,7 @@ private fun CustomOnlinePlaylistItemRow(
     cardBg: Color,
     textPrimary: Color,
     textSecondary: Color,
+    isDarkMode: Boolean,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -564,12 +997,33 @@ private fun CustomOnlinePlaylistItemRow(
         } else false
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val rowScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "CustomOnlineRowScale"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .graphicsLayer {
+                scaleX = rowScale
+                scaleY = rowScale
+            }
+            .clip(RoundedCornerShape(14.dp))
             .background(cardBg)
-            .clickable {
+            .border(
+                width = 1.dp,
+                color = if (isAlreadyInPlaylist) Color(0xFF34C759).copy(alpha = 0.3f)
+                else (if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
                 if (isAlreadyInPlaylist && effectiveTracks.size == 1) {
                     Toast.makeText(context, "Already in \"${onlinePl.name}\"", Toast.LENGTH_SHORT).show()
                     onDismiss()
@@ -620,38 +1074,69 @@ private fun CustomOnlinePlaylistItemRow(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = if (!onlinePl.description.isNullOrBlank()) onlinePl.description else "${userTracks.size} songs",
+                    color = textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
                 if (isAlreadyInPlaylist) {
                     Text(
-                        text = "(Already added)",
+                        text = "• Already added",
                         color = Color(0xFF34C759),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
-            Text(
-                text = if (!onlinePl.description.isNullOrBlank()) onlinePl.description else "${userTracks.size} songs",
-                color = textSecondary,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
 
-        if (isAlreadyInPlaylist) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Already Added",
-                tint = Color(0xFF34C759),
-                modifier = Modifier.size(20.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.AddCircleOutline,
-                contentDescription = "Add",
-                tint = AccentOrange,
-                modifier = Modifier.size(20.dp)
-            )
+        AnimatedContent(
+            targetState = isAlreadyInPlaylist,
+            transitionSpec = {
+                (scaleIn(spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn())
+                    .togetherWith(scaleOut(targetScale = 0.5f) + fadeOut())
+            },
+            label = "CustomOnlineCheckmarkAnim"
+        ) { alreadyIn ->
+            if (alreadyIn) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF34C759).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Already Added",
+                        tint = Color(0xFF34C759),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add",
+                        tint = AccentOrange,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -664,6 +1149,7 @@ private fun LocalPlaylistItemRow(
     cardBg: Color,
     textPrimary: Color,
     textSecondary: Color,
+    isDarkMode: Boolean,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -676,12 +1162,33 @@ private fun LocalPlaylistItemRow(
         } else false
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val rowScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "LocalRowScale"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .graphicsLayer {
+                scaleX = rowScale
+                scaleY = rowScale
+            }
+            .clip(RoundedCornerShape(14.dp))
             .background(cardBg)
-            .clickable {
+            .border(
+                width = 1.dp,
+                color = if (isAlreadyInPlaylist) Color(0xFF34C759).copy(alpha = 0.3f)
+                else (if (isDarkMode) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
                 if (isAlreadyInPlaylist && effectiveTracks.size == 1) {
                     Toast.makeText(context, "Already in \"${localPl.name}\"", Toast.LENGTH_SHORT).show()
                     onDismiss()
@@ -732,42 +1239,72 @@ private fun LocalPlaylistItemRow(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "${localTracks.size} songs",
+                    color = textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
                 if (isAlreadyInPlaylist) {
                     Text(
-                        text = "(Already added)",
+                        text = "• Already added",
                         color = Color(0xFF34C759),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
-            Text(
-                text = "${localTracks.size} songs",
-                color = textSecondary,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
 
-        if (isAlreadyInPlaylist) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Already Added",
-                tint = Color(0xFF34C759),
-                modifier = Modifier.size(20.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.AddCircleOutline,
-                contentDescription = "Add",
-                tint = Color(0xFF34C759),
-                modifier = Modifier.size(20.dp)
-            )
+        AnimatedContent(
+            targetState = isAlreadyInPlaylist,
+            transitionSpec = {
+                (scaleIn(spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn())
+                    .togetherWith(scaleOut(targetScale = 0.5f) + fadeOut())
+            },
+            label = "LocalCheckmarkAnim"
+        ) { alreadyIn ->
+            if (alreadyIn) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF34C759).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Already Added",
+                        tint = Color(0xFF34C759),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF34C759).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add",
+                        tint = Color(0xFF34C759),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
-
 
 @Composable
 fun CreatePlaylistChoiceDialog(
@@ -799,63 +1336,39 @@ fun CreatePlaylistChoiceDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (isYouTubeLoggedIn) {
-                    Surface(
-                        onClick = { onSelectType("youtube") },
-                        shape = RoundedCornerShape(12.dp),
-                        color = cardBg,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.CloudQueue, contentDescription = null, tint = YouTubeRed)
-                            Column {
-                                Text("YouTube Music Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Syncs with your YouTube account", color = textSecondary, fontSize = 11.sp)
-                            }
-                        }
-                    }
+                    ChoiceDialogOption(
+                        title = "YouTube Music Playlist",
+                        subtitle = "Syncs with your YouTube account",
+                        icon = Icons.Default.CloudQueue,
+                        iconTint = YouTubeRed,
+                        cardBg = cardBg,
+                        textPrimary = textPrimary,
+                        textSecondary = textSecondary,
+                        onClick = { onSelectType("youtube") }
+                    )
                 }
 
-                Surface(
-                    onClick = { onSelectType("online") },
-                    shape = RoundedCornerShape(12.dp),
-                    color = cardBg,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.Stream, contentDescription = null, tint = AccentOrange)
-                        Column {
-                            Text("Custom Online Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text("Online streaming playlist with cloud backup", color = textSecondary, fontSize = 11.sp)
-                        }
-                    }
-                }
+                ChoiceDialogOption(
+                    title = "Custom Online Playlist",
+                    subtitle = "Online streaming playlist with cloud backup",
+                    icon = Icons.Default.Stream,
+                    iconTint = AccentOrange,
+                    cardBg = cardBg,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary,
+                    onClick = { onSelectType("online") }
+                )
 
-                Surface(
-                    onClick = { onSelectType("local") },
-                    shape = RoundedCornerShape(12.dp),
-                    color = cardBg,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFF34C759))
-                        Column {
-                            Text("Device Local Playlist", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text("Stored locally on your phone", color = textSecondary, fontSize = 11.sp)
-                        }
-                    }
-                }
+                ChoiceDialogOption(
+                    title = "Device Local Playlist",
+                    subtitle = "Stored locally on your phone",
+                    icon = Icons.Default.LibraryMusic,
+                    iconTint = Color(0xFF34C759),
+                    cardBg = cardBg,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary,
+                    onClick = { onSelectType("local") }
+                )
             }
         },
         confirmButton = {},
@@ -867,3 +1380,56 @@ fun CreatePlaylistChoiceDialog(
     )
 }
 
+@Composable
+private fun ChoiceDialogOption(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    iconTint: Color,
+    cardBg: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "ChoiceOptionScale_$title"
+    )
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = RoundedCornerShape(14.dp),
+        color = cardBg,
+        border = BorderStroke(1.dp, iconTint.copy(alpha = 0.25f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(iconTint.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+            Column {
+                Text(title, color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(subtitle, color = textSecondary, fontSize = 11.sp)
+            }
+        }
+    }
+}

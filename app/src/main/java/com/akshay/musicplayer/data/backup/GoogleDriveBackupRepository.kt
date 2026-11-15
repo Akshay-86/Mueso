@@ -290,4 +290,41 @@ class GoogleDriveBackupRepository(private val context: Context) {
     suspend fun downloadBackup(account: GoogleSignInAccount): Result<MuesoBackupData> {
         return downloadBackup(account.email ?: "")
     }
+
+    suspend fun deleteBackup(email: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAccessToken(email)
+                ?: return@withContext Result.failure(Exception("Failed to get Google OAuth Access Token"))
+            val existingFile = findBackupFile(token)
+            if (existingFile == null) {
+                return@withContext Result.success(true)
+            }
+            val url = "https://www.googleapis.com/drive/v3/files/${existingFile.fileId}"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $token")
+                .delete()
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 401) {
+                    invalidateToken(token)
+                }
+                if (response.code == 200 || response.code == 204 || response.code == 404) {
+                    Result.success(true)
+                } else {
+                    val errorBody = response.body?.string() ?: ""
+                    android.util.Log.e("MUESO_AUTH", "Delete backup failed: code=${response.code}, body=$errorBody")
+                    Result.failure(Exception("Delete backup failed with code ${response.code}: $errorBody"))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteBackup(account: GoogleSignInAccount): Result<Boolean> {
+        return deleteBackup(account.email ?: "")
+    }
 }

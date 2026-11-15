@@ -10,10 +10,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -51,8 +50,8 @@ import com.akshay.musicplayer.ui.theme.LocalAccentColor
 fun PlayerControls(
     playbackState: PlaybackState,
     onPlayPauseClick: () -> Unit,
-    onNextClick: () -> Unit,
-    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit = {},
+    onPreviousClick: () -> Unit = {},
     onSeek: (Long) -> Unit,
     isResolvingTrack: Boolean = false,
     playButtonPosition: String = "Left",
@@ -61,6 +60,7 @@ fun PlayerControls(
     var isSeeking by remember { androidx.compose.runtime.mutableStateOf(false) }
     var userSeekPosition by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var pendingSeekPosition by remember { androidx.compose.runtime.mutableStateOf<Long?>(null) }
+    var showRemainingTime by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     val playInteractionSource = remember { MutableInteractionSource() }
     val isPlayPressed by playInteractionSource.collectIsPressedAsState()
@@ -138,10 +138,35 @@ fun PlayerControls(
             modifier = sliderModifier,
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
-                activeTrackColor = Color.White,
+                activeTrackColor = accentColor,
                 inactiveTrackColor = Color.White.copy(alpha = 0.2f)
             )
         )
+    }
+
+    val timeRow: @Composable (Modifier) -> Unit = { timeModifier ->
+        Row(
+            modifier = timeModifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatTime(playbackState.currentPositionMs),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.7f)
+            )
+            val remainingMs = (playbackState.durationMs - playbackState.currentPositionMs).coerceAtLeast(0L)
+            Text(
+                text = if (showRemainingTime) "-${formatTime(remainingMs)}" else formatTime(playbackState.durationMs),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                    .clickable { showRemainingTime = !showRemainingTime }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -155,58 +180,18 @@ fun PlayerControls(
                     slider(Modifier.weight(1f))
                     playButton()
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 8.dp, end = 60.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = formatTime(playbackState.currentPositionMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                    Text(text = formatTime(playbackState.durationMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                }
+                timeRow(Modifier.padding(start = 8.dp, end = 60.dp))
             }
             "Center" -> {
                 slider(Modifier.fillMaxWidth())
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = formatTime(playbackState.currentPositionMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                    Text(text = formatTime(playbackState.durationMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                }
+                timeRow(Modifier.padding(horizontal = 8.dp))
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onPreviousClick,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous",
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-
                     playButton()
-
-                    IconButton(
-                        onClick = onNextClick,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next",
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
                 }
             }
             else -> { // "Left" (Default)
@@ -218,15 +203,7 @@ fun PlayerControls(
                     playButton()
                     slider(Modifier.weight(1f))
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 60.dp, end = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = formatTime(playbackState.currentPositionMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                    Text(text = formatTime(playbackState.durationMs), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f))
-                }
+                timeRow(Modifier.padding(start = 60.dp, end = 8.dp))
             }
         }
     }

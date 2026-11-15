@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -16,12 +17,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
@@ -159,6 +162,7 @@ fun ClassicPlayerScreen(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var dragSliderValue by remember { mutableFloatStateOf(0f) }
     var pendingSeekPosition by remember { mutableStateOf<Long?>(null) }
+    var showRemainingTime by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(playbackState.currentPositionMs) {
         if (pendingSeekPosition != null && kotlin.math.abs(playbackState.currentPositionMs - pendingSeekPosition!!) <= 1500L) {
@@ -251,15 +255,26 @@ fun ClassicPlayerScreen(
                 }
             }
 
-            // ─── 2. Center: Square Album Artwork ───
+            // ─── 2. Center: Living Breathing Album Artwork Deck ───
+            val artScale by animateFloatAsState(
+                targetValue = if (playbackState.isPlaying) 1.0f else 0.91f,
+                animationSpec = spring(dampingRatio = 0.65f, stiffness = 320f),
+                label = "ArtworkScale"
+            )
+            val artShadowElevation by animateDpAsState(
+                targetValue = if (playbackState.isPlaying) 24.dp else 10.dp,
+                animationSpec = spring(dampingRatio = 0.65f, stiffness = 320f),
+                label = "ArtworkShadow"
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(vertical = 16.dp),
+                    .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val artCorner = 20.dp
+                val artCorner = 24.dp
                 val albumArtUri = remember(track.id, track.artworkUrl, track.albumId, track.filePath) {
                     when {
                         !track.artworkUrl.isNullOrBlank() -> track.artworkUrl
@@ -270,15 +285,38 @@ fun ClassicPlayerScreen(
                         else -> null
                     }
                 }
+
+                // Ambient Radial Glow Bloom behind artwork
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .aspectRatio(1f)
+                        .graphicsLayer {
+                            scaleX = artScale * 1.08f
+                            scaleY = artScale * 1.08f
+                            alpha = if (playbackState.isPlaying) 0.40f else 0.15f
+                        }
+                        .background(
+                            androidx.compose.ui.graphics.Brush.radialGradient(
+                                colors = listOf(accent.copy(alpha = 0.55f), Color.Transparent)
+                            )
+                        )
+                )
+
+                // Main Album Cover
                 SmartArtworkImage(
                     artworkUrl = albumArtUri,
                     contentDescription = "Album Artwork",
                     contentScale = ContentScale.Crop,
                     thumbnailQuality = "Highest (1080p Maxres)",
                     modifier = Modifier
-                        .fillMaxWidth(0.92f)
+                        .fillMaxWidth(0.90f)
                         .aspectRatio(1f)
-                        .shadow(20.dp, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.35f))
+                        .graphicsLayer {
+                            scaleX = artScale
+                            scaleY = artScale
+                        }
+                        .shadow(artShadowElevation, RoundedCornerShape(artCorner), ambientColor = accent.copy(alpha = 0.35f), spotColor = accent.copy(alpha = 0.45f))
                         .clip(RoundedCornerShape(artCorner))
                         .background(if (isDarkMode) Color(0xFF1E1E28) else Color.LightGray)
                         .clickable(
@@ -293,8 +331,8 @@ fun ClassicPlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // Song Info Row
                 Row(
@@ -335,8 +373,37 @@ fun ClassicPlayerScreen(
                     )
                 }
 
-                // Seekbar & Timestamps
+                // Seekbar & Timestamps with Tooltip & Remaining Toggle
                 Column {
+                    // Floating Scrub Delta Tooltip when dragging
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isDraggingSlider) {
+                            val scrubPos = dragSliderValue.toLong()
+                            val deltaMs = scrubPos - playbackState.currentPositionMs
+                            val deltaPrefix = if (deltaMs >= 0) "+" else "-"
+                            val deltaFormatted = "$deltaPrefix${formatTime(kotlin.math.abs(deltaMs))}"
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = accent,
+                                shadowElevation = 4.dp
+                            ) {
+                                Text(
+                                    text = "${formatTime(scrubPos)} ($deltaFormatted)",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
                     val sliderColors = SliderDefaults.colors(
                         thumbColor = accent,
                         activeTrackColor = accent,
@@ -361,7 +428,8 @@ fun ClassicPlayerScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = formatTime(currentPosMs),
@@ -369,11 +437,16 @@ fun ClassicPlayerScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
+                        val remainingMs = (durationMs - currentPosMs).coerceAtLeast(0L)
                         Text(
-                            text = formatTime(durationMs),
+                            text = if (showRemainingTime) "-${formatTime(remainingMs)}" else formatTime(durationMs),
                             color = textSecondary,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { showRemainingTime = !showRemainingTime }
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -389,10 +462,12 @@ fun ClassicPlayerScreen(
 
                     IconButton(
                         onClick = { viewModel.toggleShuffleMode() },
-                        modifier = Modifier.graphicsLayer {
-                            scaleX = shuffleScale
-                            scaleY = shuffleScale
-                        }
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer {
+                                scaleX = shuffleScale
+                                scaleY = shuffleScale
+                            }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
@@ -402,16 +477,19 @@ fun ClassicPlayerScreen(
                         )
                     }
 
-                    IconButton(onClick = { viewModel.playPreviousTrack() }) {
+                    IconButton(
+                        onClick = { viewModel.playPreviousTrack() },
+                        modifier = Modifier.size(52.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous",
                             tint = textPrimary,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(36.dp)
                         )
                     }
 
-                    // Large Hero Play/Pause Button
+                    // Large Hero Play/Pause Button (72dp with radial spring feedback)
                     val heroPlayInteraction = remember { MutableInteractionSource() }
                     val isHeroPressed by heroPlayInteraction.collectIsPressedAsState()
                     val heroScale by animateFloatAsState(
@@ -422,12 +500,12 @@ fun ClassicPlayerScreen(
 
                     Box(
                         modifier = Modifier
-                            .size(68.dp)
+                            .size(72.dp)
                             .graphicsLayer {
                                 scaleX = heroScale
                                 scaleY = heroScale
                             }
-                            .shadow(8.dp, CircleShape, spotColor = accent.copy(alpha = 0.55f))
+                            .shadow(12.dp, CircleShape, spotColor = accent.copy(alpha = 0.55f))
                             .clip(CircleShape)
                             .background(accentGradient),
                         contentAlignment = Alignment.Center
@@ -439,7 +517,7 @@ fun ClassicPlayerScreen(
                         ) {
                             if (playbackState.isBuffering && playbackState.isPlaying) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(32.dp),
+                                    modifier = Modifier.size(34.dp),
                                     color = Color.White,
                                     strokeWidth = 3.dp
                                 )
@@ -456,19 +534,22 @@ fun ClassicPlayerScreen(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = if (isPlaying) "Pause" else "Play",
                                         tint = Color.White,
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(38.dp)
                                     )
                                 }
                             }
                         }
                     }
 
-                    IconButton(onClick = { viewModel.playNextTrack() }) {
+                    IconButton(
+                        onClick = { viewModel.playNextTrack() },
+                        modifier = Modifier.size(52.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = textPrimary,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(36.dp)
                         )
                     }
 
@@ -480,10 +561,12 @@ fun ClassicPlayerScreen(
 
                     IconButton(
                         onClick = { viewModel.cycleRepeatMode(context) },
-                        modifier = Modifier.graphicsLayer {
-                            scaleX = repeatScale
-                            scaleY = repeatScale
-                        }
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer {
+                                scaleX = repeatScale
+                                scaleY = repeatScale
+                            }
                     ) {
                         AnimatedContent(
                             targetState = isRepeatOne,
@@ -503,98 +586,122 @@ fun ClassicPlayerScreen(
                     }
                 }
 
-                // Quick Action Utilities: Lyrics, Sleep, Queue, EQ, Add to Playlist
-                Row(
+                // Elevated Floating Utility Action Pill Dock (Safe >20dp above gesture bar)
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 4.dp)
+                        .padding(bottom = 8.dp)
                 ) {
-                    IconButton(
-                        onClick = { isLyricsVisible = !isLyricsVisible }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lyrics,
-                            contentDescription = "Lyrics",
-                            tint = if (isLyricsVisible) accent else textSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(onClick = { showSleepTimerSheet = true }) {
-                        Icon(
-                            imageVector = Icons.Default.AvTimer,
-                            contentDescription = "Sleep Timer",
-                            tint = textSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(onClick = { showQueueSheet = true }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                            contentDescription = "Queue",
-                            tint = textSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            if (isDownloading) {
-                                viewModel.cancelDownload(track.id)
-                            } else if (!isDownloaded) {
-                                viewModel.downloadOnlineTrack(context, track)
-                            }
+                        IconButton(
+                            onClick = { isLyricsVisible = !isLyricsVisible },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lyrics,
+                                contentDescription = "Lyrics",
+                                tint = if (isLyricsVisible) accent else textSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                    ) {
-                        when {
-                            isDownloading -> {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.size(22.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        progress = { if (downloadProgress > 0f) downloadProgress else 0.5f },
-                                        modifier = Modifier.size(20.dp),
-                                        color = accent,
-                                        strokeWidth = 2.dp
-                                    )
+
+                        IconButton(
+                            onClick = { showSleepTimerSheet = true },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AvTimer,
+                                contentDescription = "Sleep Timer",
+                                tint = textSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showQueueSheet = true },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Queue",
+                                tint = textSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (isDownloading) {
+                                    viewModel.cancelDownload(track.id)
+                                } else if (!isDownloaded) {
+                                    viewModel.downloadOnlineTrack(context, track)
+                                }
+                            },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            when {
+                                isDownloading -> {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            progress = { if (downloadProgress > 0f) downloadProgress else 0.5f },
+                                            modifier = Modifier.size(20.dp),
+                                            color = accent,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Cancel Download",
+                                            tint = accent,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
+                                }
+                                isDownloaded -> {
                                     Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Cancel Download",
-                                        tint = accent,
-                                        modifier = Modifier.size(10.dp)
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Downloaded",
+                                        tint = Color(0xFF4CAF50),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download Song",
+                                        tint = textSecondary,
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                             }
-                            isDownloaded -> {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Downloaded",
-                                    tint = Color(0xFF4CAF50),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            else -> {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = "Download Song",
-                                    tint = textSecondary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
                         }
-                    }
 
-                    IconButton(onClick = { showAddToPlaylistSheet = true }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = "Add to Playlist",
-                            tint = textSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        IconButton(
+                            onClick = { showAddToPlaylistSheet = true },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                contentDescription = "Add to Playlist",
+                                tint = textSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -283,6 +283,39 @@ fun AboutScreen(
                     InfoRow("Build Time", buildTimeFormatted, textPrimary, textSub)
                     HorizontalDivider(color = dividerColor)
                     InfoRow("Android Version", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", textPrimary, textSub)
+                    HorizontalDivider(color = dividerColor)
+
+                    FilledTonalButton(
+                        onClick = {
+                            val specs = """
+                                Mueso Diagnostic Specs:
+                                Version: $appVersion ($gitSha)
+                                Architecture: $supportedAbi
+                                Build Time: $buildTimeFormatted
+                                Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})
+                                Device: ${Build.MANUFACTURER} ${Build.MODEL}
+                            """.trimIndent()
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Mueso Diagnostic Specs", specs))
+                            Toast.makeText(context, "Copied diagnostic specs to clipboard", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Copy Diagnostic Specs",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
 

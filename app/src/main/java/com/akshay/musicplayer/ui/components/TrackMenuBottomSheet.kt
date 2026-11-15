@@ -77,20 +77,35 @@ fun TrackMenuBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = sheetBg,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (isDarkMode) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.20f))
+                )
+            }
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Track Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -110,8 +125,8 @@ fun TrackMenuBottomSheet(
                     contentScale = ContentScale.Crop,
                     thumbnailQuality = "Medium (480p)",
                     modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .background(if (isDarkMode) Color.DarkGray else Color.LightGray)
                 )
 
@@ -136,14 +151,43 @@ fun TrackMenuBottomSheet(
             }
 
             HorizontalDivider(color = dividerColor, thickness = 1.dp)
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-            // Action Items
+            // Semantic Action Items with Category Tinting
+            // 1. Library & Playlists (Accent)
+            TrackMenuItem(
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                title = "Add to Playlist",
+                subtitle = "Save to user or offline collection",
+                tint = accent,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                onClick = {
+                    onDismiss()
+                    onAddToPlaylist()
+                }
+            )
+
+            // 2. Audio & DSP (Purple/Lavender)
+            TrackMenuItem(
+                icon = Icons.Default.GraphicEq,
+                title = "Equalizer & DSP",
+                subtitle = "Bass boost, frequency bands & studio clarity",
+                tint = Color(0xFFAB47BC),
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                onClick = {
+                    onDismiss()
+                    onShowEqualizer()
+                }
+            )
+
+            // 3. Explore & Navigation (Teal)
             TrackMenuItem(
                 icon = Icons.Default.Person,
                 title = "Go to Artist",
                 subtitle = track.artist,
-                tint = accent,
+                tint = Color(0xFF26A69A),
                 textPrimary = textPrimary,
                 textSecondary = textSecondary,
                 onClick = {
@@ -171,7 +215,7 @@ fun TrackMenuBottomSheet(
                     icon = Icons.Default.Album,
                     title = "Go to Album",
                     subtitle = albumTitle,
-                    tint = accent,
+                    tint = Color(0xFF42A5F5),
                     textPrimary = textPrimary,
                     textSecondary = textSecondary,
                     onClick = {
@@ -181,29 +225,22 @@ fun TrackMenuBottomSheet(
                 )
             }
 
+            // 4. Sharing & Social
             TrackMenuItem(
-                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                title = "Add to Playlist",
-                subtitle = "Save to user or offline playlist",
-                tint = accent,
+                icon = Icons.Default.Share,
+                title = "Share Track",
+                subtitle = "Share song details with friends",
+                tint = Color(0xFFFFA726),
                 textPrimary = textPrimary,
                 textSecondary = textSecondary,
                 onClick = {
                     onDismiss()
-                    onAddToPlaylist()
-                }
-            )
-
-            TrackMenuItem(
-                icon = Icons.Default.GraphicEq,
-                title = "Equalizer & DSP",
-                subtitle = "Bass boost, frequency bands & studio clarity",
-                tint = accent,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                onClick = {
-                    onDismiss()
-                    onShowEqualizer()
+                    val sendIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        putExtra(Intent.EXTRA_TEXT, "Listening to \"${track.title}\" by ${track.artist} on Mueso")
+                        type = "text/plain"
+                    }
+                    context.startActivity(Intent.createChooser(sendIntent, "Share Track"))
                 }
             )
         }

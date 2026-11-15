@@ -23,6 +23,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -125,6 +126,8 @@ fun SettingsScreen(
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
+    var showRestoreConfirmDialog by remember { mutableStateOf(false) }
+    var showClearBackupConfirmDialog by remember { mutableStateOf(false) }
 
     val accentColor = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
@@ -226,6 +229,52 @@ fun SettingsScreen(
     }
     androidx.activity.compose.BackHandler(enabled = showAboutPage) {
         showAboutPage = false
+    }
+
+    if (showRestoreConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirmDialog = false },
+            title = {
+                Text("Restore Playlists from Cloud?", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("Restoring from Google Drive will merge cloud playlists with your local library. Any conflicting playlists will be updated to match the cloud version. Continue?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRestoreConfirmDialog = false
+                        viewModel.performDriveRestore(context) { _, msg ->
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Restore Now", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirmDialog = false }) {
+                    Text("Cancel", color = textSub)
+                }
+            },
+            containerColor = cardBg,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    if (showClearBackupConfirmDialog) {
+        ConfirmClearBackupDialog(
+            isDarkMode = isDarkMode,
+            onConfirm = {
+                showClearBackupConfirmDialog = false
+                viewModel.deleteBackup(context) { _, msg ->
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showClearBackupConfirmDialog = false }
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -719,34 +768,61 @@ fun SettingsScreen(
                                         },
                                         enabled = !isBackupInProgress && !isRestoreInProgress,
                                         colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .defaultMinSize(minHeight = 44.dp),
+                                        contentPadding = PaddingValues(vertical = 10.dp)
                                     ) {
                                         if (isBackupInProgress) {
-                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                             Spacer(modifier = Modifier.width(6.dp))
                                         }
-                                        Text("Backup Now", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Backup Now", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
 
                                     OutlinedButton(
                                         onClick = {
-                                            viewModel.performDriveRestore(context) { _, msg ->
-                                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                                            }
+                                            showRestoreConfirmDialog = true
                                         },
                                         enabled = !isBackupInProgress && !isRestoreInProgress,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .defaultMinSize(minHeight = 44.dp),
+                                        contentPadding = PaddingValues(vertical = 10.dp)
                                     ) {
                                         if (isRestoreInProgress) {
-                                            CircularProgressIndicator(color = accentColor, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            CircularProgressIndicator(color = accentColor, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                             Spacer(modifier = Modifier.width(6.dp))
                                         }
-                                        Text("Restore", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Restore", color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                     }
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        showClearBackupConfirmDialog = true
+                                    },
+                                    enabled = !isBackupInProgress && !isRestoreInProgress,
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = Color(0xFFFF453A)
+                                    ),
+                                    border = BorderStroke(1.dp, Color(0xFFFF453A).copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 44.dp),
+                                    contentPadding = PaddingValues(vertical = 10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = Color(0xFFFF453A)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Clear Cloud Backup", color = Color(0xFFFF453A), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -1872,15 +1948,15 @@ private fun AccentColorPickerItem(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .clickable { showCustomDialog = true }
-                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                            .padding(vertical = 4.dp, horizontal = 4.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .border(2.5.dp, Color.White, CircleShape),
+                                .size(width = 64.dp, height = 44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(2.5.dp, Color.White, RoundedCornerShape(14.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(modifier = Modifier.fillMaxSize()) {
@@ -1899,8 +1975,8 @@ private fun AccentColorPickerItem(
                             }
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                                    .size(22.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1924,21 +2000,31 @@ private fun AccentColorPickerItem(
 
             items(ThemePresets.AllPalettes) { palette ->
                 val isSelected = currentAccentId.equals(palette.id, ignoreCase = true)
+                val swatchScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.05f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                    label = "SwatchScale"
+                )
+
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .graphicsLayer {
+                            scaleX = swatchScale
+                            scaleY = swatchScale
+                        }
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable { onAccentSelect(palette.id) }
-                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                        .padding(vertical = 4.dp, horizontal = 4.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
+                            .size(width = 64.dp, height = 44.dp)
+                            .clip(RoundedCornerShape(14.dp))
                             .border(
                                 width = if (isSelected) 2.5.dp else 1.dp,
                                 color = if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)),
-                                shape = CircleShape
+                                shape = RoundedCornerShape(14.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1959,8 +2045,8 @@ private fun AccentColorPickerItem(
                         if (isSelected) {
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                                    .size(22.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1974,10 +2060,12 @@ private fun AccentColorPickerItem(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = palette.name.split(" ").first(),
+                        text = palette.name,
                         color = if (isSelected) activeAccent else textSub,
                         fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -2472,4 +2560,48 @@ private fun SettingsPermissionItem(
             )
         }
     }
+}
+
+@Composable
+fun ConfirmClearBackupDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    isDarkMode: Boolean = true
+) {
+    val isPureBlack = LocalIsPureBlack.current
+    val cardBg = if (isPureBlack) Color(0xFF0D0D0D) else if (isDarkMode) Color(0xFF18181A) else Color(0xFFFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+    val errorColor = Color(0xFFFF453A)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Clear Cloud Backup?", color = textPrimary, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Text(
+                "This will permanently delete your playlist, settings, and lyrics backup from Google Drive. Your local playlists and device settings will not be affected.\n\nAre you sure you want to proceed?",
+                color = textSub,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = errorColor),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Clear Backup", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textSub)
+            }
+        },
+        containerColor = cardBg,
+        shape = RoundedCornerShape(20.dp)
+    )
 }
