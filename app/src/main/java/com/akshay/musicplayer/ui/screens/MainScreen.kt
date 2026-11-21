@@ -3,6 +3,7 @@ package com.akshay.musicplayer.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -171,7 +172,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
 
     androidx.activity.compose.BackHandler(enabled = isSearchActive) {
         isSearchActive = false
-        viewModel.setSearchQuery("")
     }
 
     androidx.activity.compose.BackHandler(enabled = isClassic && classicNavTab != ClassicNavTab.LIBRARY && !isClassicPlayerExpanded && selectedPlaylist == null && selectedArtistPage == null && selectedOnlinePlaylist == null && !isSearchActive && !showSettingsScreen && !isOnlineDetailActive) {
@@ -471,6 +471,21 @@ fun MainScreen(viewModel: PlayerViewModel) {
                 else -> pagerState.currentPage
             }
 
+            // Full-screen scrim when search is active:
+            // Tapping outside the floating search dropdown dismisses search UI without clearing the query
+            if (isSearchActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) {
+                            isSearchActive = false
+                        }
+                )
+            }
+
             if (!shouldHideTopBar) {
                 TopNavigationBarWithSearch(
                     isOnlineActive = isOnlineActive,
@@ -503,21 +518,6 @@ fun MainScreen(viewModel: PlayerViewModel) {
                     hasUnbackedUpChanges = hasUnbackedUpChanges,
                     isBackupInProgress = isBackupInProgress,
                     modifier = Modifier.align(Alignment.TopCenter)
-                )
-            }
-
-            // Scrim when search is active - placed behind search dropdown so outside taps dismiss anywhere
-            if (isSearchActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) {
-                            isSearchActive = false
-                            viewModel.setSearchQuery("")
-                        }
                 )
             }
 
@@ -576,48 +576,42 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         .padding(12.dp)
                 ) {
                     // Search Category Filter Chips
-                    val searchCategories = listOf("All", "Songs", "Videos", "Albums", "Playlists", "Artists")
-                    Row(
+                    val searchCategories = listOf("All", "Songs", "Albums", "Playlists", "Artists")
+                    LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        LazyRow(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(searchCategories) { cat ->
-                                val isSelected = cat.equals(searchCategory, ignoreCase = true)
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(
-                                            if (isSelected) AccentOrange
-                                            else if (isDarkMode) Color.White.copy(alpha = 0.08f)
-                                            else Color.Black.copy(alpha = 0.05f)
-                                        )
-                                        .clickable { viewModel.setSearchCategory(cat) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = cat,
-                                        color = if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-
-                        if (isSearchingOnline) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            CircularProgressIndicator(
-                                color = AccentOrange,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(16.dp)
+                        items(searchCategories) { cat ->
+                            val isSelected = cat.equals(searchCategory, ignoreCase = true)
+                            val chipBg by animateColorAsState(
+                                targetValue = if (isSelected) AccentOrange
+                                else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                                else Color.Black.copy(alpha = 0.05f),
+                                animationSpec = tween(durationMillis = 200),
+                                label = "chipBg"
                             )
+                            val chipTextColor by animateColorAsState(
+                                targetValue = if (isSelected) Color.White else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
+                                animationSpec = tween(durationMillis = 200),
+                                label = "chipTextColor"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(chipBg)
+                                    .clickable { viewModel.setSearchCategory(cat) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = cat,
+                                    color = chipTextColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
                         }
                     }
 
@@ -1019,6 +1013,7 @@ fun MainScreen(viewModel: PlayerViewModel) {
                         isCustomUserPlaylist = pl.isYouTubeUserPlaylist,
                         isDarkMode = isDarkMode,
                         viewModel = viewModel,
+                        artworkUrl = pl.artworkUrl,
                         onDownloadTrack = { track -> viewModel.downloadOnlineTrack(context, track) },
                         onBackClick = { viewModel.closeSelectedOnlinePlaylist() },
                         onPlayAllClick = {

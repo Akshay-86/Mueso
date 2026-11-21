@@ -244,10 +244,10 @@ fun OnlinePlaylistsScreen(
             viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
             viewModel.loadExploreAndCharts(force = true)
         } else {
-            if (exploreShelves.isEmpty() || chartsShelves.isEmpty()) {
+            val isAuto = preferredLanguage.isBlank() || preferredLanguage.equals("Auto", ignoreCase = true) || preferredLanguage.equals("Default", ignoreCase = true)
+            if (exploreShelves.isEmpty() || (!isAuto && chartsShelves.isEmpty())) {
                 viewModel.loadExploreAndCharts(force = false)
             }
-            val isAuto = preferredLanguage.isBlank() || preferredLanguage.equals("Auto", ignoreCase = true) || preferredLanguage.equals("Default", ignoreCase = true)
             if (!isAuto && languagePlaylists.isEmpty() && languagePlaylistShelves.isEmpty()) {
                 viewModel.loadLanguagePlaylists(preferredLanguage, force = false)
             }
@@ -842,26 +842,9 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // Loading Indicator
-            if (isExploreLoading && !isLanguageLoading && displayShelves.isNotEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = AccentColor,
-                            modifier = Modifier.size(36.dp),
-                            strokeWidth = 3.dp
-                        )
-                    }
-                }
-            }
-
-            if (isLoadingMoreShelves) {
-                item {
+            // Paginated continuation loading indicator
+            if (isLoadingMoreShelves && !exploreContinuationToken.isNullOrBlank()) {
+                item(key = "loading_more_shelves_indicator") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1778,7 +1761,8 @@ fun CustomPlaylistCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onSyncSpotify: (() -> Unit)? = null,
-    onLinkSpotify: (() -> Unit)? = null
+    onLinkSpotify: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = null
 ) {
     val tracksFlow = remember(playlist.id) { viewModel.getOnlinePlaylistTracks(playlist.id) }
     val tracks by tracksFlow.collectAsState(initial = emptyList())
@@ -1816,7 +1800,7 @@ fun CustomPlaylistCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
+                    .padding(6.dp)
             ) {
                 val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
                 val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
@@ -1824,18 +1808,20 @@ fun CustomPlaylistCard(
                 val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
                 val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
 
-                IconButton(
-                    onClick = { showMenu = true },
+                Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.50f))
+                        .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)), RoundedCornerShape(8.dp))
+                        .clickable { showMenu = true },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Playlist options",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
@@ -1882,7 +1868,23 @@ fun CustomPlaylistCard(
                         .size(36.dp)
                         .shadow(6.dp, CircleShape, spotColor = AccentColor)
                         .clip(CircleShape)
-                        .background(AccentColor),
+                        .background(AccentColor)
+                        .clickable {
+                            if (onPlay != null) {
+                                onPlay()
+                            } else if (tracks.isNotEmpty()) {
+                                viewModel.playOnlinePlaylist(
+                                    tracks = tracks,
+                                    startIndex = 0,
+                                    playlistInfo = SelectedOnlinePlaylist(
+                                        id = playlist.id.toString(),
+                                        title = playlist.name,
+                                        subtitle = "${tracks.size} track${if (tracks.size != 1) "s" else ""}",
+                                        artworkUrl = playlist.artworkUrl
+                                    )
+                                )
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

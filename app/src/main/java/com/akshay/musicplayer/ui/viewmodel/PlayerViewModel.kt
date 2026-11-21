@@ -220,9 +220,14 @@ class PlayerViewModel(
 
         if (!force) {
             val isSameMood = _selectedMoodCategory.value == mood
+            val isAuto = currentLang.equals("Auto", ignoreCase = true) || currentLang.equals("Default", ignoreCase = true)
             val isPopulated = if (mood == "All") {
-                _exploreShelves.value.isNotEmpty() &&
-                        _chartsShelves.value.isNotEmpty() &&
+                val hasShelves = if (isAuto) {
+                    _exploreShelves.value.isNotEmpty()
+                } else {
+                    _exploreShelves.value.isNotEmpty() && _chartsShelves.value.isNotEmpty()
+                }
+                hasShelves &&
                         lastLoadedMood == "All" &&
                         lastLoadedChartsLanguage?.equals(currentLang, ignoreCase = true) == true
             } else {

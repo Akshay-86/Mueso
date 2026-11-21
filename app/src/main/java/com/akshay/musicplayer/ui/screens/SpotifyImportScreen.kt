@@ -1,9 +1,7 @@
 package com.akshay.musicplayer.ui.screens
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -525,27 +524,12 @@ fun SpotifyImportScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Playlist artwork
-                                Box(
-                                    modifier = Modifier
-                                        .size(68.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(SpotifyGreen.copy(alpha = 0.2f))
-                                        .border(1.dp, SpotifyGreen.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (playlistData!!.artworkUrl != null) {
-                                        com.akshay.musicplayer.ui.components.SmartArtworkImage(
-                                            artworkUrl = playlistData!!.artworkUrl!!,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop,
-                                            thumbnailQuality = "Medium (480p)"
-                                        )
-                                    } else {
-                                        Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = SpotifyGreen, modifier = Modifier.size(32.dp))
-                                    }
-                                }
+                                // Playlist artwork (animated 4-quadrant preview or full playlist art)
+                                SpotifyAnimatedArtworkCard(
+                                    playlistArtworkUrl = playlistData?.artworkUrl,
+                                    matchResults = matchResults,
+                                    isMatching = importState == SpotifyImportState.MatchingTracks
+                                )
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -1562,6 +1546,250 @@ private fun TrackMatchItem(
                             Text("Searching...", color = textSub, fontSize = 12.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Dynamic 4-quadrant artwork card for Spotify import.
+ * When artwork is missing or during track matching, displays a 2x2 collage of real-time
+ * matched song artworks with a smooth looping radar/wave sweep animation across the 4 quadrants.
+ * Seamlessly transitions to the authentic playlist cover art when available.
+ */
+@Composable
+private fun SpotifyAnimatedArtworkCard(
+    playlistArtworkUrl: String?,
+    matchResults: List<TrackMatchResult>,
+    isMatching: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val showQuadrantPreview = isMatching || playlistArtworkUrl.isNullOrBlank()
+
+    val matchedArtworks = remember(matchResults) {
+        matchResults.mapNotNull { it.matchedTrack?.artworkUrl?.takeIf { url -> url.isNotBlank() } }.take(4)
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "SpotifyRadarTransition")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "radarPhase"
+    )
+
+    val borderAlpha = if (isMatching) {
+        0.35f + 0.25f * ((kotlin.math.sin(phase * Math.PI.toFloat()) + 1f) * 0.5f)
+    } else {
+        0.35f
+    }
+
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val cardContainerBg = if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF141416)
+
+    Box(
+        modifier = modifier
+            .size(68.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(cardContainerBg)
+            .border(1.dp, SpotifyGreen.copy(alpha = borderAlpha), RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Crossfade(
+            targetState = showQuadrantPreview,
+            animationSpec = tween(durationMillis = 350),
+            label = "ArtworkPreviewCrossfade"
+        ) { isQuadrant ->
+            if (isQuadrant) {
+                SpotifyQuadrantGrid(
+                    matchedArtworks = matchedArtworks,
+                    phase = if (isMatching) phase else -1f,
+                    isMatching = isMatching
+                )
+            } else {
+                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                    artworkUrl = playlistArtworkUrl ?: "",
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    thumbnailQuality = "Medium (480p)"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyQuadrantGrid(
+    matchedArtworks: List<String>,
+    phase: Float,
+    isMatching: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithContent {
+                drawContent()
+                if (isMatching && phase >= 0f) {
+                    val sweepProgress = phase / 4f
+                    val travelDistance = size.width + size.height + 60f
+                    val currentX = (sweepProgress * travelDistance) - 30f
+                    drawLine(
+                        color = SpotifyGreen.copy(alpha = 0.22f),
+                        start = androidx.compose.ui.geometry.Offset(currentX, -15f),
+                        end = androidx.compose.ui.geometry.Offset(currentX - size.height - 30f, size.height + 15f),
+                        strokeWidth = 14.dp.toPx()
+                    )
+                }
+            }
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                SpotifyQuadrantItem(
+                    index = 0,
+                    artworkUrl = matchedArtworks.getOrNull(0),
+                    phase = phase,
+                    isMatching = isMatching,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+                SpotifyQuadrantItem(
+                    index = 1,
+                    artworkUrl = matchedArtworks.getOrNull(1),
+                    phase = phase,
+                    isMatching = isMatching,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                SpotifyQuadrantItem(
+                    index = 2,
+                    artworkUrl = matchedArtworks.getOrNull(2),
+                    phase = phase,
+                    isMatching = isMatching,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+                SpotifyQuadrantItem(
+                    index = 3,
+                    artworkUrl = matchedArtworks.getOrNull(3),
+                    phase = phase,
+                    isMatching = isMatching,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+            }
+        }
+    }
+}
+
+private fun calculateQuadrantIntensity(phase: Float, index: Int): Float {
+    if (phase < 0f) return 0f
+    // Clockwise order: 0 (TL) -> 1 (TR) -> 3 (BR) -> 2 (BL)
+    val order = when (index) {
+        0 -> 0
+        1 -> 1
+        3 -> 2
+        2 -> 3
+        else -> index
+    }
+    val diff = ((phase - order + 2f) % 4f + 4f) % 4f - 2f
+    return if (diff >= -1f && diff <= 1f) {
+        val cosVal = kotlin.math.cos(diff * (Math.PI / 2.0).toFloat())
+        (cosVal * cosVal).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+}
+
+@Composable
+private fun SpotifyQuadrantItem(
+    index: Int,
+    artworkUrl: String?,
+    phase: Float,
+    isMatching: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val intensity = if (isMatching) calculateQuadrantIntensity(phase, index) else 0f
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val itemBg = if (isPureBlack) Color(0xFF0D0D0D) else Color(0xFF18181B)
+
+    Box(
+        modifier = modifier
+            .background(itemBg)
+            .drawWithContent {
+                drawContent()
+                if (intensity > 0.005f) {
+                    drawRect(color = SpotifyGreen.copy(alpha = 0.30f * intensity))
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.20f * intensity),
+                        radius = size.minDimension * 0.45f
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Crossfade(
+            targetState = artworkUrl,
+            animationSpec = tween(durationMillis = 300),
+            label = "quadrantArt_$index"
+        ) { url ->
+            if (!url.isNullOrBlank()) {
+                com.akshay.musicplayer.ui.components.SmartArtworkImage(
+                    artworkUrl = url,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val scale = 1f + 0.04f * intensity
+                            scaleX = scale
+                            scaleY = scale
+                        },
+                    contentScale = ContentScale.Crop,
+                    thumbnailQuality = "Low (Fast)"
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(SpotifyGreen.copy(alpha = 0.08f + 0.16f * intensity)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MusicNote,
+                        contentDescription = null,
+                        tint = SpotifyGreen.copy(alpha = 0.35f + 0.55f * intensity),
+                        modifier = Modifier
+                            .size(13.dp)
+                            .graphicsLayer {
+                                val scale = 1f + 0.15f * intensity
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                    )
                 }
             }
         }

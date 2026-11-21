@@ -24,6 +24,7 @@ import com.akshay.musicplayer.ui.viewmodel.DownloadProgress
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -532,7 +533,7 @@ fun OnlinePlaylistDetailScreen(
                             )
                         }
 
-                        // Centered Hero 2x2 Collage Cover Art Card
+                        // Centered Hero Cover Art Card
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -540,26 +541,36 @@ fun OnlinePlaylistDetailScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            if (tracks.isNotEmpty()) {
-                                com.akshay.musicplayer.ui.components.PlaylistCollageArt(
-                                    tracks = tracks,
-                                    modifier = Modifier.size(160.dp),
-                                    cornerRadius = 20.dp,
-                                    fallbackGradient = dynamicGradient
-                                )
-                            } else if (!artworkUrl.isNullOrBlank()) {
+                            val effectiveArtworkUrl = remember(artworkUrl, tracks, isCustomUserPlaylist) {
+                                artworkUrl?.takeIf { it.isNotBlank() }
+                                    ?: if (!isCustomUserPlaylist) tracks.firstOrNull { !it.artworkUrl.isNullOrBlank() }?.artworkUrl else null
+                            }
+                            if (!effectiveArtworkUrl.isNullOrBlank()) {
                                 com.akshay.musicplayer.ui.components.SmartArtworkImage(
-                                    artworkUrl = artworkUrl,
+                                    artworkUrl = effectiveArtworkUrl,
                                     contentDescription = title,
                                     modifier = Modifier
                                         .size(160.dp)
+                                        .shadow(
+                                            elevation = 12.dp,
+                                            shape = RoundedCornerShape(20.dp),
+                                            ambientColor = Color.Black.copy(alpha = 0.35f),
+                                            spotColor = Color.Black.copy(alpha = 0.45f)
+                                        )
                                         .clip(RoundedCornerShape(20.dp)),
                                     thumbnailQuality = "Medium (480p)"
                                 )
                             } else {
                                 com.akshay.musicplayer.ui.components.PlaylistCollageArt(
                                     tracks = tracks,
-                                    modifier = Modifier.size(160.dp),
+                                    modifier = Modifier
+                                        .size(160.dp)
+                                        .shadow(
+                                            elevation = 12.dp,
+                                            shape = RoundedCornerShape(20.dp),
+                                            ambientColor = Color.Black.copy(alpha = 0.35f),
+                                            spotColor = Color.Black.copy(alpha = 0.45f)
+                                        ),
                                     cornerRadius = 20.dp,
                                     fallbackGradient = dynamicGradient
                                 )
@@ -629,7 +640,9 @@ fun OnlinePlaylistDetailScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
                             shape = RoundedCornerShape(24.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -649,7 +662,9 @@ fun OnlinePlaylistDetailScreen(
                                 contentColor = textPrimary
                             ),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
                         ) {
                             Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = textPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
