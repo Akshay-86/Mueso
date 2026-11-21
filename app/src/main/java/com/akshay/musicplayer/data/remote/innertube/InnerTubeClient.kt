@@ -1,12 +1,14 @@
 package com.akshay.musicplayer.data.remote.innertube
 
 import android.util.Log
+import com.akshay.musicplayer.ui.viewmodel.managers.SettingsManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,19 +18,23 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class InnerTubeClient(
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
-        .build()
+        .build(),
+    var settingsManager: SettingsManager? = null
 ) {
     companion object {
         private const val TAG = "MUESO_INNERTUBE"
         private const val YTM_BASE_URL = "https://music.youtube.com/youtubei/v1"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        private const val CLIENT_VERSION = "1.20240101.01.00"
+        private const val CLIENT_VERSION = "1.20261117.06.00"
         private const val CLIENT_NAME = "WEB_REMIX"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        private const val PREFS_NAME = "mueso_prefs"
+        private const val KEY_VISITOR_DATA = "visitor_data"
+        private const val KEY_GUEST_PERSONALIZATION = "guest_personalization_enabled"
 
         // Official LastWave InnerTube search filters (base64 protobuf)
         const val SONG_SEARCH_FILTER = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
@@ -37,6 +43,166 @@ class InnerTubeClient(
         const val PLAYLIST_SEARCH_FILTER = "EgWKAQIoAWoKEAkQBRAKEAMQBA=="
     }
 
+    @Volatile
+    private var cachedVisitorData: String? = null
+    @Volatile
+    private var localGuestPersonalizationEnabled: Boolean = false
+
+    private fun getFallbackPrefs(): android.content.SharedPreferences? {
+        return try {
+            com.akshay.musicplayer.AppContainer.getContext().getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    var isGuestPersonalizationEnabled: Boolean
+        get() = settingsManager?.isGuestPersonalizationEnabled?.value
+            ?: getFallbackPrefs()?.getBoolean(KEY_GUEST_PERSONALIZATION, false)
+            ?: localGuestPersonalizationEnabled
+        set(value) {
+            localGuestPersonalizationEnabled = value
+            settingsManager?.setGuestPersonalizationEnabled(value)
+                ?: getFallbackPrefs()?.edit()?.putBoolean(KEY_GUEST_PERSONALIZATION, value)?.apply()
+        }
+
+    fun getVisitorData(): String? {
+        // Always return visitorData when available — it's a session token needed
+        // for continuation requests, not just a personalization feature.
+        val cached = cachedVisitorData
+        if (cached != null) return cached
+        val loaded = settingsManager?.getVisitorData()
+            ?: getFallbackPrefs()?.getString(KEY_VISITOR_DATA, null)
+        cachedVisitorData = loaded
+        return loaded
+    }
+
+    @Synchronized
+    fun setVisitorData(visitorData: String?) {
+        cachedVisitorData = visitorData
+        settingsManager?.setVisitorData(visitorData)
+            ?: run {
+                val prefs = getFallbackPrefs()
+                if (visitorData.isNullOrBlank()) {
+                    prefs?.edit()?.remove(KEY_VISITOR_DATA)?.apply()
+                } else {
+                    prefs?.edit()?.putString(KEY_VISITOR_DATA, visitorData)?.apply()
+                }
+            }
+    }
+
+    @Synchronized
+    fun clearGuestSession() {
+        cachedVisitorData = null
+        settingsManager?.setVisitorData(null)
+        getFallbackPrefs()?.edit()?.remove(KEY_VISITOR_DATA)?.apply()
+        Log.d(TAG, "Cleared anonymous guest session visitor token")
+    }
+
+    fun extractVisitorData(response: okhttp3.Response? = null, json: JSONObject? = null) {
+        // Always extract visitorData — it's a session token needed for continuations
+        val headerToken = response?.header("X-Goog-Visitor-Id")?.takeIf { it.isNotBlank() }
+            ?: response?.header("x-goog-visitor-id")?.takeIf { it.isNotBlank() }
+        val jsonToken = json?.optJSONObject("responseContext")?.optString("visitorData")?.takeIf { it.isNotBlank() }
+        val token = headerToken ?: jsonToken
+        if (!token.isNullOrBlank() && token != cachedVisitorData) {
+            setVisitorData(token)
+            Log.d(TAG, "Captured guest session visitorData: $token")
+        }
+    }
+
+    private val httpClient: OkHttpClient = httpClient.newBuilder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val requestBuilder = original.newBuilder()
+            // Always send visitorData in interceptor — continuations require it
+            val visitor = getVisitorData()
+            if (!visitor.isNullOrBlank() && original.header("X-Goog-Visitor-Id") == null) {
+                requestBuilder.header("X-Goog-Visitor-Id", visitor)
+            }
+            val response = chain.proceed(requestBuilder.build())
+            // Always capture visitorData — continuations require it regardless of personalization
+            val headerToken = response.header("X-Goog-Visitor-Id")?.takeIf { it.isNotBlank() }
+                ?: response.header("x-goog-visitor-id")?.takeIf { it.isNotBlank() }
+            if (!headerToken.isNullOrBlank()) {
+                setVisitorData(headerToken)
+            }
+            response
+        }
+        .build()
+
+    suspend fun reportPlayback(videoId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isGuestPersonalizationEnabled || videoId.isBlank()) return@withContext false
+        try {
+            val payload = JSONObject().apply {
+                put("context", buildContext())
+                put("videoId", videoId)
+                put("playbackContext", JSONObject().apply {
+                    put("contentPlaybackContext", JSONObject().apply {
+                        put("signatureTimestamp", System.currentTimeMillis() / 86_400_000L - 1L)
+                    })
+                })
+            }
+            val request = buildBaseRequest("player", payload)
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "reportPlayback player request failed with code: ${response.code}")
+                    return@withContext false
+                }
+                val bodyStr = response.body?.string() ?: return@withContext false
+                val json = JSONObject(bodyStr)
+                extractVisitorData(response, json)
+
+                val videostatsUrl = json.optJSONObject("playbackTracking")
+                    ?.optJSONObject("videostatsPlaybackUrl")
+                    ?.optString("baseUrl")
+
+                if (!videostatsUrl.isNullOrBlank()) {
+                    sendPlaybackStatsPing(videostatsUrl, videoId)
+                }
+                Log.d(TAG, "Anonymous guest playback reported for videoId: $videoId")
+                return@withContext true
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "Failed to report anonymous guest playback for videoId: $videoId", e)
+            return@withContext false
+        }
+    }
+
+    private fun generateCpn(): String {
+        val chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        return (1..16).map { chars.random() }.joinToString("")
+    }
+
+    private fun sendPlaybackStatsPing(baseUrl: String, videoId: String) {
+        try {
+            val base = baseUrl.toHttpUrlOrNull() ?: return
+            val urlBuilder = base.newBuilder()
+                .setQueryParameter("ver", "2")
+                .setQueryParameter("c", CLIENT_NAME)
+                .setQueryParameter("cpn", generateCpn())
+            val visitor = getVisitorData()
+            if (!visitor.isNullOrBlank()) {
+                urlBuilder.setQueryParameter("visitor_data", visitor)
+            }
+            val requestBuilder = Request.Builder()
+                .url(urlBuilder.build())
+                .header("User-Agent", USER_AGENT)
+                .get()
+            if (!visitor.isNullOrBlank()) {
+                requestBuilder.header("X-Goog-Visitor-Id", visitor)
+            }
+            httpClient.newCall(requestBuilder.build()).execute().use {
+                // Ping response consumed and auto-closed
+            }
+            Log.d(TAG, "Sent anonymous playback stats ping for $videoId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to ping playback tracking URL for $videoId", e)
+        }
+    }
+
+    @Volatile
     private var authCookie: String? = null
 
     fun setAuthCookie(cookie: String?) {
@@ -76,12 +242,18 @@ class InnerTubeClient(
                 put("clientVersion", CLIENT_VERSION)
                 put("hl", language)
                 put("gl", country)
+                // Always include visitorData when available — continuations require it
+                val visitor = getVisitorData()
+                if (!visitor.isNullOrBlank()) {
+                    put("visitorData", visitor)
+                }
             })
         }
     }
 
     private fun buildBaseRequest(endpoint: String, payload: JSONObject): Request {
-        val url = "$YTM_BASE_URL/$endpoint?prettyPrint=false"
+        val separator = if (endpoint.contains("?")) "&" else "?"
+        val url = "$YTM_BASE_URL/$endpoint${separator}prettyPrint=false"
         val requestBuilder = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")
@@ -91,6 +263,12 @@ class InnerTubeClient(
             .header("X-Origin", "https://music.youtube.com")
             .header("X-YouTube-Client-Name", "67")
             .header("X-YouTube-Client-Version", CLIENT_VERSION)
+
+        // Always send visitorData header when available — continuations require it
+        val visitor = getVisitorData()
+        if (!visitor.isNullOrBlank()) {
+            requestBuilder.header("X-Goog-Visitor-Id", visitor)
+        }
 
         val cookie = authCookie
         if (!cookie.isNullOrBlank()) {
@@ -139,6 +317,7 @@ class InnerTubeClient(
                     return@withContext emptyList()
                 }
                 val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
+                extractVisitorData(response, json)
                 return@withContext parseSearchResults(json)
             }
         } catch (e: Exception) {
@@ -410,9 +589,11 @@ class InnerTubeClient(
                     return@withContext emptyList()
                 }
                 val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
+                extractVisitorData(response, json)
                 return@withContext parseRadioResults(json, videoId)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Radio /next request failed for videoId: '$videoId'", e)
             return@withContext emptyList()
         }
@@ -474,19 +655,77 @@ class InnerTubeClient(
 
         try {
             val request = buildBaseRequest("browse", payload)
-            httpClient.newCall(request).execute().use { response ->
+            val initialResult = httpClient.newCall(request).execute().use { response ->
                 ensureActive()
-                if (!response.isSuccessful) return@withContext getExploreResult()
-                val json = JSONObject(response.body?.string() ?: return@withContext getExploreResult())
-                val result = parseBrowseResult(json)
-                if (result.shelves.isNotEmpty()) return@withContext result
-                return@withContext getExploreResult()
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string() ?: return@use null)
+                extractVisitorData(response, json)
+                parseBrowseResult(json)
             }
+            if (initialResult != null && initialResult.shelves.isNotEmpty()) {
+                return@withContext autoHydrateShelves(initialResult)
+            }
+            return@withContext getExploreResult()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "getHomeFeedResult failed, falling back to explore", e)
             return@withContext getExploreResult()
         }
+    }
+
+    private suspend fun autoHydrateShelves(
+        initialResult: InnerTubeBrowseResult,
+        targetShelfCount: Int = 8,
+        maxIterations: Int = 3
+    ): InnerTubeBrowseResult = coroutineScope {
+        if (initialResult.shelves.isEmpty()) return@coroutineScope initialResult
+
+        val accumulated = initialResult.shelves.toMutableList()
+        val seenKeys = mutableSetOf<String>()
+
+        fun computeShelfKey(shelf: InnerTubeShelf): String {
+            val normTitle = shelf.title.trim().lowercase()
+            if (normTitle.isNotBlank()) return normTitle
+            val firstTrackId = shelf.tracks.firstOrNull()?.videoId ?: ""
+            val firstPlId = shelf.playlists.firstOrNull()?.id ?: ""
+            return "$firstTrackId|$firstPlId"
+        }
+
+        accumulated.forEach { shelf ->
+            val key = computeShelfKey(shelf)
+            if (key.isNotBlank()) seenKeys.add(key)
+        }
+
+        var currentContinuation = initialResult.continuationToken
+        var iterations = 0
+
+        while (accumulated.size < targetShelfCount && !currentContinuation.isNullOrBlank() && iterations < maxIterations) {
+            ensureActive()
+            iterations++
+            val contResult = try {
+                getShelvesContinuation(currentContinuation)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.w(TAG, "autoHydrateShelves continuation failed at iteration $iterations", e)
+                break
+            }
+            ensureActive()
+            Log.d(TAG, "autoHydrateShelves iteration $iterations: got ${contResult.shelves.size} shelves, nextToken=${contResult.continuationToken != null}")
+            currentContinuation = contResult.continuationToken
+
+            if (contResult.shelves.isEmpty()) {
+                break
+            }
+
+            for (shelf in contResult.shelves) {
+                val key = computeShelfKey(shelf)
+                if (key.isNotBlank() && seenKeys.add(key) && (shelf.tracks.isNotEmpty() || shelf.playlists.isNotEmpty())) {
+                    accumulated.add(shelf)
+                }
+            }
+        }
+
+        InnerTubeBrowseResult(accumulated, currentContinuation)
     }
 
     suspend fun getHomeFeedShelves(): List<InnerTubeShelf> = getHomeFeedResult().shelves
@@ -499,12 +738,17 @@ class InnerTubeClient(
 
         try {
             val request = buildBaseRequest("browse", payload)
-            httpClient.newCall(request).execute().use { response ->
+            val initialResult = httpClient.newCall(request).execute().use { response ->
                 ensureActive()
-                if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
-                val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
-                return@withContext parseBrowseResult(json)
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string() ?: return@use null)
+                extractVisitorData(response, json)
+                parseBrowseResult(json)
             }
+            if (initialResult != null && initialResult.shelves.isNotEmpty()) {
+                return@withContext autoHydrateShelves(initialResult)
+            }
+            return@withContext initialResult ?: InnerTubeBrowseResult(emptyList(), null)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "getExploreResult failed", e)
@@ -527,6 +771,7 @@ class InnerTubeClient(
                 ensureActive()
                 if (!response.isSuccessful) return@withContext InnerTubeBrowseResult(emptyList(), null)
                 val json = JSONObject(response.body?.string() ?: return@withContext InnerTubeBrowseResult(emptyList(), null))
+                extractVisitorData(response, json)
                 return@withContext parseBrowseResult(json)
             }
         } catch (e: Exception) {
@@ -738,6 +983,7 @@ class InnerTubeClient(
                 return@withContext parseSearchArtists(json)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "searchArtists failed for query: '$query'", e)
             return@withContext emptyList()
         }
@@ -874,6 +1120,7 @@ class InnerTubeClient(
                 return@withContext parseArtistPage(browseId, json)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getArtistPage failed for browseId: '$browseId'", e)
             return@withContext null
         }
@@ -1542,6 +1789,7 @@ class InnerTubeClient(
                 return@withContext fallbackShelves
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getShelvesForMood failed for $mood", e)
         }
         return@withContext getExploreShelves()
@@ -1583,6 +1831,7 @@ class InnerTubeClient(
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.w(TAG, "fetchMoodsAndGenresMap error", e)
         }
         return@withContext map
@@ -1611,9 +1860,15 @@ class InnerTubeClient(
             ?.optJSONObject("sectionListContinuation")
             ?: json.optJSONObject("sectionListContinuation")
 
+        val musicShelfContinuation = json.optJSONObject("continuationContents")
+            ?.optJSONObject("musicShelfContinuation")
+        val carouselContinuation = json.optJSONObject("continuationContents")
+            ?.optJSONObject("musicCarouselShelfContinuation")
+
         val sectionList = sectionListRenderer?.optJSONArray("contents")
             ?: continuationSectionList?.optJSONArray("contents")
-            ?: json.optJSONObject("continuationContents")?.optJSONObject("musicShelfContinuation")?.optJSONArray("contents")
+            ?: musicShelfContinuation?.optJSONArray("contents")
+            ?: carouselContinuation?.optJSONArray("contents")
             ?: return InnerTubeBrowseResult(emptyList(), null)
 
         var continuationToken = sectionListRenderer?.optJSONArray("continuations")
@@ -1622,17 +1877,24 @@ class InnerTubeClient(
             ?: continuationSectionList?.optJSONArray("continuations")
                 ?.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
                 ?.takeIf { it.isNotBlank() }
+            ?: musicShelfContinuation?.optJSONArray("continuations")
+                ?.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
+                ?.takeIf { it.isNotBlank() }
+            ?: carouselContinuation?.optJSONArray("continuations")
+                ?.optJSONObject(0)?.optJSONObject("nextContinuationData")?.optString("continuation")
+                ?.takeIf { it.isNotBlank() }
 
         for (i in 0 until sectionList.length()) {
-            val sectionObj = sectionList.optJSONObject(i) ?: continue
+            val rawSectionObj = sectionList.optJSONObject(i) ?: continue
 
             // Check if this item is a continuationItemRenderer
-            val continuationItem = sectionObj.optJSONObject("continuationItemRenderer")
+            val continuationItem = rawSectionObj.optJSONObject("continuationItemRenderer")
             if (continuationItem != null && continuationToken.isNullOrBlank()) {
                 val endpoint = continuationItem.optJSONObject("continuationEndpoint")
                 val token = endpoint?.optJSONObject("continuationCommand")?.optString("token")
                     ?: endpoint?.optJSONObject("browseContinuationEndpoint")?.optString("continuation")
                     ?: endpoint?.optJSONObject("nextContinuationData")?.optString("continuation")
+                    ?: endpoint?.optString("continuation")
                     ?: continuationItem.optString("continuation")
                 if (!token.isNullOrBlank()) {
                     continuationToken = token
@@ -1640,17 +1902,31 @@ class InnerTubeClient(
                 continue
             }
 
+            val sectionObj = rawSectionObj.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")?.optJSONObject(0)
+                ?: rawSectionObj
+
             val carousel = sectionObj.optJSONObject("musicCarouselShelfRenderer")
             val musicShelf = sectionObj.optJSONObject("musicShelfRenderer")
             val grid = sectionObj.optJSONObject("gridRenderer") ?: sectionObj.optJSONObject("musicGridRenderer")
 
             val shelfTitle = extractRunsText(carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("title")?.optString("simpleText")?.takeIf { it.isNotBlank() }
+                ?: extractRunsText(carousel?.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
                 ?: extractRunsText(musicShelf?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: musicShelf?.optJSONObject("title")?.optString("simpleText")?.takeIf { it.isNotBlank() }
+                ?: extractRunsText(musicShelf?.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
                 ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("title")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("title")?.optJSONArray("runs"))
                 ?: "Featured"
 
             val shelfSubtitle = extractRunsText(carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("strapline")?.optJSONArray("runs"))
+                ?: carousel?.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")?.optJSONObject("strapline")?.optString("simpleText")?.takeIf { it.isNotBlank() }
                 ?: extractRunsText(musicShelf?.optJSONObject("strapline")?.optJSONArray("runs"))
+                ?: extractRunsText(musicShelf?.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")?.optJSONObject("subtitle")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("gridHeaderRenderer")?.optJSONObject("subtitle")?.optJSONArray("runs"))
+                ?: extractRunsText(grid?.optJSONObject("header")?.optJSONObject("musicHeaderRenderer")?.optJSONObject("subtitle")?.optJSONArray("runs"))
                 ?: ""
 
             // Filter out video-specific shelves (e.g. 'Top music videos', 'New music videos', 'Video charts')
@@ -1659,6 +1935,7 @@ class InnerTubeClient(
             val items = carousel?.optJSONArray("contents")
                 ?: musicShelf?.optJSONArray("contents")
                 ?: grid?.optJSONArray("items")
+                ?: grid?.optJSONArray("contents")
                 ?: continue
 
             val playlistsInShelf = mutableListOf<InnerTubePlaylist>()
@@ -1668,18 +1945,37 @@ class InnerTubeClient(
                 val itemObj = items.optJSONObject(j) ?: continue
                 val twoRow = itemObj.optJSONObject("musicTwoRowItemRenderer")
                 val responsive = itemObj.optJSONObject("musicResponsiveListItemRenderer")
+                val gridPlaylist = itemObj.optJSONObject("gridPlaylistRenderer")
+                val gridVideo = itemObj.optJSONObject("gridVideoRenderer")
+                val compactStation = itemObj.optJSONObject("compactStationRenderer")
 
                 if (twoRow != null) {
-                    val title = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: continue
-                    val subtitle = twoRow.optJSONObject("subtitle")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
+                    val title = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                        ?: twoRow.optJSONObject("title")?.optString("simpleText")
+                        ?: continue
+                    val subRuns = twoRow.optJSONObject("subtitle")?.optJSONArray("runs")
+                    val subtitle = if (subRuns != null) {
+                        val sb = StringBuilder()
+                        for (k in 0 until subRuns.length()) {
+                            sb.append(subRuns.optJSONObject(k)?.optString("text", "") ?: "")
+                        }
+                        sb.toString().trim()
+                    } else {
+                        twoRow.optJSONObject("subtitle")?.optString("simpleText", "") ?: ""
+                    }
 
                     // Filter out video items and video playlists
                     if (isVideoShelf(title, subtitle)) continue
 
                     val navEndpoint = twoRow.optJSONObject("navigationEndpoint")
+                        ?: twoRow.optJSONObject("onTap")
                     val browseId = navEndpoint?.optJSONObject("browseEndpoint")?.optString("browseId")
                     val watchEndpoint = navEndpoint?.optJSONObject("watchEndpoint")
+                        ?: twoRow.optJSONObject("thumbnailOverlay")?.optJSONObject("musicItemThumbnailOverlayRenderer")
+                            ?.optJSONObject("content")?.optJSONObject("musicPlayButtonRenderer")
+                            ?.optJSONObject("playNavigationEndpoint")?.optJSONObject("watchEndpoint")
                     val playlistId = watchEndpoint?.optString("playlistId")
+                        ?: navEndpoint?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId")
                     val videoId = watchEndpoint?.optString("videoId")
 
                     val thumbList = twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")
@@ -1693,11 +1989,17 @@ class InnerTubeClient(
                                 title.contains("Official Music Video", ignoreCase = true) ||
                                 title.contains("Official Video", ignoreCase = true)
                         if (!isVideoItem) {
+                            var trackArtist = subtitle
+                            if (trackArtist.startsWith("Song • ", ignoreCase = true)) {
+                                trackArtist = trackArtist.substring(7).trim()
+                            } else if (trackArtist.startsWith("Song •", ignoreCase = true)) {
+                                trackArtist = trackArtist.substring(6).trim()
+                            }
                             tracksInShelf.add(
                                 InnerTubeTrack(
                                     videoId = videoId,
                                     title = title,
-                                    artist = subtitle.ifBlank { "YouTube Music" },
+                                    artist = trackArtist.ifBlank { "YouTube Music" },
                                     artworkUrl = highResArt,
                                     itemType = "Song"
                                 )
@@ -1723,12 +2025,103 @@ class InnerTubeClient(
                     }
                 } else if (responsive != null) {
                     val track = parseResponsiveListItem(responsive)
-                    if (track != null &&
-                        !track.itemType.equals("Video", ignoreCase = true) &&
-                        !track.title.contains("Official Music Video", ignoreCase = true) &&
-                        !track.title.contains("Official Video", ignoreCase = true)
-                    ) {
-                        tracksInShelf.add(track)
+                    if (track != null) {
+                        if (!track.itemType.equals("Video", ignoreCase = true) &&
+                            !track.title.contains("Official Music Video", ignoreCase = true) &&
+                            !track.title.contains("Official Video", ignoreCase = true)
+                        ) {
+                            tracksInShelf.add(track)
+                        }
+                    } else {
+                        // Responsive item might be a playlist/album
+                        val flexColumns = responsive.optJSONArray("flexColumns")
+                        val col1 = flexColumns?.optJSONObject(0)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                            ?.optJSONObject("text")?.optJSONArray("runs")
+                        val responsiveTitle = col1?.optJSONObject(0)?.optString("text")
+                        val navEndpoint = col1?.optJSONObject(0)?.optJSONObject("navigationEndpoint")
+                            ?: responsive.optJSONObject("navigationEndpoint")
+                        val browseId = navEndpoint?.optJSONObject("browseEndpoint")?.optString("browseId")
+                        val playlistId = navEndpoint?.optJSONObject("watchPlaylistEndpoint")?.optString("playlistId")
+                        val targetId = browseId ?: playlistId
+                        if (!targetId.isNullOrBlank() && !responsiveTitle.isNullOrBlank()) {
+                            var responsiveSubtitle = ""
+                            if (flexColumns.length() > 1) {
+                                val col2Runs = flexColumns.optJSONObject(1)?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                                    ?.optJSONObject("text")?.optJSONArray("runs")
+                                responsiveSubtitle = extractRunsText(col2Runs) ?: ""
+                            }
+                            val thumbList = responsive.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+                                ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                            val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+                            if (!isVideoShelf(responsiveTitle, responsiveSubtitle)) {
+                                playlistsInShelf.add(
+                                    InnerTubePlaylist(
+                                        id = targetId,
+                                        title = responsiveTitle,
+                                        subtitle = responsiveSubtitle,
+                                        artworkUrl = getHighResArtworkUrl(thumbUrl)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } else if (gridPlaylist != null) {
+                    val plTitle = gridPlaylist.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                        ?: gridPlaylist.optJSONObject("title")?.optString("simpleText")
+                    val plId = gridPlaylist.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                        ?: gridPlaylist.optString("playlistId")
+                    val sub = extractRunsText(gridPlaylist.optJSONObject("shortBylineText")?.optJSONArray("runs")) ?: ""
+                    val thumbList = gridPlaylist.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")
+                        ?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                        ?: gridPlaylist.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                    val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+                    if (!plTitle.isNullOrBlank() && !plId.isNullOrBlank() && !isVideoShelf(plTitle, sub)) {
+                        playlistsInShelf.add(
+                            InnerTubePlaylist(
+                                id = plId,
+                                title = plTitle,
+                                subtitle = sub,
+                                artworkUrl = getHighResArtworkUrl(thumbUrl)
+                            )
+                        )
+                    }
+                } else if (gridVideo != null) {
+                    val vTitle = gridVideo.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                        ?: gridVideo.optJSONObject("title")?.optString("simpleText")
+                    val vId = gridVideo.optString("videoId").takeIf { it.isNotBlank() }
+                        ?: gridVideo.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId")
+                    val artistName = extractRunsText(gridVideo.optJSONObject("shortBylineText")?.optJSONArray("runs")) ?: "YouTube Music"
+                    val thumbList = gridVideo.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                    val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+                    if (!vTitle.isNullOrBlank() && !vId.isNullOrBlank() && !isVideoShelf(vTitle, artistName)) {
+                        tracksInShelf.add(
+                            InnerTubeTrack(
+                                videoId = vId,
+                                title = vTitle,
+                                artist = artistName,
+                                artworkUrl = getHighResArtworkUrl(thumbUrl),
+                                itemType = "Song"
+                            )
+                        )
+                    }
+                } else if (compactStation != null) {
+                    val sTitle = compactStation.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                    val sNav = compactStation.optJSONObject("navigationEndpoint")
+                    val sBrowseId = sNav?.optJSONObject("browseEndpoint")?.optString("browseId")
+                    val sPlaylistId = sNav?.optJSONObject("watchEndpoint")?.optString("playlistId")
+                    val sTargetId = sBrowseId ?: sPlaylistId
+                    val sub = extractRunsText(compactStation.optJSONObject("description")?.optJSONArray("runs")) ?: ""
+                    val thumbList = compactStation.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                    val thumbUrl = thumbList?.optJSONObject(thumbList.length() - 1)?.optString("url")
+                    if (!sTitle.isNullOrBlank() && !sTargetId.isNullOrBlank() && !isVideoShelf(sTitle, sub)) {
+                        playlistsInShelf.add(
+                            InnerTubePlaylist(
+                                id = sTargetId,
+                                title = sTitle,
+                                subtitle = sub,
+                                artworkUrl = getHighResArtworkUrl(thumbUrl)
+                            )
+                        )
                     }
                 }
             }
@@ -1754,10 +2147,14 @@ class InnerTubeClient(
 
     private fun extractContinuationTokenFallback(json: JSONObject): String? {
         val jsonStr = json.toString()
-        val tokenRegex = Regex("\"token\"\\s*:\\s*\"([^\"]+)\"")
-        val continuationRegex = Regex("\"continuation\"\\s*:\\s*\"([^\"]+)\"")
-        return tokenRegex.find(jsonStr)?.groupValues?.getOrNull(1)
+        val commandTokenRegex = Regex("\"continuationCommand\"\\s*:\\s*\\{[^}]*\"token\"\\s*:\\s*\"([^\"]+)\"")
+        val nextContinuationRegex = Regex("\"nextContinuationData\"\\s*:\\s*\\{[^}]*\"continuation\"\\s*:\\s*\"([^\"]+)\"")
+        val continuationRegex = Regex("\"continuation\"\\s*:\\s*\"([a-zA-Z0-9%_-]{20,})\"")
+        val tokenRegex = Regex("\"token\"\\s*:\\s*\"([a-zA-Z0-9%_-]{20,})\"")
+        return commandTokenRegex.find(jsonStr)?.groupValues?.getOrNull(1)
+            ?: nextContinuationRegex.find(jsonStr)?.groupValues?.getOrNull(1)
             ?: continuationRegex.find(jsonStr)?.groupValues?.getOrNull(1)
+            ?: tokenRegex.find(jsonStr)?.groupValues?.getOrNull(1)
     }
 
     fun parseBrowseShelves(json: JSONObject): List<InnerTubeShelf> {
@@ -1785,16 +2182,12 @@ class InnerTubeClient(
 
         try {
             val request = buildBaseRequest("browse", payload)
-            httpClient.newCall(request).execute().use { response ->
+            val resultTracks = httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "getPlaylistTracks returned error: ${response.code}")
-                    if (playlistId.contains("RD")) {
-                        val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
-                        return@withContext getRadioTracks(videoId)
-                    }
-                    return@withContext emptyList()
+                    return@use null
                 }
-                val json = JSONObject(response.body?.string() ?: return@withContext emptyList())
+                val json = JSONObject(response.body?.string() ?: return@use null)
                 val parsed = parsePlaylistTracks(json)
                 val desc = parsePlaylistDescription(json)
                 if (!desc.isNullOrBlank()) {
@@ -1804,7 +2197,7 @@ class InnerTubeClient(
                 }
                 val isAlbum = cleanBrowseId.startsWith("MPRE")
                 val headerTitle = if (isAlbum) parseAlbumHeaderTitle(json) else null
-                val resultTracks = if (isAlbum) {
+                if (isAlbum) {
                     parsed.map { track ->
                         track.copy(
                             album = headerTitle ?: track.album,
@@ -1814,13 +2207,14 @@ class InnerTubeClient(
                 } else {
                     parsed
                 }
-                if (resultTracks.isEmpty() && playlistId.contains("RD")) {
-                    val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
-                    return@withContext getRadioTracks(videoId)
-                }
-                return@withContext resultTracks
             }
+            if (resultTracks.isNullOrEmpty() && playlistId.contains("RD")) {
+                val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
+                return@withContext getRadioTracks(videoId)
+            }
+            return@withContext resultTracks ?: emptyList()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getPlaylistTracks failed for playlistId: $playlistId", e)
             if (playlistId.contains("RD")) {
                 val videoId = playlistId.removePrefix("VL").removePrefix("RDAMVM").removePrefix("RD")
@@ -1906,6 +2300,7 @@ class InnerTubeClient(
                 return@withContext desc
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "fetchPlaylistDescription failed for $playlistId", e)
             return@withContext null
         }
@@ -2133,6 +2528,7 @@ class InnerTubeClient(
                 return@withContext playlists
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getUserPlaylists failed", e)
             return@withContext emptyList()
         }
@@ -2160,6 +2556,7 @@ class InnerTubeClient(
                 return@withContext response.isSuccessful
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "setTrackLiked failed for videoId: $videoId", e)
             return@withContext false
         }
@@ -2188,6 +2585,7 @@ class InnerTubeClient(
                 return@withContext response.isSuccessful
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "addTrackToPlaylist failed for playlist: $playlistId, videoId: $videoId", e)
             return@withContext false
         }
@@ -2212,6 +2610,7 @@ class InnerTubeClient(
                 return@withContext if (playlistId.isNotBlank()) playlistId else null
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "createPlaylist failed for title: $title", e)
             return@withContext null
         }
@@ -2242,6 +2641,7 @@ class InnerTubeClient(
                 return@withContext response.isSuccessful
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "editPlaylistDetails failed for playlist: $playlistId", e)
             return@withContext false
         }
@@ -2265,6 +2665,7 @@ class InnerTubeClient(
                 return@withContext response.isSuccessful
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "deletePlaylist failed for playlist: $playlistId", e)
             return@withContext false
         }
@@ -2291,6 +2692,7 @@ class InnerTubeClient(
                 return@withContext response.isSuccessful
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "removeTrackFromPlaylist failed for playlist: $playlistId, videoId: $videoId", e)
             return@withContext false
         }
@@ -2332,6 +2734,7 @@ class InnerTubeClient(
                 return@withContext InnerTubeAccountInfo(name, handle, avatar)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "getAccountInfo failed", e)
             return@withContext null
         }

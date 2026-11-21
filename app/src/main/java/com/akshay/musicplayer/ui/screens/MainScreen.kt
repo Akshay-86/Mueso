@@ -35,6 +35,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
@@ -863,6 +866,12 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                         }
 
                                         var showSearchMenu by remember { mutableStateOf(false) }
+                                        val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
+                                        val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
+                                        val menuBorderColor = if (isPureBlack) Color.White.copy(alpha = 0.14f) else if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+                                        val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+                                        val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
+
                                         Box {
                                             IconButton(onClick = { showSearchMenu = true }) {
                                                 Icon(
@@ -872,42 +881,61 @@ fun MainScreen(viewModel: PlayerViewModel) {
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
-                                            androidx.compose.material3.MaterialTheme(
-                                                colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(
-                                                    surface = if (isDarkMode) (if (isPureBlack) Color(0xFF141416) else Color(0xFF1E1E24)) else Color(0xFFFFFFFF)
-                                                ),
-                                                shapes = androidx.compose.material3.MaterialTheme.shapes.copy(
-                                                    extraSmall = RoundedCornerShape(12.dp)
-                                                )
+                                            DropdownMenu(
+                                                expanded = showSearchMenu,
+                                                onDismissRequest = { showSearchMenu = false },
+                                                modifier = Modifier.border(1.dp, menuBorderColor, RoundedCornerShape(menuCorner)),
+                                                shape = RoundedCornerShape(menuCorner),
+                                                containerColor = menuBg,
+                                                shadowElevation = 10.dp
                                             ) {
-                                                DropdownMenu(
-                                                    expanded = showSearchMenu,
-                                                    onDismissRequest = { showSearchMenu = false }
-                                                ) {
-                                                    DropdownMenuItem(
-                                                        text = { Text("Play Next", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                                                        onClick = {
-                                                            showSearchMenu = false
-                                                            viewModel.playNext(track)
-                                                            android.widget.Toast.makeText(context, "Playing next: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text("Add to Queue", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                                                        onClick = {
-                                                            showSearchMenu = false
-                                                            viewModel.addToQueue(track)
-                                                            android.widget.Toast.makeText(context, "Added to queue: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text("Add to Playlist", color = if (isDarkMode) Color.White else Color(0xFF1D1D1F)) },
-                                                        onClick = {
-                                                            showSearchMenu = false
-                                                            selectedTrackForPlaylist = track
-                                                        }
-                                                    )
-                                                }
+                                                DropdownMenuItem(
+                                                    text = { Text("Play Next", color = itemTextColor) },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.AutoMirrored.Filled.PlaylistPlay,
+                                                            contentDescription = null,
+                                                            tint = itemIconTint,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showSearchMenu = false
+                                                        viewModel.playNext(track)
+                                                        android.widget.Toast.makeText(context, "Playing next: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Add to Queue", color = itemTextColor) },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.AutoMirrored.Filled.QueueMusic,
+                                                            contentDescription = null,
+                                                            tint = itemIconTint,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showSearchMenu = false
+                                                        viewModel.addToQueue(track)
+                                                        android.widget.Toast.makeText(context, "Added to queue: \"${track.title}\"", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Add to Playlist", color = itemTextColor) },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                                                            contentDescription = null,
+                                                            tint = itemIconTint,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showSearchMenu = false
+                                                        selectedTrackForPlaylist = track
+                                                    }
+                                                )
                                             }
                                         }
                                     }

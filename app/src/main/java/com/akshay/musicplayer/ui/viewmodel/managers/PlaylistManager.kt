@@ -332,7 +332,7 @@ class PlaylistManager(
 
     suspend fun getCuratedPlaylistTracks(query: String): List<TrackEntity> {
         val isBrowse = query.startsWith("browse:")
-        val preferredLanguage = if (isBrowse) "" else (sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu")
+        val preferredLanguage = if (isBrowse) "" else (sharedPreferences.getString("preferred_language", "Auto") ?: "Auto")
         val cacheKey = if (isBrowse) {
             "curated_cache_" + query.lowercase().replace(Regex("[^a-z0-9]"), "_")
         } else {

@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -42,6 +43,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Brush
@@ -456,7 +458,7 @@ private fun AllSongsTab(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = bottomPadding)
                     ) {
-                        itemsIndexed(sortedTracks) { index, track ->
+                        itemsIndexed(items = sortedTracks, key = { index, track -> "${track.id}_$index" }) { index, track ->
                             val isPlaying = playbackState.isPlaying && playbackState.currentTrackId == track.id
                             TrackListItem(
                                 track = track,
@@ -465,7 +467,13 @@ private fun AllSongsTab(
                                 onClick = { onTrackClick(sortedTracks, index) },
                                 onAddToPlaylist = { onAddToPlaylist(track) },
                                 onRename = { trackToRename = track },
-                                onDelete = { trackToDelete = track }
+                                onDelete = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        viewModel.deleteTrack(context, track)
+                                    } else {
+                                        trackToDelete = track
+                                    }
+                                }
                             )
                         }
                     }
@@ -540,10 +548,14 @@ private fun SortChip(
     onSortChange: (SortOption) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
     val chipBg = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
     val textTint = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color(0xFF3A3A3C)
-    val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
+    val menuBorderColor = if (isPureBlack) Color.White.copy(alpha = 0.14f) else if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
     val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
 
     Box {
         Row(
@@ -577,14 +589,14 @@ private fun SortChip(
             )
         }
 
-        val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             offset = DpOffset(0.dp, 4.dp),
+            modifier = Modifier.border(1.dp, menuBorderColor, RoundedCornerShape(menuCorner)),
             shape = RoundedCornerShape(menuCorner),
-            containerColor = dropdownBg,
-            shadowElevation = 16.dp
+            containerColor = menuBg,
+            shadowElevation = 10.dp
         ) {
             DropdownMenuItem(
                 text = {
@@ -592,7 +604,12 @@ private fun SortChip(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.Schedule, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.Schedule,
+                            null,
+                            tint = if (currentSort == SortOption.DATE_ADDED) AccentOrange else itemIconTint,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Text("Recently Added", color = itemTextColor)
                     }
                 },
@@ -612,7 +629,12 @@ private fun SortChip(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.SortByAlpha, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.SortByAlpha,
+                            null,
+                            tint = if (currentSort == SortOption.A_Z) AccentOrange else itemIconTint,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Text("Title (A–Z)", color = itemTextColor)
                     }
                 },
@@ -632,7 +654,12 @@ private fun SortChip(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.SortByAlpha, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.SortByAlpha,
+                            null,
+                            tint = if (currentSort == SortOption.Z_A) AccentOrange else itemIconTint,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Text("Title (Z–A)", color = itemTextColor)
                     }
                 },
@@ -652,7 +679,12 @@ private fun SortChip(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.Person, null, tint = itemTextColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.Person,
+                            null,
+                            tint = if (currentSort == SortOption.ARTIST) AccentOrange else itemIconTint,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Text("Artist", color = itemTextColor)
                     }
                 },
@@ -686,9 +718,13 @@ fun TrackListItem(
     val minutes = (track.duration / 1000) / 60
     val seconds = (track.duration / 1000) % 60
 
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val itemMenuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
     val iconTint = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF3A3A3C)
-    val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
+    val menuBorderColor = if (isPureBlack) Color.White.copy(alpha = 0.14f) else if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
     val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -698,12 +734,16 @@ fun TrackListItem(
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Artwork thumbnail — real album art with MusicNote fallback
+        val context = LocalContext.current
         val artModel = remember(track.albumId, track.artworkUrl) {
             track.artworkUrl?.takeIf { it.isNotBlank() }
                 ?: ContentUris.withAppendedId(
                     Uri.parse("content://media/external/audio/albumart"),
                     track.albumId
                 )
+        }
+        val imageRequest = remember(artModel) {
+            ImageRequest.Builder(context).data(artModel).crossfade(true).build()
         }
         Box(
             modifier = Modifier
@@ -725,10 +765,7 @@ fun TrackListItem(
                 modifier = Modifier.size(22.dp)
             )
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(artModel)
-                    .crossfade(true)
-                    .build(),
+                model = imageRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -787,7 +824,6 @@ fun TrackListItem(
 
         // 3-dot menu
         Box {
-            val itemMenuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
             IconButton(
                 onClick = { showMenu = true },
                 modifier = Modifier.size(36.dp)
@@ -804,9 +840,10 @@ fun TrackListItem(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
                 offset = DpOffset((-8).dp, 0.dp),
+                modifier = Modifier.border(1.dp, menuBorderColor, RoundedCornerShape(itemMenuCorner)),
                 shape = RoundedCornerShape(itemMenuCorner),
-                containerColor = dropdownBg,
-                shadowElevation = 16.dp
+                containerColor = menuBg,
+                shadowElevation = 10.dp
             ) {
                 DropdownMenuItem(
                     text = {
@@ -817,7 +854,7 @@ fun TrackListItem(
                             Icon(
                                 Icons.AutoMirrored.Filled.PlaylistAdd,
                                 null,
-                                tint = AccentOrange,
+                                tint = itemIconTint,
                                 modifier = Modifier.size(20.dp)
                             )
                             Text("Add to Playlist", color = itemTextColor)
@@ -839,7 +876,7 @@ fun TrackListItem(
                             Icon(
                                 Icons.Default.Edit,
                                 null,
-                                tint = AccentOrange,
+                                tint = itemIconTint,
                                 modifier = Modifier.size(20.dp)
                             )
                             Text("Rename Song", color = itemTextColor)
@@ -981,7 +1018,7 @@ private fun PlaylistsTab(
                     contentPadding = PaddingValues(bottom = bottomPadding),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(playlists) { playlist ->
+                    items(items = playlists, key = { it.id }) { playlist ->
                         PlaylistItem(
                             playlist = playlist,
                             isDarkMode = isDarkMode,
@@ -1005,11 +1042,15 @@ private fun PlaylistItem(
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
     val itemBg = if (isDarkMode) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.04f)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.35f) else Color(0xFF6E6E73)
     val iconTint = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF3A3A3C)
-    val dropdownBg = if (isDarkMode) SurfaceDark else Color(0xFFFFFFFF)
+    val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
+    val menuBorderColor = if (isPureBlack) Color.White.copy(alpha = 0.14f) else if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
 
     Row(
         modifier = Modifier
@@ -1066,23 +1107,52 @@ private fun PlaylistItem(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                shape = RoundedCornerShape(14.dp),
-                containerColor = dropdownBg,
-                shadowElevation = 8.dp
+                modifier = Modifier.border(1.dp, menuBorderColor, RoundedCornerShape(menuCorner)),
+                shape = RoundedCornerShape(menuCorner),
+                containerColor = menuBg,
+                shadowElevation = 10.dp
             ) {
                 DropdownMenuItem(
-                    text = { Text("Rename", color = textPrimary) },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = itemIconTint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text("Rename", color = textPrimary)
+                        }
+                    },
                     onClick = {
                         showMenu = false
                         onRename()
-                    }
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
                 DropdownMenuItem(
-                    text = { Text("Delete", color = Color(0xFFEF5350)) },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = Color(0xFFEF5350),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text("Delete", color = Color(0xFFEF5350))
+                        }
+                    },
                     onClick = {
                         showMenu = false
                         onDelete()
-                    }
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
         }
@@ -1360,8 +1430,9 @@ fun AddToPlaylistDialog(
                     modifier = Modifier.heightIn(max = 300.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(playlists) { playlist ->
-                        val playlistTracks by viewModel?.getPlaylistTracks(playlist.id)?.collectAsState(initial = emptyList())
+                    items(items = playlists, key = { it.id }) { playlist ->
+                        val tracksFlow = remember(viewModel, playlist.id) { viewModel?.getPlaylistTracks(playlist.id) }
+                        val playlistTracks by tracksFlow?.collectAsState(initial = emptyList())
                             ?: remember { mutableStateOf(emptyList()) }
                         val isAlreadyInPlaylist = remember(playlistTracks, trackToAdd?.id) {
                             trackToAdd != null && playlistTracks.any { it.id == trackToAdd.id }

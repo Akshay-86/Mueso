@@ -84,7 +84,13 @@
 - **📻 Classic Player & Floating Mini Player**: Switch anytime between the immersive reels player and a classic player layout featuring an animated floating mini-player capsule with gesture controls.
 - **🖼️ Interactive Player Background Framing**: Long-press and drag sideways on the fullscreen player background to custom-frame and position album art. Customized positions are persisted and synced per playlist track.
 - **🎨 Dynamic Theming & Pure Black AMOLED**: Pitch-black pure AMOLED dark mode for OLED battery savings, light mode, vibrant multi-shade accent color palettes, dynamic font scaling, and adjustable card corner radius.
-- **⚡ Native InnerTube Engine & YouTube Music Personalization**: Zero-overhead native Kotlin InnerTube client for ultra-fast streaming and account synchronization. Connect your YouTube Music account to stream your personalized library, custom playlists, and recommendations without third-party dependencies.
+- **⚡ Pure Dynamic YouTube Music Hub**: 100% data-driven shelves parsed verbatim from YouTube's InnerTube backend (*India's biggest hits*, *Trending community playlists*, *Today's Global Hits*, *Romance Right Now*, *Dancing on your own*, *New releases*, etc.) with multi-batch continuation auto-hydration for rich, deep scrolling.
+- **🌐 Auto Language Mode (Default)**: Intelligent default mode that lets YouTube's recommendation engine deliver localized regional and time-of-day shelves dynamically without hardcoded section rules or artificial content blending.
+- **🛡️ Anonymous Guest Personalization & Privacy Architecture**:
+  - **Default: OFF (100% Private)**: Operates with strict privacy out of the box. Server-issued anonymous guest session tokens (`visitorData`) are used solely for multi-batch shelf continuation and pagination. Zero listening history, zero telemetry, and zero playback statistics are ever transmitted to YouTube.
+  - **Opt-In Taste Adaptation**: When enabled during Onboarding or in Settings, anonymous guest playback pings allow YouTube's algorithm to gradually adapt and personalize recommendations ("Quick picks", tailored mixes) without requiring a Google account or login.
+  - **1-Tap Session Reset**: One-tap "Reset Guest Session" in Settings instantly wipes the guest token and purges recommendation history, resetting recommendations back to clean regional charts immediately.
+- **🔐 Optional YouTube Music Account Sync**: Connect your Google account anytime to stream your personal library, private playlists, and cloud favorites without third-party servers.
 - **🎤 Dedicated Artist Detail Pages**: Full-featured artist exploration screen featuring artist banner, subscriber count, bio, and organized sections for **Top Songs**, **Albums**, **Singles & EPs**, **Music Videos**, **Live Performances**, **Featured On**, and **Similar Artists**, plus instant **Radio** and **Shuffle** launch buttons.
 - **🔍 Multi-Category Search & LRU Caching**: Fast search across **All**, **Songs**, **Videos**, **Albums**, **Playlists**, and **Artists** with in-memory caching for instant tab switches without redundant network calls.
 - **🎭 Moods, Genres & Curated Shelves**: Explore dynamic categories (Chill, Focus, Workout, Party, Romance, Charts, and more) with customized row shelves and direct playlist playback.
@@ -101,6 +107,27 @@
 - **🔒 Lockscreen Controls & Sleep Timer**: Full playback controls on Android lockscreen and status bar media notification with configurable sleep timers (timer duration, after song, or end of playlist).
 - **📶 Network Drop Resilience & Auto-Resumption**: Dedicated lifecycle network monitor (`NetworkMonitor`) that prevents queue skipping during cellular dips or dead zones (e.g., traveling between cell towers), automatically retrying and resuming playback seamlessly as soon as internet connectivity returns.
 - **☁️ Automated Google Drive Backup**: Backup and restore your custom playlists, track background adjustments, hero banners, and app preferences securely to Google Drive AppData.
+
+---
+
+## 🔒 Privacy & Anonymous Guest Architecture
+
+Mueso is built from the ground up to respect user privacy. Unlike conventional music streaming clients that require mandatory Google account logins and aggressively log user activity, Mueso decouples media consumption from personal identity:
+
+| Dimension | Default Mode (Strict Privacy) | Guest Personalization (Opt-In) | Google Account Sync (Optional) |
+| :--- | :--- | :--- | :--- |
+| **Privacy Level** | **100% Private (Zero Tracking)** | **Pseudonymous / Ephemeral** | Standard Authenticated |
+| **Account Required** | None | None | Optional Google Account |
+| **Listening Telemetry** | **Zero stats or history sent** | Anonymous playback pings only | Linked to user's YouTube Music profile |
+| **Visitor Token Usage** | Multi-batch continuation & pagination | Multi-batch pagination + taste modeling | Account profile & personal mixes |
+| **Personalization Type** | Pure regional & time-of-day charts | Dynamic "Quick picks" & tailored mixes | Saved playlists, liked music, subscribed artists |
+| **Reset / Purge** | N/A (Nothing recorded) | **1-Tap "Reset Guest Session"** | Disconnect / sign out |
+
+### Key Privacy Pillars
+1. **Verbatim Dynamic Feeds**: The home hub displays 100% data-driven shelves directly from YouTube's InnerTube backend (*India's biggest hits*, *Trending community playlists*, *Today's Global Hits*, *Romance Right Now*, *Dancing on your own*, *New releases*, etc.). In **Auto Language** mode, YouTube's engine serves authentic localized content and time-of-day shelves naturally without artificial section blending.
+2. **Stateless Pagination by Default**: Server-issued visitor session tokens (`visitorData`) are strictly employed as continuation cursors to hydrate multi-batch feeds. Zero listening telemetry or tracking beacons are dispatched.
+3. **Opt-In Recommendation Training**: If you prefer personalized music recommendations without linking a personal Google identity, enable **Guest Personalization** in Onboarding or Settings. Mueso sends anonymous playback pings that gradually train YouTube's recommendation engine for that isolated guest session.
+4. **Instant One-Tap Wipe**: Tap **Reset Guest Session** (or **Reset Guest Taste Profile**) in Settings at any time to instantly flush the guest token from local storage. Your recommendation profile is wiped immediately, reverting the hub back to clean regional charts.
 
 ---
 
@@ -127,7 +154,7 @@ Mueso is built as a **100% Native Kotlin** Android application adhering strictly
 | **Audio Engine** | AndroidX Media3 ExoPlayer |
 | **Headless Audio Engine** | android-youtube-player (Official IFrame wrapper for fallback audio streams) |
 | **Media Service** | AndroidX MediaSessionService & MediaController IPC |
-| **Online Client & Stream Resolver** | Native Kotlin InnerTube Client & Multi-Client Extraction Strategies (reference from Zuno) |
+| **Online Client & Stream Resolver** | Native Kotlin InnerTube Client & Multi-Client Extraction Strategies (reference from Zuno) with Dynamic Shelf Auto-Hydration & Anonymous Guest Session Architecture |
 | **Network Resilience** | Real-time ConnectivityManager Callback & StateFlow Auto-Recovery |
 | **State Management** | Kotlin Coroutines, StateFlow, SharedFlow, ViewModel |
 | **Database** | Room Persistence Library |

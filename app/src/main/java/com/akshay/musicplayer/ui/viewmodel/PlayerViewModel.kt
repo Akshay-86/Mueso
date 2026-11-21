@@ -66,7 +66,7 @@ class PlayerViewModel(
     private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModel() {
 
-    private val onlineRepository = OnlineMusicRepository()
+    val onlineRepository = OnlineMusicRepository()
 
     private val _allLocalTracks = MutableStateFlow<List<TrackEntity>>(emptyList())
     val allLocalTracks: StateFlow<List<TrackEntity>> = _allLocalTracks.asStateFlow()
@@ -206,7 +206,7 @@ class PlayerViewModel(
     }
 
     fun loadExploreAndCharts(mood: String = _selectedMoodCategory.value, force: Boolean = false) {
-        val currentLang = preferredLanguage.value.trim().ifBlank { "English" }
+        val currentLang = preferredLanguage.value.trim().ifBlank { "Auto" }
         val now = android.os.SystemClock.elapsedRealtime()
 
         // Guard against duplicate rapid calls for same mood and language while job is in flight
@@ -240,7 +240,9 @@ class PlayerViewModel(
 
         exploreAndChartsJob?.cancel()
         exploreAndChartsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _isExploreLoading.value = true
+            withContext(Dispatchers.Main) {
+                _isExploreLoading.value = true
+            }
             try {
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
                 Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed, force: $force)")
@@ -248,39 +250,56 @@ class PlayerViewModel(
                     val homeFeedResult = onlineRepository.innerTube.getHomeFeedResult()
                     ensureActive()
                     val cleanShelves = onlineRepository.filterAudioShelves(homeFeedResult.shelves)
-                    _exploreShelves.value = cleanShelves
-                    _exploreContinuationToken.value = homeFeedResult.continuationToken
-                    lastUsedContinuationToken = null
                     val charts = onlineRepository.fetchChartsShelves(language = currentLang, forceRefresh = force)
                     ensureActive()
-                    _chartsShelves.value = charts
-                    lastLoadedChartsLanguage = currentLang
-                    lastLoadedMood = "All"
+                    withContext(Dispatchers.Main) {
+                        _exploreShelves.value = cleanShelves
+                        _exploreContinuationToken.value = homeFeedResult.continuationToken
+                        lastUsedContinuationToken = null
+                        _chartsShelves.value = charts
+                        lastLoadedChartsLanguage = currentLang
+                        lastLoadedMood = "All"
+                    }
                     Log.d("MUESO_EXPLORE", "Loaded authentic home feed shelves (${cleanShelves.size}), continuation: ${homeFeedResult.continuationToken != null}")
                     // Redundant call to loadLanguagePlaylists removed to prevent duplicate startup / refresh network storm
                 } else {
                     val moodShelves = onlineRepository.fetchMoodShelves(mood)
                     ensureActive()
-                    _exploreShelves.value = moodShelves
-                    _exploreContinuationToken.value = null
-                    lastUsedContinuationToken = null
-                    _chartsShelves.value = emptyList()
-                    lastLoadedMood = mood
+                    withContext(Dispatchers.Main) {
+                        _exploreShelves.value = moodShelves
+                        _exploreContinuationToken.value = null
+                        lastUsedContinuationToken = null
+                        _chartsShelves.value = emptyList()
+                        lastLoadedMood = mood
+                    }
                     Log.d("MUESO_EXPLORE", "Loaded mood shelves (${moodShelves.size}) for $mood")
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.e("MUESO_EXPLORE", "Failed to load explore and charts", e)
             } finally {
-                if (exploreAndChartsJob == coroutineContext[Job]) {
-                    _isExploreLoading.value = false
+                withContext(NonCancellable + Dispatchers.Main) {
+                    if (exploreAndChartsJob == coroutineContext[Job]) {
+                        _isExploreLoading.value = false
+                    }
                 }
             }
         }
     }
 
     fun loadLanguagePlaylists(language: String = preferredLanguage.value, force: Boolean = false) {
-        val lang = language.trim().ifBlank { "English" }
+        val lang = language.trim()
+        val isAuto = lang.isBlank() || lang.equals("Auto", ignoreCase = true) || lang.equals("Default", ignoreCase = true)
+        if (isAuto) {
+            languagePlaylistsJob?.cancel()
+            _languagePlaylists.value = emptyList()
+            _languagePlaylistShelves.value = emptyList()
+            _isLanguageLoading.value = false
+            lastLoadedLanguagePlaylistsLanguage = "Auto"
+            lastRequestedLanguage = "Auto"
+            Log.d("MUESO_LANG", "loadLanguagePlaylists: language is Auto, cleared language shelves and skipped synthetic queries")
+            return
+        }
         val isLanguageChanged = !lang.equals(lastLoadedLanguagePlaylistsLanguage, ignoreCase = true)
         val now = android.os.SystemClock.elapsedRealtime()
 
@@ -302,15 +321,14 @@ class PlayerViewModel(
 
         languagePlaylistsJob?.cancel()
 
-        if (force || isLanguageChanged) {
-            _languagePlaylists.value = emptyList()
-            _languagePlaylistShelves.value = emptyList()
-            _isLanguageLoading.value = true
-        } else {
-            _isLanguageLoading.value = true
-        }
-
         languagePlaylistsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                if (force || isLanguageChanged) {
+                    _languagePlaylists.value = emptyList()
+                    _languagePlaylistShelves.value = emptyList()
+                }
+                _isLanguageLoading.value = true
+            }
             try {
                 val playlists = onlineRepository.fetchLanguagePlaylists(lang, forceRefresh = force)
                 ensureActive()
@@ -321,16 +339,20 @@ class PlayerViewModel(
                     emptyList()
                 }
                 ensureActive()
-                _languagePlaylists.value = playlists
-                _languagePlaylistShelves.value = shelves
-                lastLoadedLanguagePlaylistsLanguage = lang
+                withContext(Dispatchers.Main) {
+                    _languagePlaylists.value = playlists
+                    _languagePlaylistShelves.value = shelves
+                    lastLoadedLanguagePlaylistsLanguage = lang
+                }
                 Log.d("MUESO_LANG", "Loaded ${playlists.size} official language playlists and ${shelves.size} shelves for '$lang'")
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.e("MUESO_LANG", "Failed to load language playlists for '$lang'", e)
             } finally {
-                if (languagePlaylistsJob == coroutineContext[Job]) {
-                    _isLanguageLoading.value = false
+                withContext(NonCancellable + Dispatchers.Main) {
+                    if (languagePlaylistsJob == coroutineContext[Job]) {
+                        _isLanguageLoading.value = false
+                    }
                 }
             }
         }
@@ -342,27 +364,53 @@ class PlayerViewModel(
         if (_isLoadingMoreShelves.value || _isExploreLoading.value || loadMoreShelvesJob?.isActive == true) return
         lastUsedContinuationToken = token
         loadMoreShelvesJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _isLoadingMoreShelves.value = true
+            withContext(Dispatchers.Main) {
+                _isLoadingMoreShelves.value = true
+            }
             try {
                 val result = onlineRepository.fetchBrowseContinuation(token)
                 ensureActive()
-                if (result.shelves.isNotEmpty()) {
-                    val currentShelves = _exploreShelves.value.toMutableList()
-                    val existingTitles = currentShelves.map { it.title.trim().lowercase() }.toSet()
-                    val newShelves = result.shelves.filterNot { existingTitles.contains(it.title.trim().lowercase()) }
-                    currentShelves.addAll(newShelves)
-                    _exploreShelves.value = currentShelves
+                withContext(Dispatchers.Main) {
+                    if (result.shelves.isNotEmpty()) {
+                        val currentShelves = _exploreShelves.value.toMutableList()
+                        val existingTitles = currentShelves.map { it.title.trim().lowercase() }.toSet()
+                        val newShelves = result.shelves.filterNot { existingTitles.contains(it.title.trim().lowercase()) }
+                        currentShelves.addAll(newShelves)
+                        _exploreShelves.value = currentShelves
+                    }
+                    _exploreContinuationToken.value = result.continuationToken?.takeIf { it.isNotBlank() }
                 }
-                _exploreContinuationToken.value = result.continuationToken?.takeIf { it.isNotBlank() }
                 Log.d("MUESO_EXPLORE", "Loaded more shelves (${result.shelves.size}), nextToken: ${result.continuationToken != null}")
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.e("MUESO_EXPLORE", "Failed to load more shelves", e)
-                _exploreContinuationToken.value = null
+                withContext(Dispatchers.Main) {
+                    _exploreContinuationToken.value = null
+                }
             } finally {
-                _isLoadingMoreShelves.value = false
+                withContext(NonCancellable + Dispatchers.Main) {
+                    if (loadMoreShelvesJob == coroutineContext[Job]) {
+                        _isLoadingMoreShelves.value = false
+                    }
+                }
             }
         }
+    }
+
+    fun combineShelves(
+        homeShelves: List<InnerTubeShelf>,
+        languageShelves: List<InnerTubeShelf>,
+        chartsShelves: List<InnerTubeShelf> = emptyList(),
+        languagePlaylists: List<com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist> = emptyList(),
+        preferredLanguage: String = ""
+    ): List<InnerTubeShelf> {
+        return onlineRepository.combineHomeFeedWithLanguageShelves(
+            homeShelves = homeShelves,
+            languageShelves = languageShelves,
+            chartsShelves = chartsShelves,
+            languagePlaylists = languagePlaylists,
+            preferredLanguage = preferredLanguage
+        )
     }
 
     val isCheckingUpdate = updateManager.isChecking
@@ -423,6 +471,7 @@ class PlayerViewModel(
     val crossfadeEnabled = settingsManager.crossfadeEnabled
     val crossfadeSeconds = settingsManager.crossfadeSeconds
     val playerLayoutStyle = settingsManager.playerLayoutStyle
+    val isGuestPersonalizationEnabled = settingsManager.isGuestPersonalizationEnabled
 
     fun setDarkMode(enabled: Boolean) = settingsManager.setDarkMode(enabled)
     fun setThemeMode(mode: String) = settingsManager.setThemeMode(mode)
@@ -453,7 +502,8 @@ class PlayerViewModel(
         _languagePlaylists.value = emptyList()
         _languagePlaylistShelves.value = emptyList()
         _chartsShelves.value = emptyList()
-        _isLanguageLoading.value = true
+        val isAuto = trimmed.equals("Auto", ignoreCase = true) || trimmed.equals("Default", ignoreCase = true)
+        _isLanguageLoading.value = !isAuto
         prevCollectedLanguage = trimmed
         settingsManager.setPreferredLanguage(trimmed)
         playlistManager.clearCuratedCache()
@@ -481,6 +531,24 @@ class PlayerViewModel(
     fun setCrossfadeEnabled(enabled: Boolean) = settingsManager.setCrossfadeEnabled(enabled)
     fun setCrossfadeSeconds(seconds: Int) = settingsManager.setCrossfadeSeconds(seconds)
     fun setPlayerLayoutStyle(style: String) = settingsManager.setPlayerLayoutStyle(style)
+
+    fun setGuestPersonalizationEnabled(enabled: Boolean) {
+        settingsManager.setGuestPersonalizationEnabled(enabled)
+        onlineRepository.innerTube.isGuestPersonalizationEnabled = enabled
+    }
+
+    fun resetGuestPersonalization() {
+        settingsManager.resetGuestPersonalization()
+        onlineRepository.innerTube.clearGuestSession()
+    }
+
+    fun reportPlayback(videoId: String) {
+        if (settingsManager.isGuestPersonalizationEnabled.value) {
+            viewModelScope.launch(Dispatchers.IO) {
+                onlineRepository.innerTube.reportPlayback(videoId)
+            }
+        }
+    }
 
     val searchQuery = searchManager.searchQuery
     val searchCategory = searchManager.searchCategory
@@ -1205,6 +1273,7 @@ class PlayerViewModel(
     
 
     init {
+        onlineRepository.innerTube.settingsManager = settingsManager
         initRestoredTrackPreview()
         loadLocalTracks()
         observePlaybackState()
@@ -1442,10 +1511,12 @@ class PlayerViewModel(
     }
 
     val pendingDeleteIntent = MutableStateFlow<android.content.IntentSender?>(null)
+    val pendingDeleteTrack = MutableStateFlow<TrackEntity?>(null)
     val pendingWriteIntent = MutableStateFlow<android.content.IntentSender?>(null)
 
     fun clearPendingDeleteIntent() {
         pendingDeleteIntent.value = null
+        pendingDeleteTrack.value = null
     }
 
     fun clearPendingWriteIntent() {
@@ -1548,74 +1619,171 @@ class PlayerViewModel(
                 track.id
             )
 
-            // 1. Try direct File.delete() first
+            // If Build.VERSION.SDK_INT >= Build.VERSION_CODES.R:
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                try {
+                    val pi = android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
+                    pendingDeleteTrack.value = track
+                    pendingDeleteIntent.value = pi.intentSender
+                    Log.d("MUESO_FILE_OP", "MediaStore.createDeleteRequest created IntentSender successfully!")
+                } catch (ex: Exception) {
+                    Log.e("MUESO_FILE_OP", "createDeleteRequest failed: ${ex.message}", ex)
+                }
+                return@launch
+            }
+
+            // Direct file delete or ContentResolver delete
             var directDeleted = false
             if (track.filePath.isNotBlank()) {
-                val file = java.io.File(track.filePath)
-                val existsBefore = file.exists()
-                Log.d("MUESO_FILE_OP", "[1/4] Direct file exists before delete: $existsBefore (${file.absolutePath})")
-                if (existsBefore) {
-                    directDeleted = file.delete()
-                    Log.d("MUESO_FILE_OP", "[1/4] Direct file.delete() returned: $directDeleted")
-                }
-            }
-
-            if (!directDeleted) {
-                // 2. Perform ContentResolver delete or catch RecoverableSecurityException for system consent dialog
                 try {
-                    val rows = context.contentResolver.delete(contentUri, null, null)
-                    Log.d("MUESO_FILE_OP", "[2/4] ContentResolver delete returned rows: $rows")
-                    if (rows == 0 && track.filePath.isNotBlank()) {
-                        val rowsData = context.contentResolver.delete(
-                            android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                            "${android.provider.MediaStore.Audio.Media.DATA} = ?",
-                            arrayOf(track.filePath)
-                        )
-                        Log.d("MUESO_FILE_OP", "[2/4] ContentResolver delete by DATA column rows: $rowsData")
-                    }
-                } catch (e: SecurityException) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
-                        Log.w("MUESO_FILE_OP", "[2/4] RecoverableSecurityException caught! Requesting user permission intent...")
-                        pendingDeleteIntent.value = e.userAction.actionIntent.intentSender
-                    } else {
-                        Log.w("MUESO_FILE_OP", "[2/4] SecurityException: ${e.message}")
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                            try {
-                                val pi = android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
-                                pendingDeleteIntent.value = pi.intentSender
-                                Log.d("MUESO_FILE_OP", "[2/4] MediaStore.createDeleteRequest created IntentSender successfully!")
-                            } catch (ex: Exception) {
-                                Log.e("MUESO_FILE_OP", "[2/4] createDeleteRequest failed: ${ex.message}", ex)
-                            }
-                        }
+                    val file = java.io.File(track.filePath)
+                    if (file.exists() && file.delete()) {
+                        directDeleted = true
+                        Log.d("MUESO_FILE_OP", "Direct file.delete() succeeded")
                     }
                 } catch (e: Exception) {
-                    Log.e("MUESO_FILE_OP", "[2/4] Delete error: ${e.message}", e)
+                    Log.w("MUESO_FILE_OP", "Direct file.delete() exception: ${e.message}")
                 }
             }
 
-            // 3. Trigger MediaScanner to rescan file path
+            if (directDeleted) {
+                onDeleteSuccess(context, track)
+                return@launch
+            }
+
+            try {
+                val rows = context.contentResolver.delete(contentUri, null, null)
+                Log.d("MUESO_FILE_OP", "ContentResolver delete returned rows: $rows")
+                if (rows == 0 && track.filePath.isNotBlank()) {
+                    val rowsData = context.contentResolver.delete(
+                        android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        "${android.provider.MediaStore.Audio.Media.DATA} = ?",
+                        arrayOf(track.filePath)
+                    )
+                    Log.d("MUESO_FILE_OP", "ContentResolver delete by DATA column rows: $rowsData")
+                }
+                onDeleteSuccess(context, track)
+            } catch (e: SecurityException) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+                    Log.w("MUESO_FILE_OP", "RecoverableSecurityException caught! Requesting user permission intent...")
+                    pendingDeleteTrack.value = track
+                    pendingDeleteIntent.value = e.userAction.actionIntent.intentSender
+                } else {
+                    Log.e("MUESO_FILE_OP", "SecurityException during delete: ${e.message}", e)
+                }
+            } catch (e: Exception) {
+                Log.e("MUESO_FILE_OP", "Delete error: ${e.message}", e)
+            }
+        }
+    }
+
+    private suspend fun onDeleteSuccess(context: android.content.Context, track: TrackEntity) {
+        val appContext = context.applicationContext
+        if (track.filePath.isNotBlank()) {
+            try {
+                val file = java.io.File(track.filePath)
+                if (file.exists()) {
+                    file.delete()
+                }
+            } catch (e: Exception) {
+                Log.w("MUESO_FILE_OP", "onDeleteSuccess file delete exception: ${e.message}")
+            }
+
+            android.media.MediaScannerConnection.scanFile(
+                appContext,
+                arrayOf(track.filePath),
+                null
+            ) { path, uri ->
+                Log.d("MUESO_FILE_OP", "MediaScanner scan completed for path=$path, uri=$uri")
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            _allLocalTracks.value = _allLocalTracks.value.filter { it.id != track.id }
+            val currentState = _uiState.value
+            if (currentState is PlayerUiState.Success) {
+                val updatedTracks = currentState.tracks.filter { it.id != track.id }
+                _uiState.value = if (updatedTracks.isEmpty()) PlayerUiState.Empty else PlayerUiState.Success(updatedTracks)
+            }
+            if (currentTracks.isNotEmpty()) {
+                currentTracks = currentTracks.filter { it.id != track.id }
+            }
+            if (_playbackState.value.currentTrackId == track.id) {
+                if (currentTracks.isNotEmpty()) {
+                    mediaPlayerController.skipToNext()
+                } else {
+                    mediaPlayerController.pause()
+                }
+            }
+            pendingDeleteTrack.value = null
+            pendingDeleteIntent.value = null
+            Log.d("MUESO_FILE_OP", "=== DELETE TRACK FINISHED (UI Updated) ===")
+        }
+    }
+
+    fun onDeletePermissionResult(context: android.content.Context, granted: Boolean) {
+        if (!granted) {
+            pendingDeleteTrack.value = null
+            pendingDeleteIntent.value = null
+            return
+        }
+
+        val track = pendingDeleteTrack.value ?: return
+        val appContext = context.applicationContext
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val contentUri = android.content.ContentUris.withAppendedId(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                track.id
+            )
+
+            if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+                try {
+                    appContext.contentResolver.delete(contentUri, null, null)
+                } catch (e: Exception) {
+                    Log.w("MUESO_FILE_OP", "onDeletePermissionResult contentResolver delete failed: ${e.message}")
+                }
+            }
+
             if (track.filePath.isNotBlank()) {
+                try {
+                    val file = java.io.File(track.filePath)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                } catch (e: Exception) {
+                    Log.w("MUESO_FILE_OP", "onDeletePermissionResult file delete failed: ${e.message}")
+                }
+
                 android.media.MediaScannerConnection.scanFile(
-                    context,
+                    appContext,
                     arrayOf(track.filePath),
                     null
                 ) { path, uri ->
-                    Log.d("MUESO_FILE_OP", "[3/4] MediaScanner scan completed for path=$path, uri=$uri")
+                    Log.d("MUESO_FILE_OP", "onDeletePermissionResult scanFile completed: path=$path, uri=$uri")
                 }
             }
 
             withContext(Dispatchers.Main) {
+                _allLocalTracks.value = _allLocalTracks.value.filter { it.id != track.id }
                 val currentState = _uiState.value
                 if (currentState is PlayerUiState.Success) {
                     val updatedTracks = currentState.tracks.filter { it.id != track.id }
-                    _allLocalTracks.value = updatedTracks
                     _uiState.value = if (updatedTracks.isEmpty()) PlayerUiState.Empty else PlayerUiState.Success(updatedTracks)
+                }
+                if (currentTracks.isNotEmpty()) {
+                    currentTracks = currentTracks.filter { it.id != track.id }
+                }
+                if (_playbackState.value.currentTrackId == track.id) {
                     if (currentTracks.isNotEmpty()) {
-                        currentTracks = currentTracks.filter { it.id != track.id }
+                        mediaPlayerController.skipToNext()
+                    } else {
+                        mediaPlayerController.pause()
                     }
                 }
-                Log.d("MUESO_FILE_OP", "=== DELETE TRACK FINISHED (UI Updated) ===")
+                pendingDeleteTrack.value = null
+                pendingDeleteIntent.value = null
+                Log.d("MUESO_FILE_OP", "=== DELETE PERMISSION RESULT COMPLETE (UI Updated) ===")
             }
         }
     }
@@ -1675,26 +1843,33 @@ class PlayerViewModel(
 
                     if (restoredPlaylistTracks.isNotEmpty()) {
                         val startIndex = restoredPlaylistTracks.indexOfFirst { it.id == lastTrackId }.coerceAtLeast(0)
+                        restorationJob?.cancel()
                         restorationJob = viewModelScope.launch(Dispatchers.IO) {
-                            val mutableList = restoredPlaylistTracks.toMutableList()
-                            if (startIndex in mutableList.indices) {
-                                mutableList[startIndex] = resolveTrack(mutableList[startIndex])
-                            }
+                            try {
+                                val mutableList = restoredPlaylistTracks.toMutableList()
+                                if (startIndex in mutableList.indices) {
+                                    mutableList[startIndex] = resolveTrack(mutableList[startIndex])
+                                }
 
-                            val lastPlaylistTrack = mutableList.last()
-                            val recs = onlineRepository.getRelatedRecommendations(lastPlaylistTrack)
-                            val existingIds = mutableList.map { it.id }.toSet()
-                            val uniqueRecs = recs.filter { it.id !in existingIds }
-                            val fullQueue = mutableList + uniqueRecs
+                                val lastPlaylistTrack = mutableList.last()
+                                val recs = onlineRepository.getRelatedRecommendations(lastPlaylistTrack)
+                                val existingIds = mutableList.map { it.id }.toSet()
+                                val uniqueRecs = recs.filter { it.id !in existingIds }
+                                val fullQueue = mutableList + uniqueRecs
 
-                            if (!coroutineContext.isActive) return@launch
+                                ensureActive()
 
-                            withContext(Dispatchers.Main) {
-                                _isPlaylistContext.value = true
-                                _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
-                                currentTracks = fullQueue
-                                mediaPlayerController.restoreQueue(fullQueue, startIndex, lastPosition)
-                                prefetchAndKeepQueueAlive(startIndex)
+                                withContext(Dispatchers.Main) {
+                                    _isPlaylistContext.value = true
+                                    _playlistTrackCount.value = savedCount.coerceAtLeast(restoredPlaylistTracks.size)
+                                    currentTracks = fullQueue
+                                    mediaPlayerController.restoreQueue(fullQueue, startIndex, lastPosition)
+                                    prefetchAndKeepQueueAlive(startIndex)
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.w("MUESO_RESTORE", "Failed to restore playlist queue from JSON cache", e)
                             }
                         }
                         return
@@ -1730,19 +1905,26 @@ class PlayerViewModel(
                 artworkUrl = artworkUrl
             )
 
+            restorationJob?.cancel()
             restorationJob = viewModelScope.launch(Dispatchers.IO) {
-                val resolved = resolveTrack(restoredTrack)
-                val recommendations = onlineRepository.getRelatedRecommendations(restoredTrack)
-                val existingIds = setOf(resolved.id)
-                val uniqueRecs = recommendations.filter { it.id !in existingIds }
-                val fullQueue = listOf(resolved) + uniqueRecs
+                try {
+                    val resolved = resolveTrack(restoredTrack)
+                    val recommendations = onlineRepository.getRelatedRecommendations(restoredTrack)
+                    val existingIds = setOf(resolved.id)
+                    val uniqueRecs = recommendations.filter { it.id !in existingIds }
+                    val fullQueue = listOf(resolved) + uniqueRecs
 
-                if (!coroutineContext.isActive) return@launch
+                    ensureActive()
 
-                withContext(Dispatchers.Main) {
-                    currentTracks = fullQueue
-                    mediaPlayerController.restoreQueue(fullQueue, 0, lastPosition)
-                    prefetchAndKeepQueueAlive(0)
+                    withContext(Dispatchers.Main) {
+                        currentTracks = fullQueue
+                        mediaPlayerController.restoreQueue(fullQueue, 0, lastPosition)
+                        prefetchAndKeepQueueAlive(0)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w("MUESO_RESTORE", "Failed to restore online track in background", e)
                 }
             }
         }
@@ -1816,6 +1998,12 @@ class PlayerViewModel(
                             } else if (curTrack.artworkUrl != null && curTrack.artworkUrl.contains("/vi/")) {
                                 curTrack.artworkUrl.substringAfter("/vi/").substringBefore("/")
                             } else ""
+
+                            if (isOnline && videoId.isNotBlank() && settingsManager.isGuestPersonalizationEnabled.value) {
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    onlineRepository.innerTube.reportPlayback(videoId)
+                                }
+                            }
 
                             val persistentFilePath = if (isOnline && videoId.isNotBlank()) "online:$videoId" else curTrack.filePath
 

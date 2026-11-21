@@ -76,8 +76,8 @@ class MainActivity : ComponentActivity() {
             val view = androidx.compose.ui.platform.LocalView.current
             if (!view.isInEditMode) {
                 SideEffect {
-                    val window = (view.context as android.app.Activity).window
-                    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, view)
+                    val targetWindow = (view.context as? android.app.Activity)?.window ?: window
+                    val insetsController = androidx.core.view.WindowCompat.getInsetsController(targetWindow, view)
                     insetsController.isAppearanceLightStatusBars = !isEffectiveDark
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         insetsController.isAppearanceLightNavigationBars = !isEffectiveDark
@@ -92,33 +92,45 @@ class MainActivity : ComponentActivity() {
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
             ) { result ->
                 if (result.resultCode == android.app.Activity.RESULT_OK) {
-                    android.widget.Toast.makeText(this, "Song deleted from device", android.widget.Toast.LENGTH_SHORT).show()
+                    playerViewModel.onDeletePermissionResult(applicationContext, granted = true)
+                    android.widget.Toast.makeText(applicationContext, "Song deleted from device", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    playerViewModel.onDeletePermissionResult(applicationContext, granted = false)
                 }
-                playerViewModel.clearPendingDeleteIntent()
             }
 
             val writeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
             ) { result ->
                 if (result.resultCode == android.app.Activity.RESULT_OK) {
-                    android.widget.Toast.makeText(this, "Permission granted", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(applicationContext, "Permission granted", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 playerViewModel.clearPendingWriteIntent()
             }
 
             LaunchedEffect(pendingDeleteIntent) {
                 pendingDeleteIntent?.let { sender ->
-                    deleteLauncher.launch(
-                        androidx.activity.result.IntentSenderRequest.Builder(sender).build()
-                    )
+                    try {
+                        deleteLauncher.launch(
+                            androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Failed to launch delete intent: ${e.message}", e)
+                        playerViewModel.onDeletePermissionResult(applicationContext, granted = false)
+                    }
                 }
             }
 
             LaunchedEffect(pendingWriteIntent) {
                 pendingWriteIntent?.let { sender ->
-                    writeLauncher.launch(
-                        androidx.activity.result.IntentSenderRequest.Builder(sender).build()
-                    )
+                    try {
+                        writeLauncher.launch(
+                            androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Failed to launch write intent: ${e.message}", e)
+                        playerViewModel.clearPendingWriteIntent()
+                    }
                 }
             }
 
@@ -250,32 +262,49 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateLockScreenDisplay(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(enabled)
-            setTurnScreenOn(enabled)
-        } else {
-            @Suppress("DEPRECATION")
-            if (enabled) {
-                window.addFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                )
+        if (isFinishing || isDestroyed) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(enabled)
+                setTurnScreenOn(enabled)
             } else {
-                window.clearFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                )
+                @Suppress("DEPRECATION")
+                if (enabled) {
+                    window.addFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                    )
+                } else {
+                    window.clearFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                    )
+                }
             }
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Failed to update lockscreen display: ${e.message}")
         }
     }
 
     private fun updateRefreshRate(enabled: Boolean) {
-        val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
-        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
-        val maxMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
-        val params = window.attributes
-        params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
-        window.attributes = params
+        if (isFinishing || isDestroyed) return
+        try {
+            val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+            val currentDisplay = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+            } catch (e: Exception) {
+                displayManager?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+            }
+            val maxMode = currentDisplay?.supportedModes?.maxByOrNull { it.refreshRate }
+            val params = window.attributes
+            params.preferredDisplayModeId = if (enabled && maxMode != null) maxMode.modeId else 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                params.preferredRefreshRate = if (enabled) 120f else 0f
+            }
+            window.attributes = params
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Failed to update refresh rate: ${e.message}")
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

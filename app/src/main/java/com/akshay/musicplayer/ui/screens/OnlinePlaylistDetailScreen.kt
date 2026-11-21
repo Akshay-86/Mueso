@@ -3,6 +3,7 @@ package com.akshay.musicplayer.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,6 +46,11 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import com.akshay.musicplayer.ui.components.AddToPlaylistBottomSheet
@@ -92,20 +98,40 @@ fun OnlinePlaylistDetailScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = showSearch) {
-        showSearch = false
-        searchQuery = ""
+    androidx.activity.compose.BackHandler {
+        if (showSearch) {
+            showSearch = false
+            searchQuery = ""
+        } else {
+            onBackClick()
+        }
     }
     var showMenu by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
+    var selectedTrackForPlaylist by remember { mutableStateOf<TrackEntity?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showLinkSpotifyDialog by remember { mutableStateOf(false) }
 
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
-    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
+    val menuContainerColor = when {
+        isPureBlack -> Color(0xFF141414)
+        isDarkMode -> Color(0xFF1E1E22)
+        else -> Color(0xFFFFFFFF)
+    }
+    val menuBorderColor = when {
+        isPureBlack -> Color.White.copy(alpha = 0.14f)
+        isDarkMode -> Color.White.copy(alpha = 0.10f)
+        else -> Color.Black.copy(alpha = 0.08f)
+    }
+    val menuBorder = BorderStroke(1.dp, menuBorderColor)
+    val menuShape = RoundedCornerShape(cardCorner)
+    val menuTextPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val menuIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
     val context = LocalContext.current
     var displayTracks by remember(tracks) { mutableStateOf(tracks) }
     var initialDragIndex by remember { mutableStateOf<Int?>(null) }
@@ -158,6 +184,16 @@ fun OnlinePlaylistDetailScreen(
         )
     }
 
+    if (selectedTrackForPlaylist != null && viewModel != null) {
+        AddToPlaylistBottomSheet(
+            track = selectedTrackForPlaylist,
+            viewModel = viewModel,
+            isDarkMode = isDarkMode,
+            onDismiss = { selectedTrackForPlaylist = null }
+        )
+    }
+
+
     if (showRenameDialog && (onEditPlaylistDetails != null || onRenamePlaylist != null)) {
         EditPlaylistDetailsDialog(
             initialName = title,
@@ -201,7 +237,7 @@ fun OnlinePlaylistDetailScreen(
     }
 
     if (showLinkSpotifyDialog && onLinkSpotify != null) {
-        var inputUrl by remember { mutableStateOf(spotifyUrl ?: "") }
+        var inputUrl by remember(spotifyUrl) { mutableStateOf(spotifyUrl ?: "") }
         AlertDialog(
             onDismissRequest = { showLinkSpotifyDialog = false },
             title = {
@@ -357,16 +393,17 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenu(
                                     expanded = showMenu,
                                     onDismissRequest = { showMenu = false },
-                                    shape = RoundedCornerShape(cardCorner),
-                                    containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
-                                    shadowElevation = 16.dp
+                                    shape = menuShape,
+                                    containerColor = menuContainerColor,
+                                    border = menuBorder,
+                                    shadowElevation = 10.dp
                                 ) {
                                     if (onSyncSpotify != null) {
                                         DropdownMenuItem(
                                             text = {
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                     Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
-                                                    Text("Sync with Spotify", color = textPrimary)
+                                                    Text("Sync with Spotify", color = menuTextPrimary)
                                                 }
                                             },
                                             onClick = {
@@ -381,7 +418,7 @@ fun OnlinePlaylistDetailScreen(
                                             text = {
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                     Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
-                                                    Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = textPrimary)
+                                                    Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = menuTextPrimary)
                                                 }
                                             },
                                             onClick = {
@@ -395,8 +432,8 @@ fun OnlinePlaylistDetailScreen(
                                         DropdownMenuItem(
                                             text = {
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                    Icon(Icons.Default.Edit, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                                    Text("Edit playlist", color = textPrimary)
+                                                    Icon(Icons.Default.Edit, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                                    Text("Edit playlist", color = menuTextPrimary)
                                                 }
                                             },
                                             onClick = {
@@ -410,7 +447,7 @@ fun OnlinePlaylistDetailScreen(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                                                Text(if (isCustomUserPlaylist) "Add to another playlist" else "Save to My Music", color = textPrimary)
+                                                Text(if (isCustomUserPlaylist) "Add to another playlist" else "Save to My Music", color = menuTextPrimary)
                                             }
                                         },
                                         onClick = {
@@ -422,8 +459,8 @@ fun OnlinePlaylistDetailScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                Icon(Icons.Default.Share, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                                Text("Share playlist", color = textPrimary)
+                                                Icon(Icons.Default.Share, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                                Text("Share playlist", color = menuTextPrimary)
                                             }
                                         },
                                         onClick = {
@@ -448,8 +485,8 @@ fun OnlinePlaylistDetailScreen(
                                         DropdownMenuItem(
                                             text = {
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(18.dp))
-                                                    Text("Delete playlist", color = Color(0xFFFF453A))
+                                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                                    Text("Delete playlist", color = Color(0xFFFF5252))
                                                 }
                                             },
                                             onClick = {
@@ -641,16 +678,17 @@ fun OnlinePlaylistDetailScreen(
                             DropdownMenu(
                                 expanded = showActionMenu,
                                 onDismissRequest = { showActionMenu = false },
-                                shape = RoundedCornerShape(cardCorner),
-                                containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color.White,
-                                shadowElevation = 16.dp
+                                shape = menuShape,
+                                containerColor = menuContainerColor,
+                                border = menuBorder,
+                                shadowElevation = 10.dp
                             ) {
                                 if (onSyncSpotify != null) {
                                     DropdownMenuItem(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
-                                                Text("Sync with Spotify", color = textPrimary)
+                                                Text("Sync with Spotify", color = menuTextPrimary)
                                             }
                                         },
                                         onClick = {
@@ -664,7 +702,7 @@ fun OnlinePlaylistDetailScreen(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954), modifier = Modifier.size(18.dp))
-                                                Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = textPrimary)
+                                                Text(if (spotifyUrl.isNullOrBlank()) "Link Spotify playlist" else "Edit Spotify link", color = menuTextPrimary)
                                             }
                                         },
                                         onClick = {
@@ -677,7 +715,7 @@ fun OnlinePlaylistDetailScreen(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                                            Text("Start mix", color = textPrimary)
+                                            Text("Start mix", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -692,8 +730,8 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                            Text("Play next", color = textPrimary)
+                                            Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                            Text("Play next", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -710,8 +748,8 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                            Text("Add to queue", color = textPrimary)
+                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                            Text("Add to queue", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -728,8 +766,8 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Icon(Icons.Default.Download, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                            Text("Download playlist", color = textPrimary)
+                                            Icon(Icons.Default.Download, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                            Text("Download playlist", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -742,7 +780,7 @@ fun OnlinePlaylistDetailScreen(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                                            Text("Save to playlist", color = textPrimary)
+                                            Text("Save to playlist", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -754,8 +792,8 @@ fun OnlinePlaylistDetailScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Icon(Icons.Default.Share, contentDescription = null, tint = textSecondary, modifier = Modifier.size(18.dp))
-                                            Text("Share", color = textPrimary)
+                                            Icon(Icons.Default.Share, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                            Text("Share", color = menuTextPrimary)
                                         }
                                     },
                                     onClick = {
@@ -876,7 +914,7 @@ fun OnlinePlaylistDetailScreen(
                     }
                 }
             } else {
-                itemsIndexed(filteredTracks, key = { _, trk -> trk.id }) { index, track ->
+                itemsIndexed(filteredTracks, key = { index, trk -> "${trk.id}_$index" }) { index, track ->
                     val isDragging = draggedIndex == index
                     val isPlaying = isPlaybackPlaying && track.id == currentPlayingId
 
@@ -891,16 +929,41 @@ fun OnlinePlaylistDetailScreen(
                         dragOffsetY = if (isDragging) dragOffset else 0f,
                         downloadState = downloadStates[track.id],
                         onClick = { onTrackClick(index) },
-                        onRemove = { onRemoveTrack?.invoke(track) },
-                        onMoveUp = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
+                        onPlayNext = { trk ->
+                            viewModel?.playNext(trk)
+                            android.widget.Toast.makeText(context, "Playing next: ${trk.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onAddToQueue = { trk ->
+                            viewModel?.addToQueue(trk)
+                            android.widget.Toast.makeText(context, "Added to queue: ${trk.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onAddToPlaylist = { trk ->
+                            selectedTrackForPlaylist = trk
+                        },
+                        onDownload = { trk ->
+                            onDownloadTrack?.invoke(trk) ?: viewModel?.downloadOnlineTrack(context, trk)
+                        },
+                        onCancelDownload = { viewModel?.cancelDownload(track.id) },
+                        onGoToArtist = { trk ->
+                            viewModel?.setSearchQuery(trk.artist)
+                        },
+                        onShare = { trk ->
+                            val sendIntent = android.content.Intent().apply {
+                                action = android.content.Intent.ACTION_SEND
+                                putExtra(android.content.Intent.EXTRA_TEXT, "Listening to \"${trk.title}\" by ${trk.artist} on Mueso")
+                                type = "text/plain"
+                            }
+                            context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Track"))
+                        },
+                        onMoveUp = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank() && index > 0) {
                             { onMoveTrack.invoke(index, index - 1) }
                         } else null,
-                        onMoveDown = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
+                        onMoveDown = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank() && index < filteredTracks.size - 1) {
                             { onMoveTrack.invoke(index, index + 1) }
                         } else null,
-                        onDownload = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
-                        onDownloadOptions = { onDownloadTrack?.invoke(track) ?: viewModel?.downloadOnlineTrack(context, track) },
-                        onCancelDownload = { viewModel?.cancelDownload(track.id) },
+                        onRemove = if (onRemoveTrack != null) {
+                            { trk -> onRemoveTrack.invoke(trk) }
+                        } else null,
                         dragModifier = if (isCustomUserPlaylist && onMoveTrack != null && searchQuery.isBlank()) {
                             Modifier.pointerInput(track.id) {
                                 detectDragGesturesAfterLongPress(
@@ -995,7 +1058,7 @@ private fun DownloadPlaylistDialog(
     onConfirmDownload: (List<TrackEntity>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val selectedTracks = remember { mutableStateListOf<TrackEntity>().apply { addAll(tracks) } }
+    val selectedTracks = remember(tracks) { mutableStateListOf<TrackEntity>().apply { addAll(tracks) } }
     val dialogBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color(0xFF6E6E73)
@@ -1052,7 +1115,7 @@ private fun DownloadPlaylistDialog(
                     modifier = Modifier.height(280.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(tracks.size) { index ->
+                    items(count = tracks.size, key = { index -> "${tracks[index].id}_$index" }) { index ->
                         val track = tracks[index]
                         val isChecked = selectedTracks.contains(track)
 
@@ -1126,23 +1189,42 @@ private fun OnlineTrackListItem(
     totalCount: Int,
     track: TrackEntity,
     isPlaying: Boolean = false,
-    isCustomUserPlaylist: Boolean,
-    isDarkMode: Boolean,
+    isCustomUserPlaylist: Boolean = false,
+    isDarkMode: Boolean = true,
     isDragging: Boolean = false,
     dragOffsetY: Float = 0f,
     downloadState: DownloadProgress? = null,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
+    onPlayNext: (TrackEntity) -> Unit,
+    onAddToQueue: (TrackEntity) -> Unit,
+    onAddToPlaylist: (TrackEntity) -> Unit,
+    onDownload: ((TrackEntity) -> Unit)? = null,
+    onCancelDownload: (() -> Unit)? = null,
+    onGoToArtist: (TrackEntity) -> Unit,
+    onShare: (TrackEntity) -> Unit,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
-    onDownload: (() -> Unit)? = null,
-    onDownloadOptions: (() -> Unit)? = null,
-    onCancelDownload: (() -> Unit)? = null,
+    onRemove: ((TrackEntity) -> Unit)? = null,
     dragModifier: Modifier = Modifier
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val textColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSub = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val cardCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
+    val menuContainerColor = when {
+        isPureBlack -> Color(0xFF141414)
+        isDarkMode -> Color(0xFF1E1E22)
+        else -> Color(0xFFFFFFFF)
+    }
+    val menuBorderColor = when {
+        isPureBlack -> Color.White.copy(alpha = 0.14f)
+        isDarkMode -> Color.White.copy(alpha = 0.10f)
+        else -> Color.Black.copy(alpha = 0.08f)
+    }
+    val menuBorder = BorderStroke(1.dp, menuBorderColor)
+    val menuShape = RoundedCornerShape(cardCorner)
+    val menuTextPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val menuIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
 
     Row(
         modifier = Modifier
@@ -1263,121 +1345,174 @@ private fun OnlineTrackListItem(
         }
 
         // Overflow Options Menu
+        var showTrackMenu by remember { mutableStateOf(false) }
         Box {
-            val itemCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
-            IconButton(onClick = { showMenu = true }) {
+            IconButton(onClick = { showTrackMenu = true }) {
                 Icon(
                     Icons.Default.MoreVert,
                     contentDescription = "Track options",
                     tint = textSub
                 )
             }
+
             DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false },
-                shape = RoundedCornerShape(itemCorner),
-                containerColor = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF),
-                shadowElevation = 16.dp
+                expanded = showTrackMenu,
+                onDismissRequest = { showTrackMenu = false },
+                shape = menuShape,
+                containerColor = menuContainerColor,
+                border = menuBorder,
+                shadowElevation = 10.dp
             ) {
                 DropdownMenuItem(
                     text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                            Text("Play Now", color = textColor)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                            Text("Play next", color = menuTextPrimary)
                         }
                     },
                     onClick = {
-                        showMenu = false
-                        onClick()
+                        showTrackMenu = false
+                        onPlayNext(track)
                     }
                 )
-                if (downloadState?.isDownloading != true && downloadState?.isDownloaded != true) {
-                    DropdownMenuItem(
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(18.dp))
-                                Text("Download Song", color = textColor)
-                            }
-                        },
-                        onClick = {
-                            showMenu = false
-                            onDownload?.invoke()
+
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                            Text("Add to queue", color = menuTextPrimary)
                         }
-                    )
-                }
+                    },
+                    onClick = {
+                        showTrackMenu = false
+                        onAddToQueue(track)
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                            Text("Add to playlist", color = menuTextPrimary)
+                        }
+                    },
+                    onClick = {
+                        showTrackMenu = false
+                        onAddToPlaylist(track)
+                    }
+                )
+
                 if (downloadState?.isDownloading == true) {
                     DropdownMenuItem(
                         text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(18.dp))
-                                Text("Cancel Download", color = Color(0xFFFF453A), fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                Text("Cancel download", color = menuTextPrimary)
                             }
                         },
                         onClick = {
-                            showMenu = false
+                            showTrackMenu = false
                             onCancelDownload?.invoke()
                         }
                     )
-                }
-                if (isCustomUserPlaylist) {
-                    if (onMoveUp != null && index > 1) {
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", tint = textColor, modifier = Modifier.size(18.dp))
-                                    Text("Move Up", color = textColor)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onMoveUp.invoke()
-                            }
-                        )
-                    }
-                    if (onMoveDown != null && index < totalCount) {
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", tint = textColor, modifier = Modifier.size(18.dp))
-                                    Text("Move Down", color = textColor)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onMoveDown.invoke()
-                            }
-                        )
-                    }
+                } else if (downloadState?.isDownloaded == true) {
                     DropdownMenuItem(
                         text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF453A), modifier = Modifier.size(18.dp))
-                                Text("Remove from Playlist", color = Color(0xFFFF453A))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp))
+                                Text("Downloaded", color = menuTextPrimary)
                             }
                         },
                         onClick = {
-                            showMenu = false
-                            onRemove()
+                            showTrackMenu = false
                         }
                     )
+                } else if (onDownload != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                Text("Download", color = menuTextPrimary)
+                            }
+                        },
+                        onClick = {
+                            showTrackMenu = false
+                            onDownload(track)
+                        }
+                    )
+                }
+
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                            Text("Go to artist", color = menuTextPrimary)
+                        }
+                    },
+                    onClick = {
+                        showTrackMenu = false
+                        onGoToArtist(track)
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                            Text("Share", color = menuTextPrimary)
+                        }
+                    },
+                    onClick = {
+                        showTrackMenu = false
+                        onShare(track)
+                    }
+                )
+
+                if (isCustomUserPlaylist) {
+                    if (onMoveUp != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.ArrowUpward, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                    Text("Move up", color = menuTextPrimary)
+                                }
+                            },
+                            onClick = {
+                                showTrackMenu = false
+                                onMoveUp()
+                            }
+                        )
+                    }
+
+                    if (onMoveDown != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = menuIconTint, modifier = Modifier.size(18.dp))
+                                    Text("Move down", color = menuTextPrimary)
+                                }
+                            },
+                            onClick = {
+                                showTrackMenu = false
+                                onMoveDown()
+                            }
+                        )
+                    }
+
+                    if (onRemove != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                    Text("Remove from playlist", color = Color(0xFFFF5252))
+                                }
+                            },
+                            onClick = {
+                                showTrackMenu = false
+                                onRemove(track)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1394,7 +1529,12 @@ private fun EditPlaylistDetailsDialog(
 ) {
     var name by remember(initialName) { mutableStateOf(initialName) }
     var description by remember(initialDescription) { mutableStateOf(initialDescription) }
-    val dialogBg = if (isDarkMode) Color(0xFF1F1F2E) else Color(0xFFFFFFFF)
+    val isPureBlack = com.akshay.musicplayer.ui.theme.LocalIsPureBlack.current
+    val dialogBg = when {
+        isPureBlack -> Color(0xFF141414)
+        isDarkMode -> Color(0xFF1E1E22)
+        else -> Color(0xFFFFFFFF)
+    }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF6E6E73)
 

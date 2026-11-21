@@ -3,6 +3,7 @@ package com.akshay.musicplayer.data.sources
 import android.content.ContentResolver
 import android.provider.MediaStore
 import com.akshay.musicplayer.data.models.Track
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
@@ -57,33 +58,33 @@ class LocalMediaStoreDataSource(
                     val dateModified = cursor.getLong(dateModifiedCol)
                     val dateAdded = if (dateAddedCol != -1) try { cursor.getLong(dateAddedCol) } catch (_: Exception) { 0L } else 0L
                     var effectiveDate = maxOf(dateModified, dateAdded)
-                    if (effectiveDate == 0L && data.isNotEmpty()) {
-                        try {
-                            val f = java.io.File(data)
-                            if (f.exists()) {
-                                effectiveDate = f.lastModified() / 1000L
-                            }
-                        } catch (_: Exception) {}
-                    }
-
                     if (data.isNotEmpty()) {
-                        tracks.add(
-                            Track(
-                                id = id,
-                                title = title,
-                                artist = artist,
-                                album = album,
-                                duration = duration,
-                                albumId = albumId,
-                                data = data,
-                                dateModified = effectiveDate
+                        val f = java.io.File(data)
+                        if (f.exists()) {
+                            if (effectiveDate == 0L) {
+                                try {
+                                    effectiveDate = f.lastModified() / 1000L
+                                } catch (_: Exception) {}
+                            }
+                            tracks.add(
+                                Track(
+                                    id = id,
+                                    title = title,
+                                    artist = artist,
+                                    album = album,
+                                    duration = duration,
+                                    albumId = albumId,
+                                    data = data,
+                                    dateModified = effectiveDate
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
             Result.success(tracks)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -105,7 +106,7 @@ class LocalMediaStoreDataSource(
             val selection = "${MediaStore.Audio.Media._ID} = ?"
             val selectionArgs = arrayOf(id.toString())
 
-            contentResolver.query(
+            val track = contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 projection,
                 selection,
@@ -122,31 +123,31 @@ class LocalMediaStoreDataSource(
                     val dateModified = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED))
                     val dateAdded = try { cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)) } catch (_: Exception) { 0L }
                     var effectiveDate = maxOf(dateModified, dateAdded)
-                    if (effectiveDate == 0L && data.isNotEmpty()) {
-                        try {
-                            val f = java.io.File(data)
-                            if (f.exists()) {
-                                effectiveDate = f.lastModified() / 1000L
+                    if (data.isNotEmpty()) {
+                        val f = java.io.File(data)
+                        if (f.exists()) {
+                            if (effectiveDate == 0L) {
+                                try {
+                                    effectiveDate = f.lastModified() / 1000L
+                                } catch (_: Exception) {}
                             }
-                        } catch (_: Exception) {}
-                    }
-
-                    return@withContext Result.success(
-                        Track(
-                            id = id,
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            duration = duration,
-                            albumId = albumId,
-                            data = data,
-                            dateModified = effectiveDate
-                        )
-                    )
-                }
+                            Track(
+                                id = id,
+                                title = title,
+                                artist = artist,
+                                album = album,
+                                duration = duration,
+                                albumId = albumId,
+                                data = data,
+                                dateModified = effectiveDate
+                            )
+                        } else null
+                    } else null
+                } else null
             }
-            Result.success(null)
+            Result.success(track)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }

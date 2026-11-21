@@ -10,6 +10,7 @@ data class MusicLanguage(
 
 object SupportedLanguages {
     val ALL = listOf(
+        MusicLanguage("auto", "Auto", "YT", "Auto (Dynamic YT Music)", "Dynamic recommendations directly from YouTube servers based on time, location & taste"),
         MusicLanguage("te", "Telugu", "తె", "తెలుగు", "SPB, Sid Sriram, DSP, Thaman"),
         MusicLanguage("hi", "Hindi", "अ", "हिंदी", "Arijit Singh, Shreya Ghoshal, Pritam"),
         MusicLanguage("ta", "Tamil", "த", "தமிழ்", "Anirudh, AR Rahman, Yuvan, Harris"),
@@ -26,8 +27,10 @@ object SupportedLanguages {
     )
 
     fun getLanguageByName(name: String?): MusicLanguage {
-        if (name.isNullOrBlank()) return ALL[0] // Default Telugu
-        return ALL.firstOrNull { it.name.equals(name.trim(), ignoreCase = true) }
+        if (name.isNullOrBlank() || name.trim().equals("auto", ignoreCase = true) || name.trim().equals("default", ignoreCase = true)) {
+            return ALL[0] // Auto
+        }
+        return ALL.firstOrNull { it.name.equals(name.trim(), ignoreCase = true) || it.code.equals(name.trim(), ignoreCase = true) }
             ?: MusicLanguage(
                 code = name.trim().take(2).lowercase(),
                 name = name.trim(),

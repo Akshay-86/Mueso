@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.akshay.musicplayer.ui.theme.LocalIsPureBlack
 import com.akshay.musicplayer.data.db.OnlinePlaylistEntity
 import com.akshay.musicplayer.data.remote.innertube.InnerTubePlaylist
@@ -118,93 +119,54 @@ fun OnlinePlaylistsScreen(
     val languagePlaylistShelves by viewModel.languagePlaylistShelves.collectAsState()
     val isLanguageLoading by viewModel.isLanguageLoading.collectAsState()
 
-    // Filter out and remove any video charts, music video sections, and video song shelves.
-    // Strictly preserve language-specific chart titles (e.g. 'Top Telugu Songs', 'Trending Telugu Audio Hits', 'Viral Telugu 50', 'Telugu Chart Playlists')
-    // and pure audio chart sections without collapsing or filtering them out.
-    val filteredChartsShelves = remember(chartsShelves, preferredLanguage) {
-        chartsShelves
-            .filterNot { shelf ->
-                // Strictly preserve language-specific and audio chart shelves
-                val isExplicitAudioChartShelf = shelf.title.contains("Songs", ignoreCase = true) ||
-                        shelf.title.contains("Hits", ignoreCase = true) ||
-                        shelf.title.contains("Playlists", ignoreCase = true) ||
-                        shelf.title.contains("Viral", ignoreCase = true) ||
-                        shelf.title.contains("Top", ignoreCase = true) ||
-                        shelf.title.contains("Charts", ignoreCase = true) ||
-                        shelf.title.contains(preferredLanguage, ignoreCase = true) ||
-                        shelf.tracks.any { !it.itemType.equals("Video", ignoreCase = true) }
-                if (isExplicitAudioChartShelf) {
-                    false
-                } else {
-                    isVideoShelf(shelf.title, shelf.subtitle)
+    // Dynamic data-driven feed shelves with title and content deduplication
+    val displayShelves = remember(exploreShelves, chartsShelves, languagePlaylistShelves, languagePlaylists, selectedMoodCategory, preferredLanguage) {
+        if (selectedMoodCategory == "All") {
+            viewModel.combineShelves(
+                homeShelves = exploreShelves,
+                languageShelves = languagePlaylistShelves,
+                chartsShelves = chartsShelves,
+                languagePlaylists = languagePlaylists,
+                preferredLanguage = preferredLanguage
+            )
+        } else {
+            val cleanMoodShelves = exploreShelves
+                .filterNot { isVideoShelf(it.title, it.subtitle) }
+                .map { shelf ->
+                    shelf.copy(
+                        playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) },
+                        tracks = shelf.tracks.filterNot {
+                            it.itemType.equals("Video", ignoreCase = true) ||
+                            it.title.contains("Official Music Video", ignoreCase = true) ||
+                            it.title.contains("Official Video", ignoreCase = true)
+                        }
+                    )
                 }
-            }
-            .map { shelf ->
-                val mappedTitle = when {
-                    shelf.tracks.isNotEmpty() -> "Trending songs for you"
-                    shelf.title.contains("album", ignoreCase = true) || shelf.title.contains("release", ignoreCase = true) -> "Albums for you"
-                    shelf.title.contains("nostalgic", ignoreCase = true) || shelf.title.contains("00s", ignoreCase = true) || shelf.title.contains("10s", ignoreCase = true) -> "Brb, Being Nostalgic!"
-                    shelf.title.contains("featured", ignoreCase = true) -> "Featured playlists for you"
-                    // Strictly preserve authentic language chart titles
-                    shelf.title.contains(preferredLanguage, ignoreCase = true) ||
-                    shelf.title.contains("Songs", ignoreCase = true) ||
-                    shelf.title.contains("Hits", ignoreCase = true) ||
-                    shelf.title.contains("Playlists", ignoreCase = true) ||
-                    shelf.title.contains("Viral", ignoreCase = true) ||
-                    shelf.title.contains("50", ignoreCase = true) ||
-                    shelf.title.contains("100", ignoreCase = true) ||
-                    shelf.title.contains("Charts", ignoreCase = true) -> shelf.title
+                .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
 
-                    shelf.title.contains("Top Music Videos", ignoreCase = true) || shelf.title.contains("Music Video", ignoreCase = true) -> "Trending songs for you"
-                    shelf.title.contains("Video Charts", ignoreCase = true) -> "Trending songs for you"
-                    shelf.title.contains("Trending Videos", ignoreCase = true) -> "Trending songs for you"
-                    else -> shelf.title
+            val result = mutableListOf<InnerTubeShelf>()
+            val seenTitles = mutableSetOf<String>()
+            val seenTrackIds = mutableSetOf<String>()
+            val seenPlaylistIds = mutableSetOf<String>()
+            for (shelf in cleanMoodShelves) {
+                val normTitle = shelf.title.trim().lowercase()
+                if (normTitle.isBlank() || seenTitles.contains(normTitle)) continue
+                if (shelf.tracks.isNotEmpty()) {
+                    val novelTracks = shelf.tracks.filter { !seenTrackIds.contains(it.videoId) }
+                    if (novelTracks.isEmpty() && seenTrackIds.isNotEmpty()) continue
+                    seenTitles.add(normTitle)
+                    shelf.tracks.forEach { seenTrackIds.add(it.videoId) }
+                    result.add(shelf)
+                } else if (shelf.playlists.isNotEmpty()) {
+                    val novelPlaylists = shelf.playlists.filter { !seenPlaylistIds.contains(it.id) }
+                    if (novelPlaylists.isEmpty() && seenPlaylistIds.isNotEmpty()) continue
+                    seenTitles.add(normTitle)
+                    shelf.playlists.forEach { seenPlaylistIds.add(it.id) }
+                    result.add(shelf)
                 }
-                val mappedSubtitle = when (mappedTitle) {
-                    "Trending songs for you" -> if (shelf.subtitle.isNotBlank() && !shelf.subtitle.contains("song", ignoreCase = true)) shelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
-                    "Albums for you" -> "Albums & soundtracks in $preferredLanguage"
-                    "Brb, Being Nostalgic!" -> "Throwback to the OG eras of music"
-                    "Featured playlists for you" -> "Curated playlists & mixes in $preferredLanguage"
-                    else -> shelf.subtitle
-                }
-                shelf.copy(
-                    title = mappedTitle,
-                    subtitle = mappedSubtitle,
-                    tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
-                    playlists = shelf.playlists.filterNot { isVideoShelf(it.title) }
-                )
             }
-            .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
-    }
-
-    val filteredExploreShelves = remember(exploreShelves, preferredLanguage) {
-        exploreShelves
-            .filterNot { isVideoShelf(it.title, it.subtitle) }
-            .map { shelf ->
-                val mappedTitle = when {
-                    shelf.tracks.isNotEmpty() && shelf.title.contains("trending", ignoreCase = true) -> "Trending songs for you"
-                    shelf.title.contains("new release", ignoreCase = true) || shelf.title.contains("new album", ignoreCase = true) || shelf.title.contains("albums & singles", ignoreCase = true) || shelf.title.contains("album", ignoreCase = true) -> "Albums for you"
-                    shelf.title.contains("explore", ignoreCase = true) || shelf.title.contains("discover", ignoreCase = true) || shelf.title.contains("mood", ignoreCase = true) || shelf.title.contains("genre", ignoreCase = true) -> "Explore & Discover"
-                    shelf.title.contains("top global", ignoreCase = true) || shelf.title.contains("top song", ignoreCase = true) -> "Trending songs for you"
-                    shelf.title.contains("trending", ignoreCase = true) -> "Trending songs for you"
-                    shelf.title.contains("nostalgic", ignoreCase = true) || shelf.title.contains("00s", ignoreCase = true) || shelf.title.contains("10s", ignoreCase = true) -> "Brb, Being Nostalgic!"
-                    else -> shelf.title
-                }
-                val mappedSubtitle = when (mappedTitle) {
-                    "Trending songs for you" -> if (shelf.subtitle.isNotBlank() && !shelf.subtitle.contains("song", ignoreCase = true)) shelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
-                    "Albums for you" -> "Albums & soundtracks in $preferredLanguage"
-                    "Brb, Being Nostalgic!" -> "Throwback to the OG eras of music"
-                    "Featured playlists for you" -> "Curated playlists & mixes in $preferredLanguage"
-                    else -> shelf.subtitle
-                }
-                shelf.copy(
-                    title = mappedTitle,
-                    subtitle = mappedSubtitle,
-                    tracks = shelf.tracks.filterNot { it.itemType.equals("Video", ignoreCase = true) || it.title.contains("Official Music Video", ignoreCase = true) || it.title.contains("Official Video", ignoreCase = true) },
-                    playlists = shelf.playlists.filterNot { isVideoShelf(it.title, it.subtitle) }
-                )
-            }
-            .filter { it.tracks.isNotEmpty() || it.playlists.isNotEmpty() }
+            result
+        }
     }
 
     val customOnlinePlaylists by viewModel.onlinePlaylists.collectAsState()
@@ -257,6 +219,7 @@ fun OnlinePlaylistsScreen(
     DisposableEffect(Unit) {
         onDispose {
             viewModel.setSpotifyImportOpen(false)
+            onDetailVisibilityChanged(false)
         }
     }
 
@@ -284,7 +247,8 @@ fun OnlinePlaylistsScreen(
             if (exploreShelves.isEmpty() || chartsShelves.isEmpty()) {
                 viewModel.loadExploreAndCharts(force = false)
             }
-            if (languagePlaylists.isEmpty() && languagePlaylistShelves.isEmpty()) {
+            val isAuto = preferredLanguage.isBlank() || preferredLanguage.equals("Auto", ignoreCase = true) || preferredLanguage.equals("Default", ignoreCase = true)
+            if (!isAuto && languagePlaylists.isEmpty() && languagePlaylistShelves.isEmpty()) {
                 viewModel.loadLanguagePlaylists(preferredLanguage, force = false)
             }
         }
@@ -310,26 +274,6 @@ fun OnlinePlaylistsScreen(
         }
     }
 
-    // Determine the 4 signature YouTube Music shelves
-    val featuredShelf = remember(languagePlaylistShelves) {
-        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Featured", true) || it.title.contains("Hits", true) || it.title.contains("Essentials", true) || it.title.contains("Dance", true)) }
-            ?: languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() }
-    }
-
-    val nostalgicShelf = remember(languagePlaylistShelves) {
-        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Nostalgic", true) || it.title.contains("00s", true) || it.title.contains("10s", true) || it.title.contains("90s", true) || it.title.contains("Decades", true) || it.title.contains("Romance", true) || it.title.contains("Unwind", true)) }
-    }
-
-    val trendingSongShelf = remember(filteredChartsShelves, languagePlaylistShelves, filteredExploreShelves) {
-        filteredChartsShelves.firstOrNull { it.tracks.isNotEmpty() }
-            ?: languagePlaylistShelves.firstOrNull { it.tracks.isNotEmpty() }
-            ?: filteredExploreShelves.firstOrNull { it.tracks.isNotEmpty() }
-    }
-
-    val albumsShelf = remember(languagePlaylistShelves, filteredExploreShelves) {
-        languagePlaylistShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Album", true) || it.title.contains("Release", true) || it.title.contains("Soundtrack", true)) }
-            ?: filteredExploreShelves.firstOrNull { it.playlists.isNotEmpty() && (it.title.contains("Album", true) || it.title.contains("Release", true)) }
-    }
 
     Box(
         modifier = Modifier
@@ -434,7 +378,7 @@ fun OnlinePlaylistsScreen(
                         }
                     }
 
-                    items(moodCategories) { mood ->
+                    items(moodCategories, key = { it }) { mood ->
                         val isSelected = mood.equals(selectedMoodCategory, ignoreCase = true)
                         val chipBg by animateColorAsState(
                             targetValue = if (isSelected) AccentColor
@@ -755,11 +699,9 @@ fun OnlinePlaylistsScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(youtubeUserPlaylists) { pl: InnerTubePlaylist ->
-                                DynamicPlaylistCard(
-                                    title = pl.title,
-                                    subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl,
+                            itemsIndexed(items = youtubeUserPlaylists, key = { index, pl -> "${pl.id}_$index" }) { _, pl: InnerTubePlaylist ->
+                                PlaylistSquareCard(
+                                    playlist = pl,
                                     isDarkMode = isDarkMode,
                                     onClick = {
                                         selectedPlaylist = SelectedOnlinePlaylist(
@@ -777,378 +719,73 @@ fun OnlinePlaylistsScreen(
                 }
             }
 
-            // 4. Dedicated Authentic YouTube Music Shelves
-            if (selectedMoodCategory == "All" || selectedMoodCategory.equals(preferredLanguage, ignoreCase = true)) {
-                val hasAnyLanguageContent = featuredShelf != null ||
-                    languagePlaylists.isNotEmpty() ||
-                    nostalgicShelf != null ||
-                    trendingSongShelf != null ||
-                    albumsShelf != null ||
-                    languagePlaylistShelves.isNotEmpty()
+            // 4. Dedicated Data-Driven Dynamic Feed Shelves
+            val showLanguageSkeleton = isLanguageLoading || (displayShelves.isEmpty() && (isLanguageLoading || isExploreLoading))
 
-                val showLanguageSkeleton = isLanguageLoading || (hasAnyLanguageContent.not() && isLanguageLoading)
-
-                if (showLanguageSkeleton) {
-                    item(key = "language_skeleton_section") {
-                        val shimmerBrush = rememberShimmerBrush(isDarkMode = isDarkMode)
-                        LanguageSkeletonSection(
-                            isDarkMode = isDarkMode,
-                            shimmerBrush = shimmerBrush
+            if (showLanguageSkeleton) {
+                item(key = "language_skeleton_section") {
+                    val shimmerBrush = rememberShimmerBrush(isDarkMode = isDarkMode)
+                    LanguageSkeletonSection(
+                        isDarkMode = isDarkMode,
+                        shimmerBrush = shimmerBrush
+                    )
+                }
+            } else if (displayShelves.isEmpty() && !isExploreLoading && !isLanguageLoading) {
+                item(key = "empty_or_offline_state") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkMode) Color(0xFF1E1E1E) else Color(0xFFF3F4F6)
                         )
-                    }
-                } else if (!hasAnyLanguageContent && !isLanguageLoading) {
-                    item(key = "language_offline_error_banner") {
-                        Card(
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isDarkMode) Color(0xFF1E1E1E) else Color(0xFFF3F4F6)
-                            )
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Couldn't load $preferredLanguage music",
-                                        color = textColor,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Check connection & retry",
-                                        color = textSub,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                                Button(
-                                    onClick = {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (selectedMoodCategory == "All") {
+                                        if (preferredLanguage.equals("Auto", ignoreCase = true) || preferredLanguage.equals("Default", ignoreCase = true)) "Couldn't load music feed" else "Couldn't load $preferredLanguage music"
+                                    } else "No content found for \"$selectedMoodCategory\"",
+                                    color = textColor,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Check connection & retry",
+                                    color = textSub,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    if (selectedMoodCategory == "All") {
                                         viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
                                         viewModel.loadExploreAndCharts(force = true)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Retry", color = Color.White, fontSize = 13.sp)
-                                }
+                                    } else {
+                                        viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Text("Retry", color = Color.White, fontSize = 13.sp)
                             }
                         }
                     }
-                } else {
-                    val renderedShelfKeys = mutableSetOf<String>().apply {
-                        featuredShelf?.let { add("pl_${it.title}") }
-                        nostalgicShelf?.let { add("pl_${it.title}") }
-                        trendingSongShelf?.let { add("tr_${it.title}") }
-                        albumsShelf?.let { add("pl_${it.title}") }
-                    }
-
-                // Shelf 1: "Featured playlists for you" (with subtitle: "Curated playlists & mixes in $preferredLanguage")
-                if (featuredShelf != null && featuredShelf.playlists.isNotEmpty()) {
-                    item {
-                        OnlinePlaylistShelf(
-                            title = "Featured playlists for you",
-                            subtitle = "Curated playlists & mixes in $preferredLanguage",
-                            playlists = featuredShelf.playlists,
-                            isDarkMode = isDarkMode,
-                            textColor = textColor,
-                            textSub = textSub,
-                            badgeScript = SupportedLanguages.getNativeScript(preferredLanguage),
-                            onPlaylistClick = { pl ->
-                                selectedPlaylist = SelectedOnlinePlaylist(
-                                    id = pl.id,
-                                    title = pl.title,
-                                    subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl
-                                )
-                            }
-                        )
-                    }
-                } else if (languagePlaylists.isNotEmpty()) {
-                    item {
-                        OnlinePlaylistShelf(
-                            title = "Featured playlists for you",
-                            subtitle = "Curated playlists & mixes in $preferredLanguage",
-                            playlists = languagePlaylists,
-                            isDarkMode = isDarkMode,
-                            textColor = textColor,
-                            textSub = textSub,
-                            badgeScript = SupportedLanguages.getNativeScript(preferredLanguage),
-                            onPlaylistClick = { pl ->
-                                selectedPlaylist = SelectedOnlinePlaylist(
-                                    id = pl.id,
-                                    title = pl.title,
-                                    subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // Shelf 2: "Brb, Being Nostalgic!" (with strapline/subtitle: "Throwback to the OG eras of music")
-                if (nostalgicShelf != null && nostalgicShelf.playlists.isNotEmpty()) {
-                    item {
-                        OnlinePlaylistShelf(
-                            title = "Brb, Being Nostalgic!",
-                            subtitle = "Throwback to the OG eras of music",
-                            playlists = nostalgicShelf.playlists,
-                            isDarkMode = isDarkMode,
-                            textColor = textColor,
-                            textSub = textSub,
-                            onPlaylistClick = { pl ->
-                                selectedPlaylist = SelectedOnlinePlaylist(
-                                    id = pl.id,
-                                    title = pl.title,
-                                    subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // Shelf 3: "Trending songs for you" (song shelf with compact list rows, Play all, See all)
-                if (trendingSongShelf != null && trendingSongShelf.tracks.isNotEmpty()) {
-                    item {
-                        OnlineSongShelf(
-                            shelf = trendingSongShelf.copy(
-                                title = "Trending songs for you",
-                                subtitle = if (trendingSongShelf.subtitle.isNotBlank() && !trendingSongShelf.subtitle.contains("song", true)) trendingSongShelf.subtitle else "Top tracks & viral hits in $preferredLanguage"
-                            ),
-                            isDarkMode = isDarkMode,
-                            textColor = textColor,
-                            textSub = textSub,
-                            onSeeAll = {
-                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                selectedPlaylist = SelectedOnlinePlaylist(
-                                    id = "shelf_${trendingSongShelf.title}",
-                                    title = "Trending songs for you",
-                                    subtitle = "${trendingSongShelf.tracks.size} songs",
-                                    initialTracks = trackEntities
-                                )
-                            },
-                            onPlayAll = {
-                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                viewModel.playOnlinePlaylist(trackEntities, 0)
-                                onNavigateToPlayer()
-                            },
-                            onTrackClick = { globalIndex ->
-                                val trackEntities = trendingSongShelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                viewModel.playOnlinePlaylist(trackEntities, globalIndex)
-                                onNavigateToPlayer()
-                            }
-                        )
-                    }
-                }
-
-                // Shelf 4: "Albums for you" (albums/soundtracks)
-                if (albumsShelf != null && albumsShelf.playlists.isNotEmpty()) {
-                    item {
-                        OnlinePlaylistShelf(
-                            title = "Albums for you",
-                            subtitle = if (albumsShelf.subtitle.isNotBlank() && !albumsShelf.subtitle.contains("New Releases", true)) albumsShelf.subtitle else "Albums & soundtracks in $preferredLanguage",
-                            playlists = albumsShelf.playlists,
-                            isDarkMode = isDarkMode,
-                            textColor = textColor,
-                            textSub = textSub,
-                            onPlaylistClick = { pl ->
-                                selectedPlaylist = SelectedOnlinePlaylist(
-                                    id = pl.id,
-                                    title = pl.title,
-                                    subtitle = pl.subtitle,
-                                    artworkUrl = pl.artworkUrl
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // 5. Remaining Language Shelves (e.g. Presenting Artists, Community Mixes)
-                languagePlaylistShelves.forEach { shelf ->
-                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
-                    if (!renderedShelfKeys.contains(key)) {
-                        renderedShelfKeys.add(key)
-                        if (shelf.tracks.isNotEmpty()) {
-                            item {
-                                OnlineSongShelf(
-                                    shelf = shelf,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onSeeAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = "shelf_${shelf.title}",
-                                            title = shelf.title,
-                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                            initialTracks = trackEntities
-                                        )
-                                    },
-                                    onPlayAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, 0)
-                                        onNavigateToPlayer()
-                                    },
-                                    onTrackClick = { globalIndex ->
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
-                                        onNavigateToPlayer()
-                                    }
-                                )
-                            }
-                        } else if (shelf.playlists.isNotEmpty()) {
-                            item {
-                                val displayTitle = when {
-                                    shelf.title.contains("Presenting", true) || shelf.title.contains("Artist", true) -> "Presenting Artists in $preferredLanguage"
-                                    shelf.title.contains("Forgotten", true) || shelf.title.contains("Community", true) || shelf.title.contains("Mix", true) -> "Community Mixes & Forgotten Faves"
-                                    else -> shelf.title
-                                }
-                                OnlinePlaylistShelf(
-                                    title = displayTitle,
-                                    subtitle = shelf.subtitle,
-                                    playlists = shelf.playlists,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onPlaylistClick = { pl ->
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = pl.id,
-                                            title = pl.title,
-                                            subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 6. Remaining Charts Shelves
-                filteredChartsShelves.forEach { shelf ->
-                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
-                    if (!renderedShelfKeys.contains(key)) {
-                        renderedShelfKeys.add(key)
-                        if (shelf.tracks.isNotEmpty()) {
-                            item {
-                                OnlineSongShelf(
-                                    shelf = shelf,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onSeeAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = "shelf_${shelf.title}",
-                                            title = shelf.title,
-                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                            initialTracks = trackEntities
-                                        )
-                                    },
-                                    onPlayAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, 0)
-                                        onNavigateToPlayer()
-                                    },
-                                    onTrackClick = { globalIndex ->
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
-                                        onNavigateToPlayer()
-                                    }
-                                )
-                            }
-                        } else if (shelf.playlists.isNotEmpty()) {
-                            item {
-                                OnlinePlaylistShelf(
-                                    title = shelf.title,
-                                    subtitle = shelf.subtitle,
-                                    playlists = shelf.playlists,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onPlaylistClick = { pl ->
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = pl.id,
-                                            title = pl.title,
-                                            subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 7. Remaining Explore Shelves
-                filteredExploreShelves.forEach { shelf ->
-                    val key = if (shelf.tracks.isNotEmpty()) "tr_${shelf.title}" else "pl_${shelf.title}"
-                    if (!renderedShelfKeys.contains(key)) {
-                        renderedShelfKeys.add(key)
-                        if (shelf.tracks.isNotEmpty()) {
-                            item {
-                                OnlineSongShelf(
-                                    shelf = shelf,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onSeeAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = "shelf_${shelf.title}",
-                                            title = shelf.title,
-                                            subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                            initialTracks = trackEntities
-                                        )
-                                    },
-                                    onPlayAll = {
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, 0)
-                                        onNavigateToPlayer()
-                                    },
-                                    onTrackClick = { globalIndex ->
-                                        val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                        viewModel.playOnlinePlaylist(trackEntities, globalIndex)
-                                        onNavigateToPlayer()
-                                    }
-                                )
-                            }
-                        } else if (shelf.playlists.isNotEmpty()) {
-                            item {
-                                OnlinePlaylistShelf(
-                                    title = shelf.title,
-                                    subtitle = shelf.subtitle,
-                                    playlists = shelf.playlists,
-                                    isDarkMode = isDarkMode,
-                                    textColor = textColor,
-                                    textSub = textSub,
-                                    onPlaylistClick = { pl ->
-                                        selectedPlaylist = SelectedOnlinePlaylist(
-                                            id = pl.id,
-                                            title = pl.title,
-                                            subtitle = pl.subtitle,
-                                            artworkUrl = pl.artworkUrl
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
                 }
             } else {
-                // When a specific mood filter is selected:
-                filteredChartsShelves.forEach { shelf ->
+                displayShelves.forEach { shelf ->
                     if (shelf.tracks.isNotEmpty()) {
-                        item {
+                        item(key = "song_shelf_${shelf.title}_${shelf.tracks.firstOrNull()?.videoId ?: ""}") {
                             OnlineSongShelf(
                                 shelf = shelf,
                                 isDarkMode = isDarkMode,
@@ -1176,7 +813,13 @@ fun OnlinePlaylistsScreen(
                             )
                         }
                     } else if (shelf.playlists.isNotEmpty()) {
-                        item {
+                        item(key = "playlist_shelf_${shelf.title}_${shelf.playlists.firstOrNull()?.id ?: ""}") {
+                            val isAuto = preferredLanguage.equals("Auto", ignoreCase = true) || preferredLanguage.equals("Default", ignoreCase = true)
+                            val badgeScript = if (!isAuto && (shelf.title.contains("Featured", ignoreCase = true) || shelf.subtitle.contains(preferredLanguage, ignoreCase = true))) {
+                                SupportedLanguages.getNativeScript(preferredLanguage)
+                            } else {
+                                null
+                            }
                             OnlinePlaylistShelf(
                                 title = shelf.title,
                                 subtitle = shelf.subtitle,
@@ -1184,57 +827,7 @@ fun OnlinePlaylistsScreen(
                                 isDarkMode = isDarkMode,
                                 textColor = textColor,
                                 textSub = textSub,
-                                onPlaylistClick = { pl ->
-                                    selectedPlaylist = SelectedOnlinePlaylist(
-                                        id = pl.id,
-                                        title = pl.title,
-                                        subtitle = pl.subtitle,
-                                        artworkUrl = pl.artworkUrl
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-
-                filteredExploreShelves.forEach { shelf ->
-                    if (shelf.tracks.isNotEmpty()) {
-                        item {
-                            OnlineSongShelf(
-                                shelf = shelf,
-                                isDarkMode = isDarkMode,
-                                textColor = textColor,
-                                textSub = textSub,
-                                onSeeAll = {
-                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                    selectedPlaylist = SelectedOnlinePlaylist(
-                                        id = "shelf_${shelf.title}",
-                                        title = shelf.title,
-                                        subtitle = shelf.subtitle.ifBlank { "${shelf.tracks.size} songs" },
-                                        initialTracks = trackEntities
-                                    )
-                                },
-                                onPlayAll = {
-                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                    viewModel.playOnlinePlaylist(trackEntities, 0)
-                                    onNavigateToPlayer()
-                                },
-                                onTrackClick = { globalIndex ->
-                                    val trackEntities = shelf.tracks.map { it.toTrackEntity().copy(isVideo = false) }
-                                    viewModel.playOnlinePlaylist(trackEntities, globalIndex)
-                                    onNavigateToPlayer()
-                                }
-                            )
-                        }
-                    } else if (shelf.playlists.isNotEmpty()) {
-                        item {
-                            OnlinePlaylistShelf(
-                                title = shelf.title,
-                                subtitle = shelf.subtitle,
-                                playlists = shelf.playlists,
-                                isDarkMode = isDarkMode,
-                                textColor = textColor,
-                                textSub = textSub,
+                                badgeScript = badgeScript,
                                 onPlaylistClick = { pl ->
                                     selectedPlaylist = SelectedOnlinePlaylist(
                                         id = pl.id,
@@ -1250,7 +843,7 @@ fun OnlinePlaylistsScreen(
             }
 
             // Loading Indicator
-            if (isExploreLoading && !isLanguageLoading) {
+            if (isExploreLoading && !isLanguageLoading && displayShelves.isNotEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -1263,34 +856,6 @@ fun OnlinePlaylistsScreen(
                             modifier = Modifier.size(36.dp),
                             strokeWidth = 3.dp
                         )
-                    }
-                }
-            }
-
-            // Empty State
-            if (!isExploreLoading && !isLanguageLoading && filteredExploreShelves.isEmpty() && filteredChartsShelves.isEmpty() && languagePlaylistShelves.isEmpty() && languagePlaylists.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp, horizontal = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = if (selectedMoodCategory == "All") "No content available. Check your internet connection." else "No content found for \"$selectedMoodCategory\"",
-                            color = textSub,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                viewModel.loadExploreAndCharts(mood = selectedMoodCategory, force = true)
-                                viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
-                        ) {
-                            Text("Retry", color = Color.White)
-                        }
                     }
                 }
             }
@@ -1787,17 +1352,36 @@ fun OnlinePlaylistShelf(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(playlists, key = { it.id }) { pl ->
-                DynamicPlaylistCard(
-                    title = pl.title,
-                    subtitle = pl.subtitle,
-                    artworkUrl = pl.artworkUrl,
+            itemsIndexed(items = playlists, key = { index, pl -> "${pl.id}_$index" }) { _, pl ->
+                PlaylistSquareCard(
+                    playlist = pl,
                     isDarkMode = isDarkMode,
                     onClick = { onPlaylistClick(pl) }
                 )
             }
         }
     }
+}
+
+@Composable
+fun OnlinePlaylistShelf(
+    shelf: InnerTubeShelf,
+    isDarkMode: Boolean,
+    textColor: Color,
+    textSub: Color,
+    badgeScript: String? = null,
+    onPlaylistClick: (InnerTubePlaylist) -> Unit
+) {
+    OnlinePlaylistShelf(
+        title = shelf.title,
+        subtitle = shelf.subtitle,
+        playlists = shelf.playlists,
+        isDarkMode = isDarkMode,
+        textColor = textColor,
+        textSub = textSub,
+        badgeScript = badgeScript,
+        onPlaylistClick = onPlaylistClick
+    )
 }
 
 @Composable
@@ -1912,7 +1496,10 @@ fun OnlineSongShelf(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            itemsIndexed(songChunks) { chunkIndex, chunk ->
+            itemsIndexed(
+                items = songChunks,
+                key = { chunkIndex, _ -> "chunk_${shelf.title}_$chunkIndex" }
+            ) { chunkIndex, chunk ->
                 Column(
                     modifier = Modifier
                         .fillParentMaxWidth(0.85f)
@@ -1939,6 +1526,15 @@ fun CompactSongRowItem(
     isDarkMode: Boolean,
     onClick: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(track.artworkUrl) {
+        track.artworkUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .crossfade(true)
+                .build()
+        }
+    }
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
 
@@ -1958,7 +1554,14 @@ fun CompactSongRowItem(
                 .background(if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)),
             contentAlignment = Alignment.Center
         ) {
-            if (!track.artworkUrl.isNullOrBlank()) {
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (!track.artworkUrl.isNullOrBlank()) {
                 com.akshay.musicplayer.ui.components.SmartArtworkImage(
                     artworkUrl = track.artworkUrl,
                     contentDescription = track.title,
@@ -2035,6 +1638,30 @@ fun OnlineSongCard(
 }
 
 @Composable
+fun PlaylistSquareCard(
+    playlist: InnerTubePlaylist,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(playlist.artworkUrl) {
+        playlist.artworkUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .crossfade(true)
+                .build()
+        }
+    }
+    DynamicPlaylistCard(
+        title = playlist.title,
+        subtitle = playlist.subtitle,
+        artworkUrl = playlist.artworkUrl,
+        isDarkMode = isDarkMode,
+        onClick = onClick
+    )
+}
+
+@Composable
 fun DynamicPlaylistCard(
     title: String,
     subtitle: String,
@@ -2048,6 +1675,16 @@ fun DynamicPlaylistCard(
     val cardBorder = if (isDarkMode) (if (isPureBlack) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)) else Color(0xFFE2E2E8)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
     val textSec = if (isDarkMode) TextSecondary else Color(0xFF6E6E73)
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(artworkUrl) {
+        artworkUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .crossfade(true)
+                .build()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -2074,7 +1711,14 @@ fun DynamicPlaylistCard(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (!artworkUrl.isNullOrBlank()) {
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (!artworkUrl.isNullOrBlank()) {
                 com.akshay.musicplayer.ui.components.SmartArtworkImage(
                     artworkUrl = artworkUrl,
                     contentDescription = title,
@@ -2175,6 +1819,11 @@ fun CustomPlaylistCard(
                     .padding(4.dp)
             ) {
                 val menuCorner = com.akshay.musicplayer.ui.theme.LocalCornerRadius.current.radiusDp
+                val menuBg = if (isPureBlack) Color(0xFF141414) else if (isDarkMode) Color(0xFF1E1E22) else Color(0xFFFFFFFF)
+                val menuBorderColor = if (isPureBlack) Color.White.copy(alpha = 0.14f) else if (isDarkMode) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+                val itemTextColor = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+                val itemIconTint = if (isDarkMode) Color.White.copy(alpha = 0.70f) else Color(0xFF6E6E73)
+
                 IconButton(
                     onClick = { showMenu = true },
                     modifier = Modifier
@@ -2193,30 +1842,33 @@ fun CustomPlaylistCard(
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
-                    shape = RoundedCornerShape(menuCorner)
+                    modifier = Modifier.border(1.dp, menuBorderColor, RoundedCornerShape(menuCorner)),
+                    shape = RoundedCornerShape(menuCorner),
+                    containerColor = menuBg,
+                    shadowElevation = 10.dp
                 ) {
                     if (!playlist.spotifyUrl.isNullOrBlank() && onSyncSpotify != null) {
                         DropdownMenuItem(
-                            text = { Text("Sync with Spotify") },
+                            text = { Text("Sync with Spotify", color = itemTextColor) },
                             onClick = { showMenu = false; onSyncSpotify() },
                             leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF1DB954)) }
                         )
                     } else if (onLinkSpotify != null) {
                         DropdownMenuItem(
-                            text = { Text("Link Spotify") },
+                            text = { Text("Link Spotify", color = itemTextColor) },
                             onClick = { showMenu = false; onLinkSpotify() },
                             leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF1DB954)) }
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Edit Details") },
+                        text = { Text("Edit Details", color = itemTextColor) },
                         onClick = { showMenu = false; onEdit() },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = itemIconTint) }
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete Playlist", color = Color.Red) },
+                        text = { Text("Delete Playlist", color = Color(0xFFEF5350)) },
                         onClick = { showMenu = false; onDelete() },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) }
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF5350)) }
                     )
                 }
             }

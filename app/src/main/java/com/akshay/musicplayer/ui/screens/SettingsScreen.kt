@@ -125,6 +125,7 @@ fun SettingsScreen(
     val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsState()
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    val isGuestPersonalizationEnabled by viewModel.isGuestPersonalizationEnabled.collectAsState()
 
     var showSpotifyImport by remember { mutableStateOf(false) }
     var showAboutPage by remember { mutableStateOf(false) }
@@ -132,6 +133,7 @@ fun SettingsScreen(
     var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     var showClearBackupConfirmDialog by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    var showResetGuestDialog by remember { mutableStateOf(false) }
 
     val accentColor = LocalAccentColor.current
     val isPureBlack = LocalIsPureBlack.current
@@ -289,6 +291,38 @@ fun SettingsScreen(
                 viewModel.setPreferredLanguage(newLang)
             },
             onDismiss = { showLanguageSheet = false }
+        )
+    }
+
+    if (showResetGuestDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetGuestDialog = false },
+            title = {
+                Text("Reset Guest Taste Profile?", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("This will wipe your anonymous guest token and clear recommendation history. Recommendations without sign-in will adapt anew. Continue?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showResetGuestDialog = false
+                        viewModel.resetGuestPersonalization()
+                        android.widget.Toast.makeText(context, "Guest taste profile reset", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Reset Profile", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetGuestDialog = false }) {
+                    Text("Cancel", color = textSub)
+                }
+            },
+            containerColor = cardBg,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 
@@ -552,6 +586,38 @@ fun SettingsScreen(
                             isDarkMode = isDarkMode,
                             accentColor = accentColor,
                             onSelect = { viewModel.setPlayButtonPosition(it) }
+                        )
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // PRIVACY & STREAMING
+                // ═══════════════════════════════════════════════════════════
+                item {
+                    SettingsSectionHeader("Privacy & Streaming", accentColor)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(cardBg)
+                            .padding(vertical = 4.dp)
+                    ) {
+                        SettingsToggleItem(
+                            title = "Guest Taste Personalization",
+                            subtitle = "Adapt recommendations without signing in by maintaining an anonymous guest profile.",
+                            icon = Icons.Default.Tune,
+                            checked = isGuestPersonalizationEnabled,
+                            isDarkMode = isDarkMode,
+                            accentColor = accentColor,
+                            onCheckedChange = { viewModel.setGuestPersonalizationEnabled(it) }
+                        )
+                        HorizontalDivider(color = dividerColor)
+                        SettingsClickableItem(
+                            title = "Reset Guest Taste Profile",
+                            subtitle = "Wipe anonymous guest token and reset recommendation profile",
+                            icon = Icons.Default.Refresh,
+                            isDarkMode = isDarkMode,
+                            onClick = { showResetGuestDialog = true }
                         )
                     }
                 }

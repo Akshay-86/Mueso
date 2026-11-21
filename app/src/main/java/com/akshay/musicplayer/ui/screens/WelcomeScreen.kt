@@ -76,6 +76,7 @@ fun WelcomeScreen(
     val googleAccount by viewModel.googleAccount.collectAsState()
     val googleAccountEmail by viewModel.googleAccountEmail.collectAsState()
     val playerLayoutStyle by viewModel.playerLayoutStyle.collectAsState()
+    val isGuestPersonalizationEnabled by viewModel.isGuestPersonalizationEnabled.collectAsState()
     var selectedLayout by remember(playerLayoutStyle) { mutableStateOf(playerLayoutStyle) }
 
     // Activity Result Launchers
@@ -151,26 +152,26 @@ fun WelcomeScreen(
                     .fillMaxWidth()
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // ─── CENTERED HEADER: Compact Logo & Title ───
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 2.dp, bottom = 2.dp),
+                        .padding(top = 12.dp, bottom = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_logo),
                         contentDescription = "Mueso Logo",
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(42.dp)
                     )
 
                     Text(
                         text = "Welcome to Mueso",
                         color = textPrimary,
-                        fontSize = 26.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center
                     )
@@ -178,7 +179,8 @@ fun WelcomeScreen(
                     Text(
                         text = "Quick Setup • Tailor your music experience",
                         color = textSub,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -186,15 +188,15 @@ fun WelcomeScreen(
                 // ─── PLAYER UI STYLE SELECTOR (3 options side-by-side in 1 row) ───
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = "CHOOSE YOUR INTERFACE",
                         color = accentColor,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                        modifier = Modifier.padding(start = 2.dp)
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 2.dp, bottom = 2.dp)
                     )
 
                     Row(
@@ -254,15 +256,15 @@ fun WelcomeScreen(
                 // ─── PERMISSIONS & SETUP (Clean 1-line cards) ───
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "PERMISSIONS & SETUP",
                         color = textSub,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 2.dp)
                     )
 
                     // Card 1: Music & Audio Access
@@ -344,6 +346,25 @@ fun WelcomeScreen(
                             googleSignInLauncher.launch(repo.getSignInIntent(context))
                         }
                     )
+
+                    // Card 5: Guest Taste Personalization (Optional)
+                    WelcomePermissionCard(
+                        title = "Guest Personalization",
+                        description = if (isGuestPersonalizationEnabled) "Anonymous recommendations active" else "Adapt music taste without sign-in",
+                        icon = Icons.Default.Tune,
+                        isGranted = isGuestPersonalizationEnabled,
+                        grantedLabel = "Enabled",
+                        actionLabel = "Enable",
+                        accentColor = accentColor,
+                        cardBg = cardBg,
+                        textPrimary = textPrimary,
+                        textSub = textSub,
+                        successColor = successColor,
+                        isOptional = true,
+                        onAction = {
+                            viewModel.setGuestPersonalizationEnabled(!isGuestPersonalizationEnabled)
+                        }
+                    )
                 }
             }
 
@@ -377,10 +398,10 @@ fun WelcomeScreen(
                         disabledContainerColor = if (isDarkMode) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
                         disabledContentColor = textSub.copy(alpha = 0.55f)
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(52.dp)
                 ) {
                     Text(
                         text = if (allPermissionsGranted) "Continue to Mueso" else "Grant All Permissions to Continue",
@@ -413,15 +434,15 @@ private fun WelcomePermissionCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(11.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(cardBg)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(30.dp)
+                .size(36.dp)
                 .clip(CircleShape)
                 .background(if (isGranted) successColor.copy(alpha = 0.15f) else accentColor.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center
@@ -430,23 +451,23 @@ private fun WelcomePermissionCard(
                 imageVector = if (isGranted) Icons.Default.Check else icon,
                 contentDescription = null,
                 tint = if (isGranted) successColor else accentColor,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(18.dp)
             )
         }
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = title,
                     color = textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -455,12 +476,12 @@ private fun WelcomePermissionCard(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(textSub.copy(alpha = 0.12f))
-                            .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = "Optional",
                             color = textSub,
-                            fontSize = 8.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -470,9 +491,9 @@ private fun WelcomePermissionCard(
             Text(
                 text = description,
                 color = textSub,
-                fontSize = 12.5.sp,
-                lineHeight = 16.sp,
-                maxLines = 1,
+                fontSize = 13.5.sp,
+                lineHeight = 19.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -480,25 +501,26 @@ private fun WelcomePermissionCard(
         if (isGranted) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(successColor.copy(alpha = 0.12f))
-                    .padding(horizontal = 7.dp, vertical = 4.dp),
+                    .then(if (isOptional) Modifier.clickable { onAction() } else Modifier)
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = successColor,
-                        modifier = Modifier.size(11.dp)
+                        modifier = Modifier.size(12.dp)
                     )
                     Text(
                         text = grantedLabel,
                         color = successColor,
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -507,14 +529,14 @@ private fun WelcomePermissionCard(
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                shape = RoundedCornerShape(7.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
             ) {
                 Text(
                     text = actionLabel,
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -539,6 +561,7 @@ private fun UiStyleCardCompact(
 
     Box(
         modifier = modifier
+            .defaultMinSize(minHeight = 84.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(cardBg)
             .then(
@@ -552,11 +575,11 @@ private fun UiStyleCardCompact(
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .padding(horizontal = 10.dp, vertical = 12.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -565,7 +588,7 @@ private fun UiStyleCardCompact(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(
                             if (isSelected) accentColor.copy(alpha = 0.16f)
@@ -577,13 +600,13 @@ private fun UiStyleCardCompact(
                         imageVector = icon,
                         contentDescription = null,
                         tint = if (isSelected) accentColor else textSub,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(16.dp)
+                        .size(18.dp)
                         .clip(CircleShape)
                         .background(if (isSelected) accentColor else Color.Transparent)
                         .border(
@@ -598,13 +621,13 @@ private fun UiStyleCardCompact(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Selected",
                             tint = Color.White,
-                            modifier = Modifier.size(11.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = title,
                     color = if (isSelected) textPrimary else textPrimary.copy(alpha = 0.85f),
@@ -617,6 +640,7 @@ private fun UiStyleCardCompact(
                     text = subtitle,
                     color = textSub,
                     fontSize = 13.sp,
+                    lineHeight = 17.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

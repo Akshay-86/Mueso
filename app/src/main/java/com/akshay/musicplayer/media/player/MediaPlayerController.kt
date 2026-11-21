@@ -14,6 +14,7 @@ interface MediaPlayerController {
     fun togglePlayPause()
     fun pause()
     fun seekToNext()
+    fun skipToNext() { seekToNext() }
     fun seekToPrevious()
     fun seekTo(positionMs: Long)
     fun release()

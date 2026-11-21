@@ -59,7 +59,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _embedLyricsInDownload = MutableStateFlow(sharedPreferences.getBoolean("embed_lyrics_in_download", true))
     val embedLyricsInDownload: StateFlow<Boolean> = _embedLyricsInDownload.asStateFlow()
 
-    private val _preferredLanguage = MutableStateFlow(sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu")
+    private val _preferredLanguage = MutableStateFlow(sharedPreferences.getString("preferred_language", "Auto") ?: "Auto")
     val preferredLanguage: StateFlow<String> = _preferredLanguage.asStateFlow()
 
     fun setPreferredLanguage(language: String) {
@@ -99,6 +99,33 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
     private val _crossfadeSeconds = MutableStateFlow(sharedPreferences.getInt("crossfade_seconds", 5))
     val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
 
+    // Anonymous Guest Taste Personalization
+    private val _isGuestPersonalizationEnabled = MutableStateFlow(sharedPreferences.getBoolean("guest_personalization_enabled", false))
+    val isGuestPersonalizationEnabled: StateFlow<Boolean> = _isGuestPersonalizationEnabled.asStateFlow()
+
+    fun setGuestPersonalizationEnabled(enabled: Boolean) {
+        _isGuestPersonalizationEnabled.value = enabled
+        sharedPreferences.edit().putBoolean("guest_personalization_enabled", enabled).apply()
+    }
+
+    fun resetGuestPersonalization() {
+        sharedPreferences.edit()
+            .remove("visitor_data")
+            .remove("guest_personalization_enabled")
+            .apply()
+        _isGuestPersonalizationEnabled.value = false
+    }
+
+    fun getVisitorData(): String? = sharedPreferences.getString("visitor_data", null)
+
+    fun setVisitorData(visitorData: String?) {
+        if (visitorData.isNullOrBlank()) {
+            sharedPreferences.edit().remove("visitor_data").apply()
+        } else {
+            sharedPreferences.edit().putString("visitor_data", visitorData).apply()
+        }
+    }
+
     // Layout & Theme Preferences
     private val _playerLayoutStyle = MutableStateFlow(sharedPreferences.getString("player_layout_style", "reels") ?: "reels")
     val playerLayoutStyle: StateFlow<String> = _playerLayoutStyle.asStateFlow()
@@ -107,6 +134,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         when (key) {
             "bit_perfect_mode" -> _isBitPerfectEnabled.value = sharedPreferences.getBoolean("bit_perfect_mode", false)
             "studio_master_clarity" -> _isStudioMasterClarityEnabled.value = sharedPreferences.getBoolean("studio_master_clarity", false)
+            "guest_personalization_enabled" -> _isGuestPersonalizationEnabled.value = sharedPreferences.getBoolean("guest_personalization_enabled", false)
         }
     }
 
@@ -318,6 +346,7 @@ class SettingsManager(private val sharedPreferences: SharedPreferences) {
         _crossfadeEnabled.value = sharedPreferences.getBoolean("crossfade_enabled", false)
         _crossfadeSeconds.value = sharedPreferences.getInt("crossfade_seconds", 5)
         _playerLayoutStyle.value = sharedPreferences.getString("player_layout_style", "reels") ?: "reels"
-        _preferredLanguage.value = sharedPreferences.getString("preferred_language", "Telugu") ?: "Telugu"
+        _preferredLanguage.value = sharedPreferences.getString("preferred_language", "Auto") ?: "Auto"
+        _isGuestPersonalizationEnabled.value = sharedPreferences.getBoolean("guest_personalization_enabled", false)
     }
 }
