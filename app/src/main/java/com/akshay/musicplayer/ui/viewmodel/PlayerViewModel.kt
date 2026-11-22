@@ -225,7 +225,7 @@ class PlayerViewModel(
                 val hasShelves = if (isAuto) {
                     _exploreShelves.value.isNotEmpty()
                 } else {
-                    _exploreShelves.value.isNotEmpty() && _chartsShelves.value.isNotEmpty()
+                    _chartsShelves.value.isNotEmpty()
                 }
                 hasShelves &&
                         lastLoadedMood == "All" &&
@@ -245,6 +245,7 @@ class PlayerViewModel(
 
         exploreAndChartsJob?.cancel()
         exploreAndChartsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val thisJob = coroutineContext[Job]
             withContext(Dispatchers.Main) {
                 _isExploreLoading.value = true
             }
@@ -252,21 +253,36 @@ class PlayerViewModel(
                 val isAuthed = youtubeAuthManager.isLoggedIn.value
                 Log.d("MUESO_EXPLORE", "loadExploreAndCharts called (mood: $mood, isAuthed: $isAuthed, force: $force)")
                 if (mood == "All") {
-                    val homeFeedResult = onlineRepository.innerTube.getHomeFeedResult()
-                    ensureActive()
-                    val cleanShelves = onlineRepository.filterAudioShelves(homeFeedResult.shelves)
-                    val charts = onlineRepository.fetchChartsShelves(language = currentLang, forceRefresh = force)
-                    ensureActive()
-                    withContext(Dispatchers.Main) {
-                        _exploreShelves.value = cleanShelves
-                        _exploreContinuationToken.value = homeFeedResult.continuationToken
-                        lastUsedContinuationToken = null
-                        _chartsShelves.value = charts
-                        lastLoadedChartsLanguage = currentLang
-                        lastLoadedMood = "All"
+                    val isAuto = currentLang.equals("Auto", ignoreCase = true) || currentLang.equals("Default", ignoreCase = true)
+                    if (isAuto) {
+                        val homeFeedResult = onlineRepository.innerTube.getHomeFeedResult()
+                        ensureActive()
+                        val cleanShelves = onlineRepository.filterAudioShelves(homeFeedResult.shelves)
+                        val charts = onlineRepository.fetchChartsShelves(language = currentLang, forceRefresh = force)
+                        ensureActive()
+                        withContext(Dispatchers.Main) {
+                            _exploreShelves.value = cleanShelves
+                            _exploreContinuationToken.value = homeFeedResult.continuationToken
+                            lastUsedContinuationToken = null
+                            _chartsShelves.value = charts
+                            lastLoadedChartsLanguage = currentLang
+                            lastLoadedMood = "All"
+                        }
+                        Log.d("MUESO_EXPLORE", "Loaded authentic home feed shelves (${cleanShelves.size}), continuation: ${homeFeedResult.continuationToken != null}")
+                    } else {
+                        // For a specific language, fetch language charts but DO NOT overwrite _exploreShelves with Auto home feed
+                        val charts = onlineRepository.fetchChartsShelves(language = currentLang, forceRefresh = force)
+                        ensureActive()
+                        withContext(Dispatchers.Main) {
+                            _exploreShelves.value = emptyList()
+                            _exploreContinuationToken.value = null
+                            lastUsedContinuationToken = null
+                            _chartsShelves.value = charts
+                            lastLoadedChartsLanguage = currentLang
+                            lastLoadedMood = "All"
+                        }
+                        Log.d("MUESO_EXPLORE", "Loaded language charts shelves (${charts.size}) for $currentLang")
                     }
-                    Log.d("MUESO_EXPLORE", "Loaded authentic home feed shelves (${cleanShelves.size}), continuation: ${homeFeedResult.continuationToken != null}")
-                    // Redundant call to loadLanguagePlaylists removed to prevent duplicate startup / refresh network storm
                 } else {
                     val moodShelves = onlineRepository.fetchMoodShelves(mood)
                     ensureActive()
@@ -284,7 +300,7 @@ class PlayerViewModel(
                 Log.e("MUESO_EXPLORE", "Failed to load explore and charts", e)
             } finally {
                 withContext(NonCancellable + Dispatchers.Main) {
-                    if (exploreAndChartsJob == coroutineContext[Job]) {
+                    if (exploreAndChartsJob == thisJob || exploreAndChartsJob == null) {
                         _isExploreLoading.value = false
                     }
                 }
@@ -327,6 +343,7 @@ class PlayerViewModel(
         languagePlaylistsJob?.cancel()
 
         languagePlaylistsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val thisJob = coroutineContext[Job]
             withContext(Dispatchers.Main) {
                 if (force || isLanguageChanged) {
                     _languagePlaylists.value = emptyList()
@@ -355,7 +372,7 @@ class PlayerViewModel(
                 Log.e("MUESO_LANG", "Failed to load language playlists for '$lang'", e)
             } finally {
                 withContext(NonCancellable + Dispatchers.Main) {
-                    if (languagePlaylistsJob == coroutineContext[Job]) {
+                    if (languagePlaylistsJob == thisJob || languagePlaylistsJob == null) {
                         _isLanguageLoading.value = false
                     }
                 }
@@ -369,6 +386,7 @@ class PlayerViewModel(
         if (_isLoadingMoreShelves.value || _isExploreLoading.value || loadMoreShelvesJob?.isActive == true) return
         lastUsedContinuationToken = token
         loadMoreShelvesJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val thisJob = coroutineContext[Job]
             withContext(Dispatchers.Main) {
                 _isLoadingMoreShelves.value = true
             }
@@ -394,7 +412,7 @@ class PlayerViewModel(
                 }
             } finally {
                 withContext(NonCancellable + Dispatchers.Main) {
-                    if (loadMoreShelvesJob == coroutineContext[Job]) {
+                    if (loadMoreShelvesJob == thisJob || loadMoreShelvesJob == null) {
                         _isLoadingMoreShelves.value = false
                     }
                 }
@@ -499,16 +517,24 @@ class PlayerViewModel(
     fun setPreferredLanguage(language: String) {
         val trimmed = language.trim()
         if (trimmed.isBlank()) return
-        if (preferredLanguage.value.equals(trimmed, ignoreCase = true) &&
-            lastLoadedLanguagePlaylistsLanguage?.equals(trimmed, ignoreCase = true) == true &&
-            (_languagePlaylists.value.isNotEmpty() || _languagePlaylistShelves.value.isNotEmpty())) {
-            return
+        val isAuto = trimmed.equals("Auto", ignoreCase = true) || trimmed.equals("Default", ignoreCase = true)
+        if (preferredLanguage.value.equals(trimmed, ignoreCase = true)) {
+            val isAlreadyPopulated = if (isAuto) {
+                _exploreShelves.value.isNotEmpty()
+            } else {
+                lastLoadedLanguagePlaylistsLanguage?.equals(trimmed, ignoreCase = true) == true &&
+                    (_languagePlaylists.value.isNotEmpty() || _languagePlaylistShelves.value.isNotEmpty())
+            }
+            if (isAlreadyPopulated) {
+                return
+            }
         }
+        _exploreShelves.value = emptyList()
         _languagePlaylists.value = emptyList()
         _languagePlaylistShelves.value = emptyList()
         _chartsShelves.value = emptyList()
-        val isAuto = trimmed.equals("Auto", ignoreCase = true) || trimmed.equals("Default", ignoreCase = true)
         _isLanguageLoading.value = !isAuto
+        _isExploreLoading.value = true
         prevCollectedLanguage = trimmed
         settingsManager.setPreferredLanguage(trimmed)
         playlistManager.clearCuratedCache()
@@ -1295,6 +1321,13 @@ class PlayerViewModel(
                 val current = lang.trim()
                 if (prevCollectedLanguage != null && !prevCollectedLanguage.equals(current, ignoreCase = true)) {
                     prevCollectedLanguage = current
+                    val isAuto = current.equals("Auto", ignoreCase = true) || current.equals("Default", ignoreCase = true)
+                    _exploreShelves.value = emptyList()
+                    _languagePlaylists.value = emptyList()
+                    _languagePlaylistShelves.value = emptyList()
+                    _chartsShelves.value = emptyList()
+                    _isLanguageLoading.value = !isAuto
+                    _isExploreLoading.value = true
                     loadLanguagePlaylists(current, force = true)
                     loadExploreAndCharts(force = true)
                 } else {

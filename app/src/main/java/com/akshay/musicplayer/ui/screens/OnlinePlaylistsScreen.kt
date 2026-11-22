@@ -240,7 +240,6 @@ fun OnlinePlaylistsScreen(
         lastObservedLanguage = preferredLanguage
 
         if (languageChanged) {
-            viewModel.setPreferredLanguage(preferredLanguage)
             viewModel.loadLanguagePlaylists(preferredLanguage, force = true)
             viewModel.loadExploreAndCharts(force = true)
         } else {
@@ -720,7 +719,7 @@ fun OnlinePlaylistsScreen(
             }
 
             // 4. Dedicated Data-Driven Dynamic Feed Shelves
-            val showLanguageSkeleton = isLanguageLoading || (displayShelves.isEmpty() && (isLanguageLoading || isExploreLoading))
+            val showLanguageSkeleton = displayShelves.isEmpty() && (isLanguageLoading || isExploreLoading)
 
             if (showLanguageSkeleton) {
                 item(key = "language_skeleton_section") {
@@ -981,8 +980,6 @@ fun OnlinePlaylistsScreen(
                 isDarkMode = isDarkMode,
                 onLanguageSelected = { newLang ->
                     viewModel.setPreferredLanguage(newLang)
-                    viewModel.loadLanguagePlaylists(newLang, force = true)
-                    viewModel.loadExploreAndCharts(force = true)
                     showLanguageSheet = false
                 },
                 onDismiss = { showLanguageSheet = false }

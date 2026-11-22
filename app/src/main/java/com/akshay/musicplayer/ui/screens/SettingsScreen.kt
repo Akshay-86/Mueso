@@ -15,10 +15,12 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -393,28 +395,12 @@ fun SettingsScreen(
                             onAccentSelect = { viewModel.setAccentColorId(it) }
                         )
                         HorizontalDivider(color = dividerColor)
-                        SettingsSelectorItem(
-                            title = "Player Layout Style",
-                            subtitle = when (playerLayoutStyle) {
-                                "dual" -> "Dual Realm: 4 dedicated pages (Offline Library, Offline Player, Online Player, Online Library)"
-                                "classic" -> "Classic bottom navigation with dedicated music library tabs"
-                                else -> "Swipe horizontally between Library, Full-Screen Reel Player, and Online Playlists"
-                            },
-                            icon = Icons.Default.ViewCarousel,
-                            currentValue = when (playerLayoutStyle) {
-                                "dual" -> "Dual Realm (4 Pages)"
-                                "classic" -> "Classic Player"
-                                else -> "Reels Swiper"
-                            },
-                            options = listOf("Reels Swiper", "Classic Player", "Dual Realm (4 Pages)"),
+                        PlayerLayoutStyleSection(
+                            playerLayoutStyle = playerLayoutStyle,
                             isDarkMode = isDarkMode,
+                            isPureBlack = isPureBlack,
                             accentColor = accentColor,
-                            onSelect = {
-                                val target = when {
-                                    it.startsWith("Dual") -> "dual"
-                                    it.startsWith("Classic") -> "classic"
-                                    else -> "reels"
-                                }
+                            onSelectLayout = { target ->
                                 if (target != playerLayoutStyle) {
                                     viewModel.setPlayerLayoutStyle(target)
                                 }
@@ -1928,6 +1914,364 @@ private fun SettingsSelectorItem(
             },
             containerColor = if (isPureBlack) Color(0xFF121212) else if (isDarkMode) Color(0xFF1E1E22) else Color.White,
             shape = RoundedCornerShape(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun PlayerLayoutStyleSection(
+    playerLayoutStyle: String,
+    isDarkMode: Boolean,
+    isPureBlack: Boolean,
+    accentColor: Color,
+    onSelectLayout: (String) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.55f) else Color(0xFF6E6E73)
+
+    val isReelSwiperActive = playerLayoutStyle == "reels" || playerLayoutStyle == "dual"
+    val isClassicActive = playerLayoutStyle == "classic"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ViewCarousel,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Player Layout Style",
+                        color = textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Choose your playback interface",
+                        color = textSub,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+            val activeBadge = when (playerLayoutStyle) {
+                "classic" -> "Classic Player"
+                "dual" -> "Dual Realm"
+                else -> "Reel Swiper"
+            }
+            Text(
+                text = activeBadge,
+                color = accentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+
+        // 2 Primary Layout Options in a Row (weight 1f each)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Card 1: Reel Swiper
+            PrimaryLayoutCard(
+                title = "Reel Swiper",
+                subtitle = "Full-screen vertical swipe player",
+                icon = Icons.Default.ViewCarousel,
+                isSelected = isReelSwiperActive,
+                isDarkMode = isDarkMode,
+                isPureBlack = isPureBlack,
+                accentColor = accentColor,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    if (playerLayoutStyle != "reels") {
+                        onSelectLayout("reels")
+                    }
+                }
+            )
+
+            // Card 2: Classic Player
+            PrimaryLayoutCard(
+                title = "Classic Player",
+                subtitle = "Bottom docked mini-player",
+                icon = Icons.Default.Dashboard,
+                isSelected = isClassicActive,
+                isDarkMode = isDarkMode,
+                isPureBlack = isPureBlack,
+                accentColor = accentColor,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    if (playerLayoutStyle != "classic") {
+                        onSelectLayout("classic")
+                    }
+                }
+            )
+        }
+
+        // Animated Dual Realm Mode toggle directly underneath
+        AnimatedVisibility(
+            visible = playerLayoutStyle != "classic",
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            DualRealmToggleSettingCard(
+                isEnabled = playerLayoutStyle == "dual",
+                isDarkMode = isDarkMode,
+                isPureBlack = isPureBlack,
+                accentColor = accentColor,
+                onToggle = { enabled ->
+                    onSelectLayout(if (enabled) "dual" else "reels")
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrimaryLayoutCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    isDarkMode: Boolean,
+    isPureBlack: Boolean,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.60f) else Color(0xFF6E6E73)
+    val subtleBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+
+    val unselectedBg = if (isPureBlack && isDarkMode) Color(0xFF000000)
+                       else if (isDarkMode) Color.White.copy(alpha = 0.04f)
+                       else Color.Black.copy(alpha = 0.03f)
+
+    val animatedBg by animateColorAsState(
+        targetValue = if (isSelected) accentColor.copy(alpha = if (isDarkMode) 0.12f else 0.08f) else unselectedBg,
+        animationSpec = tween(200),
+        label = "primary_layout_bg"
+    )
+    val animatedBorderColor by animateColorAsState(
+        targetValue = if (isSelected) accentColor else subtleBorderColor,
+        animationSpec = tween(200),
+        label = "primary_layout_border"
+    )
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minHeight = 98.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(animatedBg)
+            .border(
+                BorderStroke(
+                    width = if (isSelected) 1.5.dp else 1.dp,
+                    color = animatedBorderColor
+                ),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (isSelected) accentColor.copy(alpha = 0.20f)
+                            else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                            else Color.Black.copy(alpha = 0.05f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (isSelected) accentColor else textSub,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accentColor else Color.Transparent)
+                        .border(
+                            width = if (isSelected) 0.dp else 1.5.dp,
+                            color = if (isSelected) Color.Transparent else textSub.copy(alpha = 0.35f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DualRealmToggleSettingCard(
+    isEnabled: Boolean,
+    isDarkMode: Boolean,
+    isPureBlack: Boolean,
+    accentColor: Color,
+    onToggle: (Boolean) -> Unit
+) {
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1D1D1F)
+    val textSub = if (isDarkMode) Color.White.copy(alpha = 0.60f) else Color(0xFF6E6E73)
+    val subtleBorderColor = if (isDarkMode) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+
+    val unselectedBg = if (isPureBlack && isDarkMode) Color(0xFF000000)
+                       else if (isDarkMode) Color.White.copy(alpha = 0.04f)
+                       else Color.Black.copy(alpha = 0.03f)
+
+    val animatedBg by animateColorAsState(
+        targetValue = if (isEnabled) accentColor.copy(alpha = if (isDarkMode) 0.10f else 0.06f) else unselectedBg,
+        animationSpec = tween(200),
+        label = "dual_realm_setting_bg"
+    )
+    val animatedBorderColor by animateColorAsState(
+        targetValue = if (isEnabled) accentColor.copy(alpha = 0.5f) else subtleBorderColor,
+        animationSpec = tween(200),
+        label = "dual_realm_setting_border"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(animatedBg)
+            .border(
+                BorderStroke(width = 1.dp, color = animatedBorderColor),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable { onToggle(!isEnabled) }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(
+                    if (isEnabled) accentColor.copy(alpha = if (isDarkMode) 0.20f else 0.14f)
+                    else if (isDarkMode) Color.White.copy(alpha = 0.08f)
+                    else Color.Black.copy(alpha = 0.05f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Layers,
+                contentDescription = null,
+                tint = if (isEnabled) accentColor else textSub,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Dual Realm Mode",
+                    color = textPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (isEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(accentColor.copy(alpha = 0.15f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "4-Page Swipe",
+                            color = accentColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "Separate offline & online decks with 4-page swipe",
+                color = textSub,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Switch(
+            checked = isEnabled,
+            onCheckedChange = { onToggle(it) },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = accentColor,
+                checkedBorderColor = Color.Transparent,
+                uncheckedThumbColor = if (isDarkMode) Color.LightGray else Color.White,
+                uncheckedTrackColor = if (isDarkMode) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
+                uncheckedBorderColor = Color.Transparent
+            )
         )
     }
 }

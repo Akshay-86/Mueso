@@ -1305,10 +1305,6 @@ class OnlineMusicRepository {
             return homeShelves
         }
 
-        if (languageShelves.isEmpty() && languagePlaylists.isEmpty()) {
-            return homeShelves
-        }
-
         val result = mutableListOf<InnerTubeShelf>()
         val seenTitles = mutableSetOf<String>()
         val seenTrackIds = mutableSetOf<String>()
@@ -1357,23 +1353,12 @@ class OnlineMusicRepository {
             languageShelves
         }
 
-        // Anchor regional preference: first curated language shelf (e.g. Featured playlists in language)
-        val firstLangShelf = effectiveLanguageShelves.firstOrNull()
-        if (firstLangShelf != null) {
-            addShelf(firstLangShelf)
-        }
-
-        // 2. Dynamic home feed shelves from InnerTube (e.g. Quick picks, Listen again, Similar to..., Mixed for you, Forgotten favorites)
-        homeShelves.forEach { shelf ->
+        // Specific language feed: strictly effectiveLanguageShelves and chartsShelves (NO homeShelves mixed in)
+        effectiveLanguageShelves.forEach { shelf ->
             addShelf(shelf)
         }
 
-        // 3. Remaining language curated shelves (e.g. Brb, Being Nostalgic!, Albums for you, Top songs in language)
-        effectiveLanguageShelves.drop(1).forEach { shelf ->
-            addShelf(shelf)
-        }
-
-        // 4. Dynamic charts shelves
+        // 2. Dynamic charts shelves
         chartsShelves.forEach { shelf ->
             addShelf(shelf)
         }
